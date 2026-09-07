@@ -7,7 +7,7 @@ import { join, dirname } from "node:path";
 import { revalidatePath } from "next/cache";
 import { prismaUnsafe, getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { requireOwner } from "@/lib/authz";
+import { requireGrant } from "@/lib/authz";
 import { callClaude } from "@/lib/ai/call-claude";
 import { BudgetExceededError } from "@/lib/ai/budget";
 import { renderHtmlToPdf } from "@/lib/pdf";
@@ -92,7 +92,7 @@ const startSchema = z.object({
 export async function startSectorReport(
   raw: unknown,
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  await requireOwner();
+  await requireGrant("sector_reports.manage");
   const parsed = startSchema.safeParse(raw);
   if (!parsed.success) {
     return { ok: false, error: `Adj meg szektort, területet és legalább ${MIN_PUBLISHABLE} oldalt.` };
@@ -131,7 +131,7 @@ export async function startSectorReport(
 export async function generateSectorReport(
   reportId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await requireOwner();
+  await requireGrant("sector_reports.manage");
   const { workspaceId } = await getActiveContext();
   const db = getWorkspaceClient(workspaceId);
 
@@ -223,7 +223,7 @@ export async function generateSectorReport(
 export async function publishSectorReport(
   reportId: string,
 ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
-  await requireOwner();
+  await requireGrant("sector_reports.manage");
   const { workspaceId } = await getActiveContext();
   const db = getWorkspaceClient(workspaceId);
   const report = await db.sectorReport.findUnique({ where: { id: reportId } });
@@ -262,7 +262,7 @@ export async function publishSectorReport(
 }
 
 export async function unpublishSectorReport(reportId: string): Promise<{ ok: true }> {
-  await requireOwner();
+  await requireGrant("sector_reports.manage");
   const { workspaceId } = await getActiveContext();
   const db = getWorkspaceClient(workspaceId);
   await db.sectorReport.update({ where: { id: reportId }, data: { status: "ready" } });

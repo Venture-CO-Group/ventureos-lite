@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { requireOwner } from "@/lib/authz";
+import { requireGrant } from "@/lib/authz";
 import {
   deleteImportTemplate,
   listImportBatches,
@@ -111,9 +111,9 @@ export type RollbackActionResult =
  */
 export async function rollbackBatch(batchId: string): Promise<RollbackActionResult> {
   try {
-    await requireOwner();
+    await requireGrant("leads.delete");
   } catch {
-    return { ok: false, error: "Only an Owner can roll an import back." };
+    return { ok: false, error: "You need the leads.delete capability to roll an import back." };
   }
   const { workspaceId, userId } = await getActiveContext();
   const res = await rollbackImport(workspaceId, userId, batchId);

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import type { Stage } from "@prisma/client";
 import { prismaUnsafe, getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { requireOwner } from "@/lib/authz";
+import { requireGrant } from "@/lib/authz";
 import { eraseLeadData } from "@/modules/gdpr/erase";
 import { callClaude } from "@/lib/ai/call-claude";
 import {
@@ -587,9 +587,9 @@ export async function deleteLead(raw: unknown): Promise<DeleteLeadResult> {
   if (!parsed.success) return { ok: false, error: "Unknown lead." };
 
   try {
-    await requireOwner();
+    await requireGrant("leads.delete");
   } catch {
-    return { ok: false, error: "Only an Owner can delete a lead." };
+    return { ok: false, error: "You need the leads.delete capability to delete a lead." };
   }
 
   const { workspaceId, userId } = await getActiveContext();

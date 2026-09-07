@@ -4,7 +4,7 @@ import { serverActionError } from "@/lib/client/server-action";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { setGrant, type Member } from "@/modules/settings/actions";
-import { DOCUMENT_GRANTS, isTrustedMember, type Grant } from "@/lib/grants";
+import { denyToken, grantIsImplicit } from "@/lib/grants";
 
 const GROUPS: Array<{ module: string; grants: string[] }> = [
   {
@@ -19,7 +19,41 @@ const GROUPS: Array<{ module: string; grants: string[] }> = [
   { module: "Templates", grants: ["templates.edit"] },
   { module: "Signal Engine", grants: ["signal_engine.approve"] },
   { module: "Exports", grants: ["exports.run"] },
+  // Everything below is daily work a BDR carries by default. It appears here
+  // so an Owner can take a capability away from ONE person — which is the
+  // point of grants — rather than so it can be handed out.
+  { module: "Leads", grants: ["leads.delete"] },
+  { module: "Data", grants: ["data.merge", "fields.manage"] },
+  { module: "Workspace settings", grants: ["settings.manage"] },
+  { module: "Public pages", grants: ["public_pages.manage"] },
+  { module: "Sector reports", grants: ["sector_reports.manage"] },
+  { module: "Audit log", grants: ["audit_log.read"] },
 ];
+
+/**
+ * What the capability actually lets someone do.
+ *
+ * The old label was the grant string with its module prefix stripped, which
+ * reads fine for "quote · create" and not at all for "delete" sitting under a
+ * heading called Leads — an Owner deciding whether to withdraw a capability
+ * should not have to infer its blast radius from four words.
+ */
+const GRANT_DESCRIPTION: Record<string, string> = {
+  "documents.quote.create": "Draft a quote from a template.",
+  "documents.contract.create": "Draft a contract from a template.",
+  "documents.certificate.create": "Draft a completion certificate.",
+  "documents.send": "Email a finalised document to a client.",
+  "templates.edit": "Change what every future document says.",
+  "signal_engine.approve": "Accept or reject the weekly proposals.",
+  "exports.run": "Export leads as CSV, Excel or a branded PDF.",
+  "leads.delete": "Permanently erase leads, in one or in bulk, and roll back an import. Cascades to derived data.",
+  "data.merge": "Merge two companies or two leads into one.",
+  "fields.manage": "Add, rename and archive the workspace's own fields.",
+  "settings.manage": "Targets, workflow rules, health thresholds, quote rules, the deals commit threshold.",
+  "public_pages.manage": "Publish and withdraw audit share links and booking pages.",
+  "sector_reports.manage": "Commission, generate and publish a sector report.",
+  "audit_log.read": "Read who did what, across the whole workspace.",
+};
 
 function grantLabel(grant: string): string {
   return grant.split(".").slice(1).join(" · ") || grant;
@@ -83,7 +117,6 @@ export function SettingsGrants({
            * `grantAllowed`.
            */
           const roleCarriesAll = m.role === "OWNER" || m.role === "ADMIN";
-          const seated = isTrustedMember(m.role);
           return (
             <div key={m.userId} className="rounded-card border border-line bg-panel p-[18px]">
               <div className="mb-3 flex items-center gap-2">
@@ -106,24 +139,50 @@ export function SettingsGrants({
                       {g.module}
                     </div>
                     {g.grants.map((grant) => {
-                      const implicit =
-                        roleCarriesAll || (seated && !DOCUMENT_GRANTS.includes(grant as Grant));
-                      const checked = implicit || m.grants.includes(grant);
+                      const implicit = grantIsImplicit(m.role, grant);
+                      const denied = m.grants.includes(denyToken(grant));
+                      const checked = !denied && (implicit || m.grants.includes(grant));
                       const key = `${m.userId}:${grant}`;
+                      /**
+                       * An Owner's own capabilities are the only ones that stay
+                       * locked. Everything a BDR carries by default is now
+                       * un-tickable-back: a capability nobody can withdraw is
+                       * not a capability, and the box used to render ticked and
+                       * disabled, which said the opposite.
+                       */
+                      const locked = roleCarriesAll;
                       return (
                         <label
                           key={grant}
-                          className="flex items-center gap-2 py-1 text-[12.5px] text-[#C9CEE3]"
+                          data-testid={`grant-${m.userId}-${grant}`}
+                          title={GRANT_DESCRIPTION[grant]}
+                          className="flex items-start gap-2 py-1 text-[12.5px] text-[#C9CEE3]"
                         >
                           <input
                             type="checkbox"
                             checked={checked}
-                            disabled={!isOwner || implicit || busy === key}
+                            disabled={!isOwner || locked || busy === key}
                             onChange={(e) => toggle(m.userId, grant, e.target.checked)}
                             style={{ accentColor: "#7427C6" }}
+                            className="mt-[3px]"
                           />
-                          {grantLabel(grant)}
-                          {implicit && <span className="text-[10.5px] text-muted">· via role</span>}
+                          <span>
+                            {grantLabel(grant)}
+                            {locked && (
+                              <span className="ml-1 text-[10.5px] text-muted">· via role</span>
+                            )}
+                            {!locked && implicit && !denied && (
+                              <span className="ml-1 text-[10.5px] text-muted">· default</span>
+                            )}
+                            {denied && (
+                              <span className="ml-1 text-[10.5px] text-warn">· withdrawn</span>
+                            )}
+                            {GRANT_DESCRIPTION[grant] && (
+                              <span className="mt-0.5 block text-[10.5px] leading-relaxed text-muted">
+                                {GRANT_DESCRIPTION[grant]}
+                              </span>
+                            )}
+                          </span>
                         </label>
                       );
                     })}

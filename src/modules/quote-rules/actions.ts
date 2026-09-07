@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prismaUnsafe } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { requireOwner } from "@/lib/authz";
+import { requireGrant } from "@/lib/authz";
 import { loadQuoteRules, ruleEffectiveness, type RuleEffectiveness } from "./store";
 import { quoteRulesFrom, DEFAULT_QUOTE_RULES, type QuoteRulesSettings } from "./rules";
 
@@ -49,7 +49,7 @@ const schema = z.object({
 export async function saveQuoteRules(
   raw: unknown,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await requireOwner();
+  await requireGrant("settings.manage");
   const parsed = schema.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Check the thresholds." };
 
@@ -73,7 +73,7 @@ export async function saveQuoteRules(
 }
 
 export async function resetQuoteRules(): Promise<{ ok: true }> {
-  await requireOwner();
+  await requireGrant("settings.manage");
   const { workspaceId } = await getActiveContext();
   const ws = await prismaUnsafe.workspace.findUnique({
     where: { id: workspaceId },

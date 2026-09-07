@@ -3,7 +3,7 @@ import { LeadEngine } from "@/components/lead-engine";
 import { LeadsTable } from "@/components/leads-table";
 import { prismaUnsafe } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { hasGrant, isOwner } from "@/lib/authz";
+import { hasGrant } from "@/lib/authz";
 import { loadLeadsTable } from "@/modules/leads/table";
 import { listViews } from "@/modules/leads/view-store";
 import { parseColumns, parseFilterSet, parseSort } from "@/modules/leads/view-params";
@@ -44,14 +44,14 @@ export default async function LeadsPage({
   const columns = parseColumns(first(params.cols), columnKeysWithCustom(customFields));
   const page = Number(first(params.page) ?? 1);
 
-  const [data, views, membership, owner, exporter] = await Promise.all([
+  const [data, views, membership, canDelete, exporter] = await Promise.all([
     loadLeadsTable(workspaceId, { filters, sort, page }),
     listViews(workspaceId, userId),
     prismaUnsafe.membership.findUnique({
       where: { userId_workspaceId: { userId, workspaceId } },
       select: { role: true },
     }),
-    isOwner(),
+    hasGrant("leads.delete"),
     hasGrant("exports.run"),
   ]);
   const canCurateViews = isTrustedMember(membership?.role);
@@ -77,7 +77,7 @@ export default async function LeadsPage({
             activeViewId={first(params.view) ?? null}
             currentUserId={userId}
             canCurateViews={canCurateViews}
-            canDelete={owner}
+            canDelete={canDelete}
             canExport={exporter}
           />
         }

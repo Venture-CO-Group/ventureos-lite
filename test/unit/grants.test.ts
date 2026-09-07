@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   GRANTS,
   DOCUMENT_GRANTS,
+  denyToken,
   grantAllowed,
+  grantIsImplicit,
+  isDenyToken,
   isTrustedMember,
 } from "../../src/lib/grants";
 
@@ -65,6 +68,100 @@ describe("grantAllowed (server-side grant denial)", () => {
   it("every document grant is a real grant, so a typo cannot widen the set", () => {
     for (const grant of DOCUMENT_GRANTS) {
       expect(GRANTS, grant).toContain(grant);
+    }
+  });
+});
+
+/**
+ * A capability nobody can take away is not a capability.
+ *
+ * The grants array has always meant "additionally allowed", which was the
+ * whole story while every grant was opt-in. Once a BDR carries most of them by
+ * default, removing an entry that was never there does nothing — so the
+ * settings screen rendered those boxes ticked AND DISABLED, and an Owner who
+ * wanted to stop one person deleting leads had no way to say so.
+ */
+describe("withdrawing a capability the role carries by default", () => {
+  it("an explicit withdrawal beats the role", () => {
+    expect(grantAllowed("BDR", [], "leads.delete")).toBe(true);
+    expect(grantAllowed("BDR", [denyToken("leads.delete")], "leads.delete")).toBe(false);
+  });
+
+  it("withdraws exactly one capability and leaves the rest alone", () => {
+    const grants = [denyToken("leads.delete")];
+    expect(grantAllowed("BDR", grants, "leads.delete")).toBe(false);
+    expect(grantAllowed("BDR", grants, "exports.run")).toBe(true);
+    expect(grantAllowed("BDR", grants, "data.merge")).toBe(true);
+  });
+
+  it("beats a positive entry too, so the two cannot both be true", () => {
+    // Belt and braces: if both somehow end up stored, the refusal wins. A
+    // permission system that resolves a contradiction in favour of access is
+    // not a permission system.
+    expect(grantAllowed("BDR", ["exports.run", denyToken("exports.run")], "exports.run")).toBe(
+      false,
+    );
+  });
+
+  it("does not let a withdrawal reach an Owner or an Admin", () => {
+    // An Owner who could be locked out of their own workspace by an edit to a
+    // JSON column is a support call waiting to happen.
+    expect(grantAllowed("OWNER", [denyToken("leads.delete")], "leads.delete")).toBe(true);
+    expect(grantAllowed("ADMIN", [denyToken("exports.run")], "exports.run")).toBe(true);
+  });
+
+  it("cannot be spelled by accident", () => {
+    // Every real grant is a lower-case dotted identifier, so the marker can
+    // never collide with one.
+    for (const grant of GRANTS) {
+      expect(isDenyToken(grant), grant).toBe(false);
+      expect(isDenyToken(denyToken(grant)), grant).toBe(true);
+    }
+  });
+});
+
+describe("grantIsImplicit (what the settings screen shows as a default)", () => {
+  it("matches what grantAllowed actually does for an ungranted member", () => {
+    // These two must not drift: the screen renders a tick from one and the
+    // server decides from the other.
+    for (const grant of GRANTS) {
+      for (const role of ["OWNER", "ADMIN", "BDR"]) {
+        expect(grantIsImplicit(role, grant), `${role}/${grant}`).toBe(
+          grantAllowed(role, [], grant),
+        );
+      }
+    }
+  });
+
+  it("says a document capability is never a default for a BDR", () => {
+    for (const grant of DOCUMENT_GRANTS) {
+      expect(grantIsImplicit("BDR", grant), grant).toBe(false);
+    }
+  });
+});
+
+describe("what a BDR can now do that they could not", () => {
+  /**
+   * "a bdr is minden funkcióval rendelkezzen pl. lead törlés teljes körüen."
+   *
+   * Lead deletion was `requireOwner` — not a grant, so not even grantable.
+   * These are the capabilities that moved, listed by name so a future edit
+   * that quietly narrows one of them fails here.
+   */
+  it("carries every capability the daily job needs", () => {
+    for (const grant of [
+      "leads.delete",
+      "settings.manage",
+      "public_pages.manage",
+      "sector_reports.manage",
+      "audit_log.read",
+      "exports.run",
+      "data.merge",
+      "fields.manage",
+      "signal_engine.approve",
+    ]) {
+      expect(GRANTS as readonly string[], grant).toContain(grant);
+      expect(grantAllowed("BDR", [], grant), grant).toBe(true);
     }
   });
 });

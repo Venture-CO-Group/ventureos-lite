@@ -303,7 +303,7 @@ export function LeadBulkBar({
             type="button"
             className={`${buttonClass} ${canDelete ? "hover:text-[#FFB3C2]" : ""}`}
             disabled={!canDelete}
-            title={canDelete ? undefined : "Only an Owner can delete leads"}
+            title={canDelete ? undefined : "Needs the leads.delete capability"}
             data-testid="bulk-delete"
             onClick={() => setAction("delete")}
           >

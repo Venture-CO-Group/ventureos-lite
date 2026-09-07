@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { requireOwner } from "@/lib/authz";
+import { requireGrant } from "@/lib/authz";
 import { proposalEffect, type ProposalKind } from "./logic";
 
 export interface ProposalView {
@@ -39,7 +39,7 @@ export async function approveProposal(
   id: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    await requireOwner();
+    await requireGrant("signal_engine.approve");
   } catch {
     return { ok: false, error: "Only an Owner can approve proposals." };
   }
@@ -130,7 +130,7 @@ export async function rejectProposal(
   id: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    await requireOwner();
+    await requireGrant("signal_engine.approve");
   } catch {
     return { ok: false, error: "Only an Owner can reject proposals." };
   }

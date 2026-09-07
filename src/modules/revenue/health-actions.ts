@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { requireOwner } from "@/lib/authz";
+import { requireGrant } from "@/lib/authz";
 import { DEFAULT_HEALTH_RULES, healthRulesFrom, type HealthRules } from "./health";
 import { loadClientHealth } from "./health-data";
 
@@ -55,7 +55,7 @@ export async function saveHealthRules(
   const parsed = rulesSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Every threshold must be a positive number." };
   try {
-    await requireOwner();
+    await requireGrant("settings.manage");
   } catch {
     return { ok: false, error: "Only an Owner can change the health rules." };
   }

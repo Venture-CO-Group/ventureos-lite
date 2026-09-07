@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { requireGrant, requireOwner, GrantError } from "@/lib/authz";
+import { requireGrant, GrantError } from "@/lib/authz";
 import {
   listDuplicateCandidates,
   listMergeHistory,
@@ -58,7 +58,7 @@ export async function getDataQuality(): Promise<DataQualityView> {
   ]);
   let owner = false;
   try {
-    await requireOwner();
+    await requireGrant("data.merge");
     owner = true;
   } catch {
     owner = false;

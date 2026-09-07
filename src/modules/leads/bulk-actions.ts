@@ -7,7 +7,7 @@ import { z } from "zod";
 import type { Stage } from "@prisma/client";
 import { prismaUnsafe } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { requireGrant, requireOwner } from "@/lib/authz";
+import { requireGrant } from "@/lib/authz";
 import { autoWatchForStage } from "../audit/watch-actions";
 import { cancelFollowups, scheduleFollowups } from "../pipeline/jobs";
 import { cancelsFollowups, schedulesFollowups } from "../pipeline/transitions";
@@ -164,9 +164,9 @@ export async function bulkDeleteLeads(
   const parsed = idsSchema.safeParse(raw);
   if (!parsed.success) return { applied: 0, skipped: [] };
   try {
-    await requireOwner();
+    await requireGrant("leads.delete");
   } catch {
-    return { applied: 0, skipped: [], error: "Only an Owner can delete leads." };
+    return { applied: 0, skipped: [], error: "You need the leads.delete capability to delete leads." };
   }
   const { workspaceId, userId } = await getActiveContext();
   const result = await deleteLeadsBulk(workspaceId, userId, parsed.data);

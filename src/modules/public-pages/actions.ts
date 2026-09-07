@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { requireOwner } from "@/lib/authz";
+import { requireGrant } from "@/lib/authz";
 import { auditShareLink, bookingLink, quoteAcceptLink } from "@/lib/public-links";
 import { isShareExpired } from "@/modules/audit/share";
 import { pageStatsBatch, type PageStats } from "@/modules/tracking/data";
@@ -275,9 +275,9 @@ export async function deleteAuditShare(
   raw: unknown,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    await requireOwner();
+    await requireGrant("public_pages.manage");
   } catch {
-    return { ok: false, error: "Only an Owner can delete a share link." };
+    return { ok: false, error: "You need the public_pages.manage capability to delete a share link." };
   }
   const parsed = z.object({ shareId: z.string().min(1) }).safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Unknown share." };
@@ -325,9 +325,9 @@ export async function setBookingPageActive(
   raw: unknown,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    await requireOwner();
+    await requireGrant("public_pages.manage");
   } catch {
-    return { ok: false, error: "Only an Owner can change the booking page." };
+    return { ok: false, error: "You need the public_pages.manage capability to change the booking page." };
   }
   const parsed = z
     .object({ bookingPageId: z.string().min(1), active: z.boolean() })

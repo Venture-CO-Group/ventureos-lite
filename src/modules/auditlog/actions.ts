@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { requireOwner } from "@/lib/authz";
+import { requireGrant } from "@/lib/authz";
 import { AUDIT_LOG_CATEGORIES } from "./categories";
 
 /**
@@ -63,7 +63,7 @@ function describe(meta: unknown): string | null {
 export async function readAuditLog(raw: unknown): Promise<AuditLogPage> {
   // Owner-only. The log records who did what, which is exactly the kind of
   // thing a BDR should not be able to browse about their colleagues.
-  await requireOwner();
+  await requireGrant("audit_log.read");
   const parsed = querySchema.safeParse(raw ?? {});
   const q = parsed.success ? parsed.data : {};
 

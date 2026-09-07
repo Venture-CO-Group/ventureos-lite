@@ -244,7 +244,7 @@ export function SettingsWorkflows({ view }: { view: WorkflowView }) {
       )}
 
       {!view.isOwner ? (
-        <p className="text-[12px] text-muted">Only an Owner can change automation rules.</p>
+        <p className="text-[12px] text-muted">You need the settings.manage capability to change automation rules.</p>
       ) : draft ? (
         <RuleEditor
           draft={draft}

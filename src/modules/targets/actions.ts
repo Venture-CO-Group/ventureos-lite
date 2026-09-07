@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { requireOwner } from "@/lib/authz";
+import { requireGrant } from "@/lib/authz";
 import { TARGET_METRICS } from "./metrics";
 
 /**
@@ -62,7 +62,7 @@ const saveSchema = z.object({
 export async function saveTargets(
   raw: unknown,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await requireOwner();
+  await requireGrant("settings.manage");
   const parsed = saveSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Csak egész számok, 0 és 100 000 között." };
 

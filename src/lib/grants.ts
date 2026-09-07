@@ -20,6 +20,25 @@ export const GRANTS = [
   /// and it moves every activity, document and deal off one record onto
   /// another — a mistake here is not a typo, it is two clients becoming one.
   "data.merge",
+  /// Hard-deleting a lead, in one or in bulk, and rolling back an import
+  /// (which is a bulk delete of what that import created). Cascades to the
+  /// derived data — GDPR erasure, not a soft flag — so it is a capability
+  /// rather than an ordinary edit, and it is audit-logged either way.
+  "leads.delete",
+  /// Workspace behaviour a BDR tunes as part of the job: targets, workflow
+  /// rules, account-health thresholds, quote-behaviour rules, the deals commit
+  /// threshold, and the data-quality view. Not identity, not credentials,
+  /// not money — those stay Owner-only and are not grants at all.
+  "settings.manage",
+  /// Reading the audit log. A read, but a revealing one: it names who did what
+  /// and when, across the whole workspace.
+  "audit_log.read",
+  /// Publishing and withdrawing prospect-facing pages — audit share links and
+  /// booking pages. Outward-facing, which is why it is nameable, but it is
+  /// daily sales work.
+  "public_pages.manage",
+  /// Commissioning, generating and publishing a sector report.
+  "sector_reports.manage",
 ] as const;
 
 export type Grant = (typeof GRANTS)[number];
@@ -54,18 +73,62 @@ export const DOCUMENT_GRANTS: Grant[] = [
  * session.
  *
  * Owner and Admin carry everything. A BDR carries everything EXCEPT the
- * document capabilities, which still have to be handed over one by one — and
- * user management, which is not a grant at all: it is Owner-only through
- * `requireOwner`, so no role short of Owner reaches it.
+ * document capabilities, which still have to be handed over one by one.
  *
- * That is a deliberate widening. A BDR previously needed an explicit grant to
- * run an export, approve a signal, add a workspace field or merge two obvious
- * duplicates — daily work, gated as if it were a legal document.
+ * ── WHAT IS DELIBERATELY NOT A GRANT ────────────────────────────────────────
+ *
+ * User management, grant assignment, workspace provisioning, integration
+ * credentials, the letterhead, commission figures, the cold-email sign-off and
+ * the invoicing key are Owner-only through `requireOwner`, and no grant
+ * reaches them. That is not an oversight and it is not a hierarchy for its own
+ * sake: `setGrant` in particular MUST stay outside this system, because a role
+ * that can hand itself capabilities has no capabilities — it has all of them.
+ *
+ * Everything else is the job. A BDR previously needed an explicit grant to run
+ * an export, approve a signal or merge two obvious duplicates, and could not
+ * delete a lead at all — daily work, gated as if it were a legal document.
  */
 export function grantAllowed(role: string, grants: string[], grant: string): boolean {
   if (role === "OWNER" || role === "ADMIN") return true;
+  // An explicit revocation beats the role default. Without this, a capability
+  // a BDR carries implicitly could never be taken back: the grants UI rendered
+  // its checkbox ticked and DISABLED, so "grants" that everyone always had
+  // were not grants at all.
+  if (grants.includes(denyToken(grant))) return false;
   if (role === "BDR" && !DOCUMENT_GRANTS.includes(grant as Grant)) return true;
   return grants.includes(grant);
+}
+
+/**
+ * How a withdrawn capability is written down.
+ *
+ * A membership's `grants` array is a list of strings, and it has always meant
+ * "additionally allowed". A role that carries something by default needs the
+ * opposite word, so a `!`-prefixed entry means "explicitly withdrawn from this
+ * person". `!` cannot collide with a real grant: every one of them is
+ * lower-case dotted identifiers.
+ *
+ * Stored rather than derived because the alternative — enumerating what each
+ * role implies and diffing — puts the role table in two places, and they drift.
+ */
+export function denyToken(grant: string): string {
+  return `!${grant}`;
+}
+
+export function isDenyToken(entry: string): boolean {
+  return entry.startsWith("!");
+}
+
+/**
+ * Whether the role hands this capability over without anybody asking.
+ *
+ * Drives the grants UI: an implicit capability renders ticked, and — unlike
+ * before — remains clickable, because unticking it is how an Owner takes it
+ * away.
+ */
+export function grantIsImplicit(role: string, grant: string): boolean {
+  if (role === "OWNER" || role === "ADMIN") return true;
+  return role === "BDR" && !DOCUMENT_GRANTS.includes(grant as Grant);
 }
 
 /**

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { prismaUnsafe } from "@/lib/db";
 import { getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { requireOwner } from "@/lib/authz";
+import { requireGrant } from "@/lib/authz";
 
 /**
  * The forecast's commit/upside split point (playbook-v2 P4/c).
@@ -21,9 +21,9 @@ export async function setCommitThreshold(
   if (!parsed.success) return { ok: false, error: "The threshold must be between 0 and 100." };
 
   try {
-    await requireOwner();
+    await requireGrant("settings.manage");
   } catch {
-    return { ok: false, error: "Only an Owner can change the commit threshold." };
+    return { ok: false, error: "You need the settings.manage capability to change the commit threshold." };
   }
 
   const { workspaceId, userId } = await getActiveContext();

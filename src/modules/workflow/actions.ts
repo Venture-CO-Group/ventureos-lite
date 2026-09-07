@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { requireOwner } from "@/lib/authz";
+import { requireGrant } from "@/lib/authz";
 import { workspaceMembers } from "@/modules/leads/table";
 import { listPipelines } from "@/modules/deals/store";
 import {
@@ -59,7 +59,7 @@ export async function getWorkflows(): Promise<WorkflowView> {
   const db = getWorkspaceClient(workspaceId);
   let owner = false;
   try {
-    await requireOwner();
+    await requireGrant("settings.manage");
     owner = true;
   } catch {
     owner = false;
@@ -116,10 +116,10 @@ export type RuleResult = { ok: true; id: string } | { ok: false; error: string }
 
 async function ownerOnly(): Promise<string | null> {
   try {
-    await requireOwner();
+    await requireGrant("settings.manage");
     return null;
   } catch {
-    return "Only an Owner can change automation rules.";
+    return "You need the settings.manage capability to change automation rules.";
   }
 }
 
