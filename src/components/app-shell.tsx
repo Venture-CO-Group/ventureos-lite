@@ -221,7 +221,10 @@ export async function AppShell({
           scroll while the header and footer stay pinned. */}
       <aside className="hidden h-full min-h-0 flex-col overflow-hidden border-r border-line bg-canvas/60 px-3.5 py-5 nav:flex">
         <div className="flex-none">
-          <WorkspaceSwitcher workspaces={shell.workspaces} />
+          <WorkspaceSwitcher
+            workspaces={shell.workspaces}
+            canManage={shell.role === "OWNER"}
+          />
         </div>
 
         <div className="flex-none px-2.5 pb-5 pt-3 font-display text-[22px] tracking-display">
@@ -289,6 +292,7 @@ export async function AppShell({
           <div className="min-w-0 flex-1">
             <WorkspaceSwitcher
               workspaces={shell.workspaces}
+              canManage={shell.role === "OWNER"}
               testId="active-workspace-mobile"
             />
           </div>

@@ -2,14 +2,26 @@
 import { attemptVoid } from "@/lib/client/server-action";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { switchWorkspace, type WorkspaceOption } from "@/modules/workspaces/actions";
 
 export function WorkspaceSwitcher({
   workspaces,
+  canManage = false,
   testId = "active-workspace",
 }: {
   workspaces: WorkspaceOption[];
+  /**
+   * Show the way to add one.
+   *
+   * A switcher with a single entry is indistinguishable from a broken switcher:
+   * you open it, there is nothing else in it, and clicking the one row you can
+   * see does nothing (correctly — it is already active). The workspace form
+   * lives three clicks away in admin settings, so nothing on this menu said
+   * that adding a second workspace was even possible.
+   */
+  canManage?: boolean;
   /**
    * The shell renders one switcher in the sidebar and one in the phone header.
    * Both are always in the DOM (CSS decides which is visible), so they must not
@@ -95,6 +107,19 @@ export function WorkspaceSwitcher({
               </button>
             </li>
           ))}
+          {canManage && (
+            <li className="border-t border-line">
+              <Link
+                href="/settings/workspaces"
+                data-testid="manage-workspaces"
+                onClick={() => setOpen(false)}
+                className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[12px] text-muted hover:bg-panel-2 hover:text-ink"
+              >
+                <span>+ New workspace</span>
+                <span className="ml-auto text-[10px] uppercase tracking-[0.08em]">manage</span>
+              </Link>
+            </li>
+          )}
         </ul>
       )}
     </div>

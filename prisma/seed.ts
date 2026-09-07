@@ -1,9 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { OWNER_GRANTS } from "../src/lib/grants";
 import { NO_PASSWORD } from "../src/lib/auth/password";
-import { BASE_TEMPLATES } from "../src/modules/templates/seed-data";
-import { extractVariables } from "../src/modules/templates/render";
-import { DEFAULT_PIPELINES } from "../src/modules/deals/pipelines";
+import { provisionWorkspace, DEFAULT_ICP_CONFIG } from "../src/modules/workspaces/provision";
 import {
   DEFAULT_MEETING_TYPES,
   DEFAULT_SLOT_CONFIG,
@@ -12,25 +10,10 @@ import {
 
 const prisma = new PrismaClient();
 
-// Default ICP config (spec §4.5 — five 1-point criteria, gate threshold 3).
-const DEFAULT_ICP_CONFIG = {
-  gateThreshold: 3,
-  criteria: [
-    { key: "segment_fit", label: "Segment fit", weight: 1 },
-    { key: "trigger_signal", label: "Trigger signal", weight: 1 },
-    { key: "decision_maker", label: "Decision-maker", weight: 1 },
-    { key: "active_profile", label: "Active profile", weight: 1 },
-    { key: "personal_hook", label: "Personal hook", weight: 1 },
-  ],
-};
-
-// Default targets (from the prototype dashboard).
-const DEFAULT_TARGETS = [
-  { metric: "invites_sent", period: "weekly", value: 100 },
-  { metric: "acceptance_rate", period: "weekly", value: 35 },
-  { metric: "reply_rate", period: "weekly", value: 20 },
-  { metric: "meetings_booked", period: "monthly", value: 10 },
-];
+// The ICP config, targets, pipelines and templates a workspace needs now live
+// in ONE module, which the Owner-facing "New workspace" form also uses. They
+// used to exist only here, so a workspace created through the product came out
+// empty — see src/modules/workspaces/provision.ts.
 
 // Seeded accounts get no usable password. `NO_PASSWORD` can never satisfy
 // bcrypt, so a fresh install cannot be logged into until an Owner sets a real
@@ -120,79 +103,12 @@ async function main() {
     });
   }
 
-  for (const t of DEFAULT_TARGETS) {
-    await prisma.target.upsert({
-      where: {
-        workspaceId_metric_period: {
-          workspaceId: workspace.id,
-          metric: t.metric,
-          period: t.period,
-        },
-      },
-      update: { value: t.value },
-      create: { workspaceId: workspace.id, ...t },
-    });
-  }
-
-  // Deal pipelines (playbook-v2 P4/a). Idempotent and additive: an existing
-  // pipeline keeps whatever the workspace has since tuned into it.
-  let pipelinesCreated = 0;
-  for (const p of DEFAULT_PIPELINES) {
-    const exists = await prisma.pipeline.findFirst({
-      where: { workspaceId: workspace.id, key: p.key },
-      select: { id: true },
-    });
-    if (exists) continue;
-    await prisma.pipeline.create({
-      data: {
-        workspaceId: workspace.id,
-        key: p.key,
-        name: p.name,
-        position: p.position,
-        isDefault: p.isDefault,
-        stages: {
-          create: p.stages.map((s, i) => ({
-            workspaceId: workspace.id,
-            key: s.key,
-            name: s.name,
-            position: i,
-            probability: s.probability,
-            rottingDays: s.rottingDays,
-            kind: s.kind,
-          })),
-        },
-      },
-    });
-    pipelinesCreated += 1;
-  }
-
-  // Base template set (quote/contract/certificate/email, HU + EN).
-  let templatesCreated = 0;
-  for (const t of BASE_TEMPLATES) {
-    const exists = await prisma.template.findFirst({
-      where: { workspaceId: workspace.id, type: t.type, lang: t.lang },
-      select: { id: true },
-    });
-    if (exists) continue;
-    await prisma.template.create({
-      data: {
-        workspaceId: workspace.id,
-        type: t.type,
-        lang: t.lang,
-        name: t.name,
-        body: t.body,
-        variables: extractVariables(t.body),
-        version: 1,
-        status: "ACTIVE",
-      },
-    });
-    templatesCreated += 1;
-  }
+  const provisioned = await provisionWorkspace(prisma, workspace.id);
 
   console.log(
-    `Seeded workspace "${workspace.name}" with Tamas (Owner), Fanni (BDR), ICP config, ` +
-      `${DEFAULT_TARGETS.length} targets, ${pipelinesCreated} deal pipelines and ` +
-      `${templatesCreated} base templates.`,
+    `Seeded workspace "${workspace.name}" with Tamas (Owner), Fanni (BDR), ` +
+      `${provisioned.targets} targets, ${provisioned.pipelines} deal pipelines and ` +
+      `${provisioned.templates} base templates.`,
   );
 }
 

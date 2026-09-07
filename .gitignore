@@ -42,3 +42,4 @@ e2e/.auth/
 # Playwright MCP session debris and incremental tsc state — build output.
 /.playwright-mcp/
 /tsconfig.tsbuildinfo
+/.localdata

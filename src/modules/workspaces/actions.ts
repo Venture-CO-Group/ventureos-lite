@@ -12,6 +12,7 @@ import { NO_PASSWORD } from "@/lib/auth/password";
 import { getBudgetStatus, type BudgetStatus } from "@/lib/ai/budget-status";
 import { unreadCount } from "@/modules/notifications/store";
 import { brandFrom, type WorkspaceBrand } from "@/modules/workspaces/brand";
+import { provisionWorkspace, DEFAULT_ICP_CONFIG } from "./provision";
 
 // ---- reads (shell + settings) ---------------------------------------------
 
@@ -157,17 +158,171 @@ export async function createWorkspace(
       mailgunConfig: input.mailgunDomain ? { domain: input.mailgunDomain } : undefined,
       claudeBudget: input.claudeBudget,
       retentionDays: input.retentionDays,
+      icpConfig: DEFAULT_ICP_CONFIG,
       // The provisioning Owner is the first member (Owner) of the new workspace.
       memberships: { create: { userId, role: "OWNER", grants: OWNER_GRANTS } },
     },
   });
+
+  /**
+   * Fill it in before anybody can switch into it.
+   *
+   * This used to create the row and stop. The result was a workspace where the
+   * Deals board had no columns, no quote could be rendered for want of a
+   * template, and the dashboard measured against no targets — all of it
+   * rendering as ordinary empty states, so the only available reading was that
+   * switching workspaces did not work. Same scaffolding as `prisma/seed.ts`,
+   * from one shared module.
+   */
+  await provisionWorkspace(prismaUnsafe, ws.id);
 
   const db = getWorkspaceClient(ws.id);
   await db.auditLog.create({
     data: { workspaceId: ws.id, actorUserId: userId, action: "workspace.create", entityType: "Workspace", entityId: ws.id, meta: { name: input.name } },
   });
   revalidatePath("/settings");
+  revalidatePath("/", "layout");
   return { ok: true, id: ws.id };
+}
+
+/**
+ * The workspaces this user administers, with what each actually contains.
+ *
+ * The counts are the point. A workspace provisioned before
+ * `provisionWorkspace` existed has zero pipelines and zero templates, and
+ * NOTHING in the product says so — every page renders a perfectly ordinary
+ * empty state. Showing the numbers turns an invisible defect into a row with a
+ * Repair button next to it.
+ */
+export interface WorkspaceSummary {
+  id: string;
+  name: string;
+  legalName: string | null;
+  role: string;
+  active: boolean;
+  members: number;
+  leads: number;
+  pipelines: number;
+  templates: number;
+  targets: number;
+  /** True when the scaffolding is incomplete and Repair would do something. */
+  needsProvisioning: boolean;
+  createdAt: string;
+}
+
+export async function listWorkspaces(): Promise<WorkspaceSummary[]> {
+  const { userId, workspaceId } = await getActiveContext();
+  const memberships = await prismaUnsafe.membership.findMany({
+    where: { userId },
+    include: {
+      workspace: { select: { id: true, name: true, legalName: true, createdAt: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  // Counted per workspace rather than through `_count`: only `memberships` is
+  // a declared relation on Workspace, so the rest have no aggregate to ask for.
+  // A handful of workspaces makes this cheap, and it avoids a schema change
+  // whose only purpose would be a settings screen.
+  return Promise.all(
+    memberships.map(async (m) => {
+      const id = m.workspace.id;
+      const [members, leads, pipelines, templates, targets] = await Promise.all([
+        prismaUnsafe.membership.count({ where: { workspaceId: id } }),
+        prismaUnsafe.lead.count({ where: { workspaceId: id } }),
+        prismaUnsafe.pipeline.count({ where: { workspaceId: id } }),
+        prismaUnsafe.template.count({ where: { workspaceId: id } }),
+        prismaUnsafe.target.count({ where: { workspaceId: id } }),
+      ]);
+      return {
+        id,
+        name: m.workspace.name,
+        legalName: m.workspace.legalName,
+        role: m.role,
+        active: id === workspaceId,
+        members,
+        leads,
+        pipelines,
+        templates,
+        targets,
+        needsProvisioning: pipelines === 0 || templates === 0 || targets === 0,
+        createdAt: m.workspace.createdAt.toISOString(),
+      };
+    }),
+  );
+}
+
+/**
+ * Fill in whatever a workspace is missing, after the fact.
+ *
+ * For the workspaces created by the form that used to provision nothing. It is
+ * the same idempotent routine a new workspace runs, so it adds only what is
+ * absent and never touches a pipeline somebody has tuned.
+ */
+export async function repairWorkspace(
+  workspaceId: string,
+): Promise<{ ok: true; added: string } | { ok: false; error: string }> {
+  const { userId } = await getActiveContext();
+  const member = await prismaUnsafe.membership.findUnique({
+    where: { userId_workspaceId: { userId, workspaceId } },
+    select: { role: true },
+  });
+  if (member?.role !== "OWNER") {
+    return { ok: false, error: "Only an Owner of that workspace can repair it." };
+  }
+
+  const added = await provisionWorkspace(prismaUnsafe, workspaceId);
+  const db = getWorkspaceClient(workspaceId);
+  await db.auditLog.create({
+    data: {
+      workspaceId,
+      actorUserId: userId,
+      action: "workspace.repair",
+      entityType: "Workspace",
+      entityId: workspaceId,
+      meta: added as unknown as object,
+    },
+  });
+  revalidatePath("/settings/workspaces");
+  revalidatePath("/", "layout");
+
+  const parts = [
+    added.pipelines ? `${added.pipelines} pipeline(s)` : null,
+    added.templates ? `${added.templates} template(s)` : null,
+    added.targets ? `${added.targets} target(s)` : null,
+    added.icpConfig ? "the ICP config" : null,
+  ].filter(Boolean);
+  return {
+    ok: true,
+    added: parts.length ? `Added ${parts.join(", ")}.` : "Nothing was missing.",
+  };
+}
+
+/** Rename a workspace. Owner of THAT workspace only. */
+export async function renameWorkspace(
+  workspaceId: string,
+  name: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const trimmed = name.trim();
+  if (trimmed.length < 1 || trimmed.length > 120) {
+    return { ok: false, error: "A workspace name is between 1 and 120 characters." };
+  }
+  const { userId } = await getActiveContext();
+  const member = await prismaUnsafe.membership.findUnique({
+    where: { userId_workspaceId: { userId, workspaceId } },
+    select: { role: true },
+  });
+  if (member?.role !== "OWNER") {
+    return { ok: false, error: "Only an Owner of that workspace can rename it." };
+  }
+  await prismaUnsafe.workspace.update({ where: { id: workspaceId }, data: { name: trimmed } });
+  const db = getWorkspaceClient(workspaceId);
+  await db.auditLog.create({
+    data: { workspaceId, actorUserId: userId, action: "workspace.rename", entityType: "Workspace", entityId: workspaceId, meta: { name: trimmed } },
+  });
+  revalidatePath("/settings/workspaces");
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 // ---- member assignment (Owner) --------------------------------------------
