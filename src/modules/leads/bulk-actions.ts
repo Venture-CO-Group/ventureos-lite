@@ -1,5 +1,7 @@
 "use server";
 
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { Stage } from "@prisma/client";
@@ -18,10 +20,13 @@ import {
   applyStageChange,
   deleteLeadsBulk,
   exportLeadsCsv,
+  loadLeadsForExport,
   resolveSelection,
   type StageChangeResult,
 } from "./bulk-store";
 import type { FilterSet } from "./filters";
+import { EXPORT_FORMATS, buildLeadsXlsx } from "./export-formats";
+import { enqueueLeadsPdf } from "../audit/enqueue";
 
 /**
  * Bulk-action server actions (playbook-v2 P3/2).
@@ -170,20 +175,41 @@ export async function bulkDeleteLeads(
   return result;
 }
 
-const exportSchema = z.object({
+const formatExportSchema = z.object({
   ids: idsSchema,
   columns: z.array(z.string()).max(30),
+  format: z.enum(EXPORT_FORMATS),
+  /** How the selection was described, for the PDF's subtitle line. */
+  subtitle: z.string().trim().max(200).optional(),
 });
 
+
+
 /**
- * Exporting is grant-gated (`exports.run`, spec §3) and audit-logged, like
- * every other route data leaves by.
+ * Export the selection as a spreadsheet or a branded document.
+ *
+ * ── WHY ONE ACTION AND NOT THREE ────────────────────────────────────────────
+ *
+ * The three formats have genuinely different shapes. CSV and XLSX are built
+ * here and handed back inline, because they are small and the browser can save
+ * them immediately. A PDF needs headless Chrome, which lives only in the worker
+ * image — so it is queued, and the caller polls for the file exactly as the
+ * audit PDF does.
+ *
+ * All three are gated on `exports.run` and audit-logged (hard rule #8). This is
+ * a route personal data leaves by, and adding two more of them without adding
+ * two more log lines would quietly halve what the audit log knows.
  */
-export async function bulkExportCsv(
-  raw: unknown,
-): Promise<{ ok: true; csv: string; rows: number } | { ok: false; error: string }> {
-  const parsed = exportSchema.safeParse(raw);
+export type BulkExportResult =
+  | { ok: true; kind: "inline"; filename: string; mime: string; base64: string; rows: number }
+  | { ok: true; kind: "queued"; rel: string; rows: number }
+  | { ok: false; error: string };
+
+export async function bulkExport(raw: unknown): Promise<BulkExportResult> {
+  const parsed = formatExportSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Nothing to export." };
+  const { ids, columns, format, subtitle } = parsed.data;
+
   try {
     await requireGrant("exports.run");
   } catch {
@@ -191,16 +217,88 @@ export async function bulkExportCsv(
   }
 
   const { workspaceId, userId } = await getActiveContext();
-  const csv = await exportLeadsCsv(workspaceId, parsed.data.ids, parsed.data.columns);
+  const stamp = new Date();
+  const date = stamp.toISOString().slice(0, 10);
 
   await prismaUnsafe.auditLog.create({
     data: {
       workspaceId,
       actorUserId: userId,
       action: "export.run",
-      meta: { kind: "leads.csv", rows: parsed.data.ids.length, columns: parsed.data.columns },
+      meta: { kind: `leads.${format}`, rows: ids.length, columns },
     },
   });
 
-  return { ok: true, csv, rows: parsed.data.ids.length };
+  if (format === "csv") {
+    const csv = await exportLeadsCsv(workspaceId, ids, columns);
+    return {
+      ok: true,
+      kind: "inline",
+      filename: `leads-${date}.csv`,
+      mime: "text/csv;charset=utf-8",
+      // The BOM goes on HERE rather than in the browser, so every caller of
+      // this action gets a file Hungarian Excel reads correctly.
+      base64: Buffer.from("\ufeff" + csv, "utf8").toString("base64"),
+      rows: ids.length,
+    };
+  }
+
+  if (format === "xlsx") {
+    const { leads, customFields } = await loadLeadsForExport(workspaceId, ids);
+    const ws = await prismaUnsafe.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { name: true },
+    });
+    const buf = await buildLeadsXlsx(leads, columns, customFields, {
+      workspaceName: ws?.name ?? "Leads",
+      exportedAt: stamp,
+    });
+    return {
+      ok: true,
+      kind: "inline",
+      filename: `leads-${date}.xlsx`,
+      mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      base64: buf.toString("base64"),
+      rows: ids.length,
+    };
+  }
+
+  // PDF — queued, because Chromium is worker-only.
+  const user = await prismaUnsafe.user.findUnique({
+    where: { id: userId },
+    select: { name: true },
+  });
+  const rel = `exports/${workspaceId}-leads-${stamp.getTime()}.pdf`;
+  await enqueueLeadsPdf({
+    workspaceId,
+    rel,
+    ids,
+    columns,
+    meta: {
+      subtitle: subtitle ?? `${ids.length} lead${ids.length === 1 ? "" : "s"}`,
+      exportedAt: stamp.toISOString(),
+      exportedBy: user?.name ?? "",
+    },
+  });
+  return { ok: true, kind: "queued", rel, rows: ids.length };
+}
+
+/**
+ * Has the queued PDF landed yet?
+ *
+ * The path is re-derived from the session's workspace rather than trusted from
+ * the client: `rel` comes back to us as a string, and a string a browser can
+ * edit must never become a filesystem read on another tenant's export.
+ */
+export async function exportReady(rel: string): Promise<{ ready: boolean }> {
+  const { workspaceId } = await getActiveContext();
+  if (!rel.startsWith(`exports/${workspaceId}-leads-`) || rel.includes("..")) {
+    return { ready: false };
+  }
+  try {
+    await stat(join(process.env.FILES_DIR ?? "/data/files", rel));
+    return { ready: true };
+  } catch {
+    return { ready: false };
+  }
 }

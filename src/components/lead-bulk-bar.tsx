@@ -8,9 +8,17 @@ import {
   bulkChangeStage,
   bulkDeleteLeads,
   bulkEditSignals,
-  bulkExportCsv,
+  bulkExport,
+  exportReady,
   resolveBulkSelection,
 } from "@/modules/leads/bulk-actions";
+import {
+  EXPORT_FORMATS,
+  FORMAT_LABEL,
+  FORMAT_HINT,
+  MAX_EXPORT_ROWS,
+  type ExportFormat,
+} from "@/modules/leads/export-formats";
 import { BULK_BATCH_SIZE, chunk, mergeBulkResults, type BulkResult } from "@/modules/leads/bulk";
 import { useUndo } from "./undo-toast";
 import { STAGE_LABELS } from "@/modules/pipeline/transitions";
@@ -31,6 +39,17 @@ import { Modal } from "./modal";
  */
 
 type Action = "stage" | "signals" | "owner" | "delete" | "export" | null;
+
+/** Save a base64 payload the server built, without a round trip through a URL. */
+function saveBase64(base64: string, filename: string, mime: string): void {
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const STAGES = Object.keys(STAGE_LABELS) as Array<keyof typeof STAGE_LABELS>;
 
@@ -74,6 +93,8 @@ export function LeadBulkBar({
   const [addTags, setAddTags] = useState("");
   const [removeTags, setRemoveTags] = useState("");
   const [ownerId, setOwnerId] = useState<string>("");
+  /** Which format row is highlighted; the click is what actually exports. */
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("xlsx");
 
   const count = allMatching ? matchingTotal : ids.length;
   const everyRowOnPageSelected = pageIds.length > 0 && pageIds.every((id) => ids.includes(id));
@@ -126,7 +147,20 @@ export function LeadBulkBar({
     }
   }
 
-  async function runExport() {
+  /**
+   * Export the selection in one of three formats.
+   *
+   * ── WHY THE BATCHING CHANGED ────────────────────────────────────────────
+   *
+   * CSV used to be fetched in batches and stitched together in the browser by
+   * dropping every header row after the first. That works for a line-based
+   * format and for nothing else: an XLSX is a ZIP container and a PDF is a
+   * document, and neither can be concatenated. So a selection is resolved
+   * here, and the whole thing is built server-side in one pass — which is also
+   * where the row cap lives, because a browser assembling a 40MB spreadsheet
+   * from fragments was never a good idea.
+   */
+  async function runExport(format: ExportFormat) {
     setError(null);
     try {
       const targets = allMatching ? await resolveBulkSelection(filters) : ids;
@@ -134,30 +168,48 @@ export function LeadBulkBar({
         setError("Nothing selected.");
         return;
       }
-      const batches = chunk(targets, BULK_BATCH_SIZE);
-      const parts: string[] = [];
-      setProgress({ done: 0, total: targets.length });
-      for (const [i, batch] of batches.entries()) {
-        const res = await bulkExportCsv({ ids: batch, columns });
-        if (!res.ok) {
-          setError(res.error);
-          return;
-        }
-        // Only the first batch contributes the header row.
-        parts.push(i === 0 ? res.csv : res.csv.split("\n").slice(1).join("\n"));
-        setProgress((p) => ({ done: (p?.done ?? 0) + batch.length, total: targets.length }));
+      if (targets.length > MAX_EXPORT_ROWS) {
+        setError(
+          `That is ${targets.length} leads; the export limit is ${MAX_EXPORT_ROWS}. ` +
+            `Narrow the filter and export in parts.`,
+        );
+        return;
       }
 
-      // A BOM so Excel opens Hungarian accents correctly instead of mojibake.
-      const blob = new Blob(["﻿" + parts.filter(Boolean).join("\n")], {
-        type: "text/csv;charset=utf-8",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      setProgress({ done: 0, total: targets.length });
+      const subtitle = allMatching
+        ? `${targets.length} leads · all matching the current filter`
+        : `${targets.length} selected lead${targets.length === 1 ? "" : "s"}`;
+      const res = await bulkExport({ ids: targets, columns, format, subtitle });
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+
+      if (res.kind === "inline") {
+        saveBase64(res.base64, res.filename, res.mime);
+        setProgress({ done: targets.length, total: targets.length });
+      } else {
+        // The PDF is rendered by the worker (Chromium lives only there), so we
+        // wait for the file rather than for the response.
+        setProgress({ done: 0, total: targets.length });
+        const started = Date.now();
+        let ready = false;
+        while (Date.now() - started < 90_000) {
+          await new Promise((r) => setTimeout(r, 1500));
+          if ((await exportReady(res.rel)).ready) {
+            ready = true;
+            break;
+          }
+        }
+        if (!ready) {
+          setError(
+            "The PDF is taking longer than expected. It is still rendering in the background — try the export again in a moment.",
+          );
+          return;
+        }
+        window.open(`/api/files/${res.rel}`, "_blank", "noopener");
+      }
 
       setSummary({ applied: targets.length, skipped: [], note: "exported" });
       close();
@@ -243,9 +295,9 @@ export function LeadBulkBar({
             disabled={!canExport}
             title={canExport ? undefined : "Needs the exports.run grant"}
             data-testid="bulk-export"
-            onClick={runExport}
+            onClick={() => setAction("export")}
           >
-            Export CSV
+            Export
           </button>
           <button
             type="button"
@@ -299,6 +351,7 @@ export function LeadBulkBar({
               {action === "signals" && "edit signals"}
               {action === "owner" && "assign owner"}
               {action === "delete" && "delete leads"}
+              {action === "export" && "export leads"}
             </h3>
             <button onClick={close} className="ml-auto text-muted hover:text-ink">
               ✕
@@ -402,6 +455,35 @@ export function LeadBulkBar({
             </select>
           )}
 
+          {action === "export" && (
+            <div className="mb-3 grid gap-2">
+              {EXPORT_FORMATS.map((f) => (
+                <button
+                  key={f}
+                  data-testid={`export-format-${f}`}
+                  disabled={!!progress}
+                  onClick={() => void runExport(f)}
+                  className={`rounded-[11px] border px-3.5 py-3 text-left transition-colors disabled:opacity-60 ${
+                    exportFormat === f
+                      ? "border-accent bg-accent-soft"
+                      : "border-line bg-panel-2 hover:border-accent"
+                  }`}
+                  onMouseEnter={() => setExportFormat(f)}
+                  onFocus={() => setExportFormat(f)}
+                >
+                  <b className="block text-[13px]">{FORMAT_LABEL[f]}</b>
+                  <span className="mt-0.5 block text-[11.5px] leading-relaxed text-muted">
+                    {FORMAT_HINT[f]}
+                  </span>
+                </button>
+              ))}
+              <p className="text-[11.5px] leading-relaxed text-muted">
+                Exports the columns currently on screen, in the order they are on
+                screen. Every export is recorded in the audit log.
+              </p>
+            </div>
+          )}
+
           {action === "delete" && (
             <p className="mb-3 rounded-[10px] border border-[rgba(255,92,122,0.35)] bg-[rgba(255,92,122,0.1)] px-3 py-2.5 text-[12.5px] text-[#FFB3C2]">
               This erases {count} lead{count === 1 ? "" : "s"} and the data
@@ -415,6 +497,9 @@ export function LeadBulkBar({
               Cancel
             </button>
             <button
+              // The export dialog's three format buttons ARE its confirm: a
+              // fourth button after them would ask "which format?" twice.
+              hidden={action === "export"}
               data-testid="bulk-confirm"
               disabled={
                 !!progress ||

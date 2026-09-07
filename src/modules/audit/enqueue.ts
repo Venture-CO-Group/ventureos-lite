@@ -60,3 +60,27 @@ export async function enqueueAnalyticsPdf(data: AnalyticsPdfJobData): Promise<vo
     removeOnFail: 50,
   });
 }
+
+/**
+ * Branded lead-list PDF (rides the shared PDF queue).
+ *
+ * Only the lead IDS travel. A thousand rows of contact details in a Redis
+ * payload is personal data sitting in a queue backlog with a retention story of
+ * its own; the worker re-reads them from the database, which costs one query
+ * and keeps erasure meaning what it says.
+ */
+export interface LeadsPdfEnqueueData {
+  workspaceId: string;
+  rel: string;
+  ids: string[];
+  columns: string[];
+  meta: { subtitle: string; exportedAt: string; exportedBy: string };
+}
+
+export async function enqueueLeadsPdf(data: LeadsPdfEnqueueData): Promise<void> {
+  await pdfsQueue().add("leads-pdf", data, {
+    jobId: `leads-${data.rel}`,
+    removeOnComplete: true,
+    removeOnFail: 50,
+  });
+}

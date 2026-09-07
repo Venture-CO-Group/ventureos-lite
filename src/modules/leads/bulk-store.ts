@@ -26,7 +26,14 @@ import { eraseLeadData } from "@/modules/gdpr/erase";
 import { canQualify, type Qualification } from "../inbox/qualification";
 import { requiresReason } from "../pipeline/transitions";
 import { applyFilters, type FilterSet } from "./filters";
-import { addSignals, buildLeadsCsv, planStageChange, type BulkResult, type SkippedLead } from "./bulk";
+import {
+  addSignals,
+  buildLeadsCsv,
+  planStageChange,
+  type BulkResult,
+  type CsvLead,
+  type SkippedLead,
+} from "./bulk";
 import { removeSignals } from "./bulk";
 import { matchingLeadIds } from "./table";
 
@@ -274,11 +281,19 @@ export async function deleteLeadsBulk(
 
 // ---- export --------------------------------------------------------------
 
-export async function exportLeadsCsv(
+/**
+ * The rows an export is built from, and the field definitions that give the
+ * Owner-defined columns their labels.
+ *
+ * Split out from `exportLeadsCsv` because CSV is no longer the only
+ * destination: the spreadsheet and the branded PDF need exactly these rows,
+ * and fetching them three slightly different ways is how three exports of the
+ * same selection end up disagreeing with each other.
+ */
+export async function loadLeadsForExport(
   workspaceId: string,
   ids: string[],
-  columns: string[],
-): Promise<string> {
+): Promise<{ leads: CsvLead[]; customFields: Awaited<ReturnType<typeof listFieldDefsWith>> }> {
   const db = getWorkspaceClient(workspaceId);
   const rows = await db.lead.findMany({
     where: { id: { in: ids } },
@@ -313,8 +328,8 @@ export async function exportLeadsCsv(
     : [];
   const ownerNames = new Map(owners.map((o) => [o.id, o.name]));
 
-  return buildLeadsCsv(
-    rows.map((r) => ({
+  return {
+    leads: rows.map((r) => ({
       id: r.id,
       contactName: r.contactName,
       title: r.title,
@@ -332,9 +347,17 @@ export async function exportLeadsCsv(
       lastActivityAt: r.lastActivityAt,
       createdAt: r.createdAt,
     })),
-    columns,
     customFields,
-  );
+  };
+}
+
+export async function exportLeadsCsv(
+  workspaceId: string,
+  ids: string[],
+  columns: string[],
+): Promise<string> {
+  const { leads, customFields } = await loadLeadsForExport(workspaceId, ids);
+  return buildLeadsCsv(leads, columns, customFields);
 }
 
 /** Re-exported so the actions layer has one import for the whole feature. */
