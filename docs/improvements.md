@@ -20,6 +20,8 @@ releváns).
 | 1.1 | Audit-súlyok egyesítése | ✅ `overallFromCategories` a fejszám, 8 kategória, kalibrált verdikt-sávok, Settings panel |
 | 1.2 | Képernyőkép-összevetés | ✅ csúszkás előtte/utána nézet |
 | 1.3 | Audit → task tábla | ✅ `createBoardFromAudit`, quadránsokból szekciók |
+| 1.4 | Crawl mód a riportban | ✅ a belső nézetben és a kliens-PDF-ben is („renderelt" / „statikus") |
+| 1.5 | PageSpeed kvóta-fogyás | ✅ napi hívásszám + kvóta-százalék + van-e kulcs, a Költségek panelen |
 | 2.1 | Ütemezett export | ✅ `ScheduledExport`, óránkénti sweep, `nextRunAt` előre írva |
 | 2.2 | Bulk egyedi mező | ✅ soronkénti merge, mert az `updateMany` felülírná a JSON-t |
 | 2.3 | Duplikátum-elutasítás | ✅ `DuplicateDismissal`, „nem duplikátum" / „mégis az" |
