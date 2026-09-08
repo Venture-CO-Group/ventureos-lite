@@ -20,10 +20,15 @@ export { GrantError, grantAllowed };
 async function membershipOf() {
   const ctx = await tryGetActiveContext();
   if (!ctx) return null;
-  return prismaUnsafe.membership.findUnique({
+  const membership = await prismaUnsafe.membership.findUnique({
     where: { userId_workspaceId: { userId: ctx.userId, workspaceId: ctx.workspaceId } },
-    select: { role: true, grants: true },
+    select: { role: true, grants: true, suspendedAt: true },
   });
+  // Belt and braces. `tryGetActiveContext` already refuses to resolve a
+  // suspended membership, so this should be unreachable — but authorization is
+  // the wrong place to rely on somebody else having checked.
+  if (!membership || membership.suspendedAt) return null;
+  return membership;
 }
 
 export async function hasGrant(grant: string): Promise<boolean> {

@@ -7,7 +7,10 @@ test.afterAll(async () => {
   const ws = await prisma.workspace.findFirst({ orderBy: { createdAt: "asc" } });
   const flags = (ws?.featureFlags ?? {}) as Record<string, unknown>;
   delete flags.hiddenNav;
-  await prisma.workspace.update({ where: { id: ws!.id }, data: { featureFlags: flags } });
+  await prisma.workspace.update({
+    where: { id: ws!.id },
+    data: { featureFlags: flags as never },
+  });
   await prisma.$disconnect();
 });
 

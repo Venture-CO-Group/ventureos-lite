@@ -119,8 +119,12 @@ export async function attemptLogin(input: LoginInput): Promise<LoginOutcome> {
   }
 
   // ---- success -------------------------------------------------------------
+  // A suspended membership is not one you can sign into. Somebody stood down
+  // everywhere is refused here rather than admitted to a session that
+  // `tryGetActiveContext` would then refuse to resolve — which would have
+  // looked, from the login form, like a successful sign-in that bounced.
   const membership = await prismaUnsafe.membership.findFirst({
-    where: { userId: user.id },
+    where: { userId: user.id, suspendedAt: null },
     orderBy: { createdAt: "asc" },
     select: { workspaceId: true },
   });
@@ -128,7 +132,7 @@ export async function attemptLogin(input: LoginInput): Promise<LoginOutcome> {
     return {
       ok: false,
       code: "no_workspace",
-      message: "Your account has no workspace. Ask an Owner to add you to one.",
+      message: "Your account has no active workspace. Ask an Owner to add you to one.",
     };
   }
 

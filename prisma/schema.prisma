@@ -352,6 +352,16 @@ model Membership {
   workspaceId String    @map("workspace_id")
   role        Role      @default(BDR)
   grants      Json      @default("[]") // string[] of capability grants (portable as Json)
+  /// Access to THIS workspace is paused.
+  ///
+  /// Per membership rather than per user, because a person can belong to
+  /// several workspaces and being stood down from one says nothing about the
+  /// others. Suspension is the honest middle ground between doing nothing and
+  /// deleting somebody: an account that is removed takes its history's author
+  /// with it, and "who wrote this note" is a question people ask months later.
+  suspendedAt DateTime? @map("suspended_at")
+  /// Who suspended them, for the audit trail the log also carries.
+  suspendedBy String?   @map("suspended_by")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -21,18 +21,30 @@ export interface ActiveContext {
  * here; background jobs pass their workspace id explicitly instead.)
  *
  * TENANCY INVARIANT: the returned workspace is ALWAYS one the user is a member
- * of. A session pointing at a workspace the user no longer belongs to is
- * ignored and repaired to one of their own memberships — a workspace switch can
- * never cross into another tenant. Enforced here, on top of the Prisma guard
- * and RLS.
+ * of, and is not suspended. A session pointing at a workspace the user no
+ * longer belongs to — or has been stood down from — is ignored and repaired to
+ * one of their own live memberships; a workspace switch can never cross into
+ * another tenant. Enforced here, on top of the Prisma guard and RLS.
  */
 export async function tryGetActiveContext(): Promise<ActiveContext | null> {
   const token = await currentSessionToken();
   const session = await resolveSession(token);
   if (!session) return null;
 
+  /**
+   * Suspended memberships are not memberships.
+   *
+   * Enforced HERE rather than only at sign-in, because a suspension has to bite
+   * a session that already exists — somebody stood down at 14:00 with a browser
+   * open must not keep reading the workspace until their token expires. Every
+   * authenticated path in the product passes through this function, so this is
+   * the one place that makes it true everywhere.
+   *
+   * A user suspended from their ONLY workspace resolves to no context at all,
+   * which the caller turns into a redirect to /login.
+   */
   const memberships = await prismaUnsafe.membership.findMany({
-    where: { userId: session.userId },
+    where: { userId: session.userId, suspendedAt: null },
     orderBy: { createdAt: "asc" },
     select: { workspaceId: true },
   });

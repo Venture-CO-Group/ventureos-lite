@@ -243,7 +243,7 @@ export function CommandPalette({ hiddenNav = [] }: { hiddenNav?: string[] }) {
     // Entities first when there are any: someone typing a person's name wants
     // the person, not the verb that happens to share a letter with it.
     return [...hitRows, ...actionRows];
-  }, [q, hits, recents, router, openDialog, rememberRecent]);
+  }, [q, hits, recents, router, openDialog, rememberRecent, visible]);
 
   useEffect(() => setActive(0), [q]);
 

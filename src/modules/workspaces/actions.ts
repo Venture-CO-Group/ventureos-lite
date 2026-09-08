@@ -188,9 +188,11 @@ export async function switchWorkspace(
   const { userId, sessionId } = await getActiveContext();
   const member = await prismaUnsafe.membership.findUnique({
     where: { userId_workspaceId: { userId, workspaceId } },
-    select: { id: true },
+    select: { id: true, suspendedAt: true },
   });
-  if (!member) return { ok: false, error: "You are not a member of that workspace." };
+  if (!member || member.suspendedAt) {
+    return { ok: false, error: "You do not have access to that workspace." };
+  }
   await setSessionWorkspace(sessionId, workspaceId);
   revalidatePath("/", "layout");
   return { ok: true };
