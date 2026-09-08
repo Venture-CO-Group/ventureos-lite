@@ -1,9 +1,11 @@
 import { SettingsShell } from "@/components/settings-shell";
 import { SettingsUsers } from "@/components/settings-users";
+import { SettingsInvitations } from "@/components/settings-invitations";
 import { SettingsGrants } from "@/components/settings-grants";
 import { requireSuperAdminPage } from "../gate";
 import { listWorkspaceUsers, listClientCompanies } from "@/modules/users/actions";
 import { listMembers } from "@/modules/settings/actions";
+import { getInvitations } from "@/modules/members/actions";
 import { getSecurityStatus } from "@/modules/auth/actions";
 import { isOwner } from "@/lib/authz";
 
@@ -29,6 +31,7 @@ export default async function AdminMembersPage() {
   // company with no project and no finalized document logs in to an empty
   // page, which reads as a broken feature (P6/6.3).
   const clientCompanies = owner ? await listClientCompanies() : [];
+  const invitations = owner ? await getInvitations() : [];
 
   return (
     <SettingsShell
@@ -37,6 +40,9 @@ export default async function AdminMembersPage() {
       title="members &amp; teams"
       description="Who is in this workspace, what they may do, and how they leave."
     >
+      {owner && (
+        <SettingsInvitations invitations={invitations} clientCompanies={clientCompanies} />
+      )}
       {owner ? (
         <SettingsUsers
           users={managedUsers}

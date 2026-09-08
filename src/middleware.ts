@@ -37,6 +37,16 @@ type Surface = keyof typeof SURFACES;
 const PUBLIC_PREFIXES = [
   "/login",
   "/reset", // one-time password reset links (the token is the credential)
+  /**
+   * Invitation acceptance (§2).
+   *
+   * Public by necessity: this is somebody's first contact with the product and
+   * they have no session to gate on. The token is the credential, on exactly
+   * the same terms as `/reset` — 256 bits, hashed at rest, single-use, seven
+   * days — and the page tells a revoked link nothing a link nobody issued
+   * would not also be told.
+   */
+  "/invite",
   "/api/auth", // Auth.js endpoints
   "/api/health", // container + proxy probes
   "/api/cold/unsubscribe", // one-click unsubscribe in cold mail
