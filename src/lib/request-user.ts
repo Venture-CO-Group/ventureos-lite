@@ -23,16 +23,16 @@ import { AsyncLocalStorage } from "node:async_hooks";
  * ever ADD a condition to a workspace that the session already resolved, so the
  * worst a leaked id could do is refuse a query that should have succeeded.
  */
-const store = new AsyncLocalStorage<{ userId: string }>();
+const store = new AsyncLocalStorage<{ userId: string; role: string | null }>();
 
 /**
  * Called once per request, from the session lookup every authenticated path
  * already goes through. `enterWith` rather than `run` because the session
  * lookup does not own the continuation — the framework does.
  */
-export function setRequestUser(userId: string): void {
+export function setRequestUser(userId: string, role: string | null = null): void {
   try {
-    store.enterWith({ userId });
+    store.enterWith({ userId, role });
   } catch {
     // A runtime without async_hooks support degrades to workspace-only scoping.
   }
@@ -42,6 +42,29 @@ export function setRequestUser(userId: string): void {
 export function getRequestUser(): string | null {
   try {
     return store.getStore()?.userId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The acting membership's role, or null in a background job (P6/6.3).
+ *
+ * Carried here for one reason: the Prisma tenant guard needs it to refuse
+ * writes from a read-only CLIENT, and the guard is built from a workspace id
+ * with no user in sight.
+ *
+ * ── AND WHY A MISSING VALUE IS NOT A HOLE ───────────────────────────────────
+ *
+ * Null means "not a request" — a worker job, a seed script — and those are
+ * allowed to write, exactly as before. That is safe because a CLIENT cannot
+ * reach a worker job: the only way this returns "CLIENT" is a session the
+ * session lookup resolved, and the only way it returns null on a REQUEST is a
+ * runtime without async_hooks, where nobody is signed in as anything either.
+ */
+export function getRequestRole(): string | null {
+  try {
+    return store.getStore()?.role ?? null;
   } catch {
     return null;
   }

@@ -9,6 +9,33 @@ meglévőre épül · **[K]** = kockázat, ami ma csendben van jelen
 
 ---
 
+## Állapot — 2026-09-08, a lista végrehajtása után
+
+A **4. blokk kivételével minden tétel elkészült** (a 4. — e-aláírás, fizetési
+emlékeztetők, ajánlat-verzió összevetés — a megbízó szerint most nem
+releváns).
+
+| # | Tétel | Állapot |
+|---|---|---|
+| 1.1 | Audit-súlyok egyesítése | ✅ `overallFromCategories` a fejszám, 8 kategória, kalibrált verdikt-sávok, Settings panel |
+| 1.2 | Képernyőkép-összevetés | ✅ csúszkás előtte/utána nézet |
+| 1.3 | Audit → task tábla | ✅ `createBoardFromAudit`, quadránsokból szekciók |
+| 2.1 | Ütemezett export | ✅ `ScheduledExport`, óránkénti sweep, `nextRunAt` előre írva |
+| 2.2 | Bulk egyedi mező | ✅ soronkénti merge, mert az `updateMany` felülírná a JSON-t |
+| 2.3 | Duplikátum-elutasítás | ✅ `DuplicateDismissal`, „nem duplikátum" / „mégis az" |
+| 3.1–3.5 | Task: függőségek, ismétlődés, sablonok, „az én munkám", csatolmányok | ✅ ciklus-védelem, utód a lezárásnál, allowlistás feltöltés |
+| **4** | **Dokumentumok és pénz** | ⏸️ **most nem releváns** |
+| 5.1 | 2FA munkaterület-szintű kikényszerítés | ✅ `featureFlags.security.require2fa`, két külön indoklás |
+| 5.2 | Kimenő webhookok | ✅ 9 esemény, HMAC aláírás, SSRF-kapu, kör-megszakító |
+| 5.3 | Audit log export + megőrzés | ✅ CSV kivonat (naplózva), 90–3650 nap, éjszakai sweep nyommal |
+| 5.4 | Visszaállítási próba | ✅ `scripts/restore-drill.sh` + `docs/restore-drill.md` |
+| 6.1 | Munkaterület-sablonok | ✅ 10 beállítás-csoport, zárt lista, `NEVER_COPIED` teszttel |
+| 6.2 | `PUBLIC_INTAKE_WORKSPACE_ID` | ✅ figyelmeztetés kirakva (korábbi kör) |
+| 6.3 | Kliens-hozzáférés (read-only) | ✅ `CLIENT` szerep, portál, írás-tilalom a Prisma guardban |
+| 6.4 | Meghívó e-mailben | ✅ külön gomb, tranzakciós domain, kifejezett kattintásra |
+
+---
+
 ## 1. Site Audit
 
 ### 1.1 A pontszám 33 ellenőrzésből 13-at vesz figyelembe **[M]**

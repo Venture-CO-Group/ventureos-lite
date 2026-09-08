@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tryGetActiveContextOrThrow } from "@/lib/session";
 import { resolveFileWorkspace } from "@/lib/file-owner";
+import { isClientRole } from "@/lib/grants";
+import { clientMayReadFile } from "@/modules/portal/file-access";
 
 /**
  * Authenticated file serving for the /data/files volume (CLAUDE.md: files
@@ -33,8 +35,10 @@ export async function GET(
   if (limited) return limited;
 
   let workspaceId: string;
+  let userId: string;
+  let role: string;
   try {
-    ({ workspaceId } = await tryGetActiveContextOrThrow());
+    ({ workspaceId, userId, role } = await tryGetActiveContextOrThrow());
   } catch {
     return new Response("Unauthorized", { status: 401 });
   }
@@ -47,6 +51,18 @@ export async function GET(
   // (404) on unknown paths or cross-workspace requests — never leak existence.
   const owner = await resolveFileWorkspace(rel);
   if (owner === null || owner !== workspaceId) {
+    return new Response("Not found", { status: 404 });
+  }
+
+  /**
+   * A client is a member, and workspace ownership alone is not enough for them
+   * (P6/6.3).
+   *
+   * Without this, a read-only client account could fetch another client's
+   * contract, or every audit screenshot in the workspace, by path — the check
+   * above would happily agree that all of it belongs to their workspace.
+   */
+  if (isClientRole(role) && !(await clientMayReadFile(workspaceId, userId, rel))) {
     return new Response("Not found", { status: 404 });
   }
 

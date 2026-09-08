@@ -89,6 +89,14 @@ export const DOCUMENT_GRANTS: Grant[] = [
  * delete a lead at all — daily work, gated as if it were a legal document.
  */
 export function grantAllowed(role: string, grants: string[], grant: string): boolean {
+  /**
+   * A client carries nothing, and cannot be given anything (P6/6.3).
+   *
+   * Checked FIRST, before the explicit-grants list is even read, so a stray
+   * entry in a CLIENT membership's `grants` array — set by hand, or left behind
+   * by a role change — cannot hand a read-only account a capability.
+   */
+  if (role === "CLIENT") return false;
   if (role === "OWNER" || role === "ADMIN") return true;
   // An explicit revocation beats the role default. Without this, a capability
   // a BDR carries implicitly could never be taken back: the grants UI rendered
@@ -127,6 +135,7 @@ export function isDenyToken(entry: string): boolean {
  * away.
  */
 export function grantIsImplicit(role: string, grant: string): boolean {
+  if (role === "CLIENT") return false;
   if (role === "OWNER" || role === "ADMIN") return true;
   return role === "BDR" && !DOCUMENT_GRANTS.includes(grant as Grant);
 }
@@ -136,12 +145,53 @@ export function grantIsImplicit(role: string, grant: string): boolean {
  *
  * Gates the shared furniture: curating saved lead views, approving content,
  * running the prospect backfill, seeing the Owner-only notification types.
- * Every role that exists today qualifies — the predicate stays because the
- * answer belongs in ONE place, so a read-only role can be introduced later with
- * a single edit rather than a hunt through five files.
+ * The comment here used to say that a read-only role could be introduced later
+ * with a single edit rather than a hunt through five files. That turned out to
+ * be true, and this is the edit: CLIENT does not qualify (P6/6.3).
  */
 export function isTrustedMember(role: string | null | undefined): boolean {
   return role === "OWNER" || role === "ADMIN" || role === "BDR";
+}
+
+/**
+ * A read-only client account (P6/6.3).
+ *
+ * Not a smaller BDR. A CLIENT sees ONE company's delivery — its projects,
+ * milestones and finalized documents — and nothing else in the workspace. This
+ * predicate is what the shell branches on; the guarantees are enforced
+ * elsewhere and do not depend on it:
+ *
+ *   - `grantAllowed` hands a CLIENT no capability, ever;
+ *   - the Prisma tenant guard refuses every write on every business table;
+ *   - the portal resolves the ONE company from the membership.
+ *
+ * Three independent checks, so forgetting one of them in a future screen
+ * narrows what a client can see rather than widening it.
+ */
+export function isClientRole(role: string | null | undefined): boolean {
+  return role === "CLIENT";
+}
+
+/**
+ * The only paths a client account may render.
+ *
+ * `/portal` matches its sub-routes too, because the portal will grow pages and
+ * each one would otherwise be a silent redirect nobody notices in testing.
+ *
+ * `/settings` and `/enroll-2fa` match EXACTLY. A client needs to change their
+ * own password and register an authenticator — refusing that would make a
+ * workspace-wide 2FA policy impossible for them to satisfy — but `/settings`
+ * has sub-pages (`/settings/admin`, `/settings/workspaces`) that are somebody
+ * else's business, and an exact match is the difference between "your profile"
+ * and "a list of the workspaces you can see".
+ */
+export const CLIENT_PORTAL_PREFIX = "/portal";
+export const CLIENT_ALLOWED_EXACT: readonly string[] = ["/settings", "/enroll-2fa"];
+
+export function clientMayVisit(path: string | undefined): boolean {
+  if (!path) return false;
+  if (path === CLIENT_PORTAL_PREFIX || path.startsWith(`${CLIENT_PORTAL_PREFIX}/`)) return true;
+  return CLIENT_ALLOWED_EXACT.includes(path);
 }
 
 /** Raised when a server-side mutation is attempted without its capability. */

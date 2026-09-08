@@ -48,6 +48,12 @@ const ACTION_LABEL: Record<string, string> = {
   "webhook.disabled": "webhook kikapcsolva",
   "webhook.secret_rotated": "webhook titok újragenerálva",
   "webhook.deleted": "webhook törölve",
+  "workspace.settings_copied": "beállítások átmásolva",
+  "workspace.settings_copied_from": "beállítások innen átmásolva",
+  "user.role_changed": "szerepkör módosítva",
+  "user.invited": "meghívó kiadva",
+  "user.invite_emailed": "meghívó e-mailben elküldve",
+  "portal.document_opened": "kliens megnyitott egy dokumentumot",
 };
 
 function when(iso: string): string {

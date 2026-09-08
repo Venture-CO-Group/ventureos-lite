@@ -33,7 +33,7 @@ import { listProjectTemplates } from "@/modules/projects/actions";
 import { getQuoteRulesView } from "@/modules/quote-rules/actions";
 import { listTargets } from "@/modules/targets/actions";
 import { getSecurityStatus } from "@/modules/auth/actions";
-import { listWorkspaceUsers } from "@/modules/users/actions";
+import { listClientCompanies, listWorkspaceUsers } from "@/modules/users/actions";
 import { getIntegrations } from "@/modules/integrations/actions";
 import { getHealthRules } from "@/modules/revenue/health-actions";
 import { getWorkspaceBrand } from "@/modules/workspaces/brand-actions";
@@ -94,6 +94,9 @@ export default async function AdminSettingsPage() {
     ]);
   // Owner-only; listWorkspaceUsers throws for anyone else, so only ask when owner.
   const managedUsers = owner ? await listWorkspaceUsers() : [];
+  // Only companies with something to show — a client pointed at a company with
+  // no project and no finalized document would log in to an empty page (P6/6.3).
+  const clientCompanies = owner ? await listClientCompanies() : [];
   const integrations = owner ? await getIntegrations() : null;
   const szamlazzKeySet = await hasSzamlazzKey();
   const { workspaceId } = await getActiveContext();
@@ -162,6 +165,7 @@ export default async function AdminSettingsPage() {
           <SettingsUsers
             users={managedUsers}
             minPasswordLength={securityStatus.minPasswordLength}
+            clientCompanies={clientCompanies}
           />
         )}
         {integrations && <SettingsIntegrations data={integrations} />}

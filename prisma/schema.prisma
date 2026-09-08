@@ -29,6 +29,18 @@ enum Role {
   OWNER
   ADMIN
   BDR
+  /// Read-only client access (P6/6.3).
+  ///
+  /// Not a smaller BDR. A CLIENT sees ONE company's delivery — its projects,
+  /// milestones and finalized documents — and nothing else in the workspace.
+  /// No leads, no pipeline, no other client. The `clientCompanyId` on the
+  /// membership says which company, and a CLIENT membership without one can
+  /// see nothing at all, which is the safe direction to be wrong in.
+  ///
+  /// Enforced in three places, deliberately: the grant resolver hands a CLIENT
+  /// no capability, the Prisma tenant guard refuses every write, and the shell
+  /// will not render a page outside the portal.
+  CLIENT
 }
 
 enum LeadSource {
@@ -352,6 +364,13 @@ model Membership {
   workspaceId String    @map("workspace_id")
   role        Role      @default(BDR)
   grants      Json      @default("[]") // string[] of capability grants (portable as Json)
+  /// Which company this CLIENT may see. Meaningless for every other role.
+  ///
+  /// Not a relation: `Company` is a guarded business table and `Membership` is
+  /// a global one, so a foreign key between them would be the only edge in the
+  /// schema crossing that line. The portal resolves it through the guarded
+  /// client, which re-checks the workspace anyway.
+  clientCompanyId String? @map("client_company_id")
   /// Access to THIS workspace is paused.
   ///
   /// Per membership rather than per user, because a person can belong to

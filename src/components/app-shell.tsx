@@ -6,6 +6,7 @@ import type { BudgetStatus } from "@/lib/ai/budget-status";
 import { NotificationBell } from "./notification-bell";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 import { isHrefHidden } from "@/modules/workspaces/nav-visibility";
+import { clientMayVisit, isClientRole } from "@/lib/grants";
 import { MobileNav, type MobileNavItem } from "./mobile-nav";
 import { GlobalSearch } from "./global-search";
 import { Greeting } from "./greeting";
@@ -84,6 +85,17 @@ const NAV: NavItem[] = [
 ];
 
 const SETTINGS_ITEM: NavItem = { label: "Settings", icon: <SettingsIcon />, href: "/settings" };
+
+/**
+ * What a read-only client account sees (P6/6.3).
+ *
+ * Two entries, and that is the feature. A client who can see their own
+ * delivery and their own documents is what makes the delivery side sellable;
+ * a client who can see the sidebar of a sales tool is a support ticket.
+ */
+const CLIENT_NAV: NavItem[] = [
+  { label: "Your project", icon: <ProjectsIcon />, href: "/portal" },
+];
 
 /**
  * The four screens the daily loop runs through (spec §11.10) get a permanent
@@ -203,6 +215,23 @@ export async function AppShell({
   if (shell.enrolmentReason) {
     redirect(`/enroll-2fa?why=${shell.enrolmentReason}`);
   }
+
+  /**
+   * A read-only client account renders the portal and nothing else (P6/6.3).
+   *
+   * Every authenticated screen in the product goes through this shell, so this
+   * is the one place that makes it true for all of them — including a page
+   * added next month that nobody remembered to gate.
+   *
+   * It is a redirect, not a refusal message: "you may not see this" tells
+   * somebody a page exists. And it is the THIRD of three independent checks,
+   * not the only one — `grantAllowed` hands a client no capability and the
+   * Prisma tenant guard refuses every write, so forgetting this one would leak
+   * a read, never a change.
+   */
+  if (isClientRole(shell.role) && !clientMayVisit(activePath)) {
+    redirect("/portal");
+  }
   const active = shell.workspaces.find((w) => w.active);
   const firstName = shell.user.name.split(" ")[0].toLowerCase();
 
@@ -214,7 +243,9 @@ export async function AppShell({
    * reachable and every check behind them is untouched.
    */
   const hidden = new Set(shell.hiddenNav);
-  const nav = NAV.filter((i) => !isHrefHidden(i.href, hidden));
+  const nav = isClientRole(shell.role)
+    ? CLIENT_NAV
+    : NAV.filter((i) => !isHrefHidden(i.href, hidden));
   const allItems = [...nav, SETTINGS_ITEM];
   const icons: Record<string, ReactNode> = Object.fromEntries([
     ...allItems.map((i) => [i.label, i.icon] as const),

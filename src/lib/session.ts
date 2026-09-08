@@ -8,6 +8,8 @@ export interface ActiveContext {
   workspaceId: string;
   userId: string;
   sessionId: string;
+  /** The acting membership's role in `workspaceId` (P6/6.3). */
+  role: string;
 }
 
 /**
@@ -46,28 +48,40 @@ export async function tryGetActiveContext(): Promise<ActiveContext | null> {
   const memberships = await prismaUnsafe.membership.findMany({
     where: { userId: session.userId, suspendedAt: null },
     orderBy: { createdAt: "asc" },
-    select: { workspaceId: true },
+    select: { workspaceId: true, role: true },
   });
   if (memberships.length === 0) return null;
+
+  const memberWsIds = new Map(memberships.map((m) => [m.workspaceId, m.role as string]));
+  const stored = session.workspaceId;
+
+  /**
+   * Which membership is acting, resolved BEFORE anything is published.
+   *
+   * The role has to travel with the user id (P6/6.3): the Prisma tenant guard
+   * refuses writes from a read-only CLIENT and has no other way to learn who is
+   * asking. Publishing the user without the role would leave a window in which
+   * a CLIENT's request looked like a background job — which is allowed to
+   * write.
+   */
+  const workspaceId = stored && memberWsIds.has(stored) ? stored : memberships[0].workspaceId;
+  const role = memberWsIds.get(workspaceId) ?? "BDR";
 
   // Hand the acting user to the row-level-security policies (src/lib/rls.ts).
   // Set here because this is the one place every authenticated path passes
   // through, and because an unset value degrades safely to workspace-only.
-  setRequestUser(session.userId);
+  setRequestUser(session.userId, role);
 
-  const memberWsIds = new Set(memberships.map((m) => m.workspaceId));
-  const stored = session.workspaceId;
-  if (stored && memberWsIds.has(stored)) {
-    return { workspaceId: stored, userId: session.userId, sessionId: session.sessionId };
+  if (workspaceId === stored) {
+    return { workspaceId, userId: session.userId, sessionId: session.sessionId, role };
   }
 
   // Session points nowhere valid (revoked membership, deleted workspace, or a
   // brand-new session): fall back to their own first workspace and repair it.
-  const workspaceId = memberships[0].workspaceId;
   await setSessionWorkspace(session.sessionId, workspaceId).catch(() => {
     /* repair is best-effort; the returned context is already safe */
   });
-  return { workspaceId, userId: session.userId, sessionId: session.sessionId };
+  return { workspaceId, userId: session.userId, sessionId: session.sessionId, role };
 }
 
 /**

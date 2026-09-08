@@ -14,6 +14,7 @@ export type PaletteActionId =
   | "new-task"
   | "import"
   | "go-dashboard"
+  | "go-portal"
   | "go-pipeline"
   | "go-deals"
   | "go-leads"
@@ -108,6 +109,15 @@ export const PALETTE_ACTIONS: PaletteAction[] = [
    * their name, which is what a palette is for.
    */
   { id: "go-projects", label: "Go to Projects", keywords: ["delivery", "milestone", "checklist", "teljesites"], href: "/projects", hint: "g r", group: "navigate" },
+  /**
+   * The client portal (P6/6.3).
+   *
+   * Listed even though staff have no client access: it is a real page, and the
+   * palette-coverage test holds every nav entry to being reachable. An Owner
+   * landing here sees the page explain that it is for client accounts, which is
+   * a more useful answer than a search that finds nothing.
+   */
+  { id: "go-portal", label: "Go to the client portal", keywords: ["client", "portal", "kliens", "delivery"], href: "/portal", group: "navigate" },
   { id: "go-prospector", label: "Go to Prospector", keywords: ["google", "places", "find businesses", "search area"], href: "/prospector", group: "navigate" },
   { id: "go-audit", label: "Go to Site Audit", keywords: ["website", "score", "report"], href: "/audit", group: "navigate" },
   { id: "go-outreach", label: "Go to Outreach", keywords: ["message", "draft", "sequence"], href: "/outreach", group: "navigate" },

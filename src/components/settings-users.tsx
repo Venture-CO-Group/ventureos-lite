@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   createPasswordResetLink,
+  emailInviteLink,
   inviteUser,
   removeMember,
   resetUserTotp,
@@ -86,9 +87,12 @@ function ago(iso: string | null): string {
 export function SettingsUsers({
   users,
   minPasswordLength,
+  clientCompanies = [],
 }: {
   users: ManagedUser[];
   minPasswordLength: number;
+  /** Companies a read-only client account can be pointed at (P6/6.3). */
+  clientCompanies?: { id: string; name: string; projects: number; documents: number }[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -100,6 +104,8 @@ export function SettingsUsers({
   const [statusFilter, setStatusFilter] = useState<"all" | UserStatus>("all");
   const [link, setLink] = useState<{
     user: string;
+    /** Set for an invitation, so the link can also be emailed (P6/6.4). */
+    userId?: string;
     url: string;
     expiresAt: string;
     kind: "reset" | "invite";
@@ -252,18 +258,47 @@ export function SettingsUsers({
                             : undefined
                       }
                       data-testid={`user-role-${u.userId}`}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const role = e.target.value;
+                        /**
+                         * A client account needs a company, and the row's
+                         * dropdown has nowhere to ask for one (P6/6.3).
+                         *
+                         * So a switch TO client sends them to the editor rather
+                         * than firing an action the server would refuse — a
+                         * dropdown that snaps back with an error is how a
+                         * feature gets reported as broken.
+                         */
+                        if (role === "CLIENT") {
+                          setEditing(u);
+                          setMsg({
+                            kind: "ok",
+                            text: "Pick the company this client may see, below.",
+                          });
+                          return;
+                        }
                         run(
-                          () => setUserRole({ userId: u.userId, role: e.target.value }),
-                          `${u.email} is now ${e.target.value}.`,
-                        )
-                      }
+                          () => setUserRole({ userId: u.userId, role }),
+                          `${u.email} is now ${role}.`,
+                        );
+                      }}
                       className="rounded-[7px] border border-line bg-[rgba(0,5,29,0.5)] px-1.5 py-1 text-[11.5px] text-ink outline-none focus:border-accent disabled:opacity-50"
                     >
                       <option value="OWNER">Owner</option>
                       <option value="ADMIN">Admin</option>
                       <option value="BDR">BDR</option>
+                      <option value="CLIENT">Client (read-only)</option>
                     </select>
+                    {u.role === "CLIENT" && (
+                      <span
+                        data-testid={`user-client-company-${u.userId}`}
+                        className="mt-1 block text-[10.5px] text-muted"
+                      >
+                        {u.clientCompanyName ?? (
+                          <b className="text-warn">no company — sees nothing</b>
+                        )}
+                      </span>
+                    )}
                   </td>
 
                   <td className="px-2 py-2.5">
@@ -482,6 +517,7 @@ export function SettingsUsers({
         <EditUser
           user={editing}
           minPasswordLength={minPasswordLength}
+          clientCompanies={clientCompanies}
           pending={pending}
           onClose={() => setEditing(null)}
           onRun={(fn, text) => {
@@ -494,6 +530,7 @@ export function SettingsUsers({
       {inviting && (
         <InviteUser
           pending={pending}
+          clientCompanies={clientCompanies}
           onClose={() => setInviting(false)}
           onInvite={(payload) =>
             startTransition(async () => {
@@ -506,6 +543,7 @@ export function SettingsUsers({
               setInviting(false);
               setLink({
                 user: payload.email,
+                userId: res.userId,
                 url: res.url,
                 expiresAt: res.expiresAt,
                 kind: "invite",
@@ -539,7 +577,7 @@ export function SettingsUsers({
           >
             {link.url}
           </code>
-          <div className="mt-3 flex justify-end gap-2">
+          <div className="mt-3 flex flex-wrap justify-end gap-2">
             <button
               type="button"
               className={BTN}
@@ -547,6 +585,36 @@ export function SettingsUsers({
             >
               Copy
             </button>
+            {/*
+              Emailing it is a SECOND button, not the default (P6/6.4).
+
+              CLAUDE.md hard rule #2 forbids the system sending anything on its
+              own; a person pressing "email it to them" is the explicit action
+              the rule carves out. And an invitation that silently fails to
+              arrive is worse than one the Owner can see, so the link stays on
+              screen either way.
+            */}
+            {link.userId && (
+              <button
+                type="button"
+                className={BTN}
+                disabled={pending}
+                data-testid="email-invite"
+                onClick={() =>
+                  startTransition(async () => {
+                    const res = await emailInviteLink({ userId: link.userId!, url: link.url });
+                    setMsg(
+                      res.ok
+                        ? { kind: "ok", text: `Invitation emailed to ${res.to}.` }
+                        : { kind: "err", text: res.error },
+                    );
+                    if (res.ok) setLink(null);
+                  })
+                }
+              >
+                Email it to them
+              </button>
+            )}
             <button type="button" className={BTN_PRIMARY} onClick={() => setLink(null)}>
               Done
             </button>
@@ -565,14 +633,22 @@ function InviteUser({
   pending,
   onClose,
   onInvite,
+  clientCompanies,
 }: {
   pending: boolean;
   onClose: () => void;
-  onInvite: (input: { email: string; name: string; role: string }) => void;
+  onInvite: (input: {
+    email: string;
+    name: string;
+    role: string;
+    clientCompanyId?: string;
+  }) => void;
+  clientCompanies: { id: string; name: string; projects: number; documents: number }[];
 }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState("BDR");
+  const [clientCompanyId, setClientCompanyId] = useState("");
 
   return (
     <Modal onClose={onClose} labelledBy="invite-title">
@@ -615,7 +691,33 @@ function InviteUser({
           <option value="BDR">BDR — the whole daily job, minus documents</option>
           <option value="ADMIN">Admin — everything except user management</option>
           <option value="OWNER">Owner — everything, including users and billing</option>
+          <option value="CLIENT">Client — read-only, one company&apos;s delivery</option>
         </select>
+        {role === "CLIENT" && (
+          <>
+            <select
+              value={clientCompanyId}
+              onChange={(e) => setClientCompanyId(e.target.value)}
+              data-testid="invite-client-company"
+              className={INPUT}
+            >
+              <option value="">Which company may they see? *</option>
+              {clientCompanies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} — {c.projects} project{c.projects === 1 ? "" : "s"},{" "}
+                  {c.documents} document{c.documents === 1 ? "" : "s"}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11.5px] leading-relaxed text-muted">
+              A client sees that company&apos;s projects and its finalized
+              documents, and nothing else in the workspace — no leads, no
+              pipeline, no other client. They cannot change anything.
+              {clientCompanies.length === 0 &&
+                " No company has a project or a finalized document yet, so there is nothing to give access to."}
+            </p>
+          </>
+        )}
         <p className="text-[11.5px] leading-relaxed text-muted">
           You will get a one-hour link to send them. They set their own password
           from it, so no password is ever typed into a chat window. If they
@@ -624,9 +726,21 @@ function InviteUser({
         <button
           type="button"
           className={BTN_PRIMARY}
-          disabled={pending || !email.trim() || !name.trim()}
+          disabled={
+            pending ||
+            !email.trim() ||
+            !name.trim() ||
+            (role === "CLIENT" && !clientCompanyId)
+          }
           data-testid="invite-submit"
-          onClick={() => onInvite({ email: email.trim(), name: name.trim(), role })}
+          onClick={() =>
+            onInvite({
+              email: email.trim(),
+              name: name.trim(),
+              role,
+              ...(role === "CLIENT" ? { clientCompanyId } : {}),
+            })
+          }
         >
           Invite
         </button>
@@ -645,17 +759,20 @@ function EditUser({
   pending,
   onClose,
   onRun,
+  clientCompanies,
 }: {
   user: ManagedUser;
   minPasswordLength: number;
   pending: boolean;
   onClose: () => void;
   onRun: (fn: () => Promise<{ ok: boolean; error?: string }>, okText: string) => void;
+  clientCompanies: { id: string; name: string; projects: number; documents: number }[];
 }) {
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [password, setPassword] = useState("");
   const [requireChange, setRequireChange] = useState(true);
+  const [clientCompanyId, setClientCompanyId] = useState(user.clientCompanyId ?? "");
 
   return (
     <Modal onClose={onClose} labelledBy="edit-user-title">
@@ -718,6 +835,80 @@ function EditUser({
               }
             >
               Save identity
+            </button>
+          </div>
+        </section>
+
+        {/*
+          Read-only client access (P6/6.3).
+
+          Lives here rather than on the row's dropdown because it needs a
+          second answer — WHICH company — and a role change without one is
+          refused by the server. A client with no company sees nothing, which
+          is the safe direction but reads as a broken feature.
+        */}
+        <section className="rounded-[11px] border border-line p-3" data-testid="client-access">
+          <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
+            Client access
+          </p>
+          <p className="mb-2 text-[11.5px] leading-relaxed text-muted">
+            A client sees one company&apos;s projects and its finalized
+            documents, and nothing else in this workspace — no leads, no
+            pipeline, no other client. They cannot change anything, and every
+            capability is withheld whatever the grants panel says.
+          </p>
+          <div className="grid gap-2">
+            <select
+              value={clientCompanyId}
+              onChange={(e) => setClientCompanyId(e.target.value)}
+              data-testid="edit-client-company"
+              className={INPUT}
+            >
+              <option value="">Not a client</option>
+              {clientCompanies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} — {c.projects} project{c.projects === 1 ? "" : "s"},{" "}
+                  {c.documents} document{c.documents === 1 ? "" : "s"}
+                </option>
+              ))}
+            </select>
+            {clientCompanies.length === 0 && (
+              <p className="text-[11.5px] text-muted">
+                No company has a project or a finalized document yet, so there is
+                nothing to give read-only access to.
+              </p>
+            )}
+            <p className="text-[11.5px] text-warn">
+              Changing this signs them out of every device — a role change has to
+              bite immediately, in both directions.
+            </p>
+            <button
+              type="button"
+              className={BTN_PRIMARY}
+              disabled={pending || user.isSelf || user.isLastOwner}
+              title={
+                user.isSelf
+                  ? "You cannot change your own role."
+                  : user.isLastOwner
+                    ? "The last Owner's role cannot change — promote somebody else first."
+                    : undefined
+              }
+              data-testid="edit-client-save"
+              onClick={() =>
+                onRun(
+                  () =>
+                    setUserRole(
+                      clientCompanyId
+                        ? { userId: user.userId, role: "CLIENT", clientCompanyId }
+                        : { userId: user.userId, role: "BDR" },
+                    ),
+                  clientCompanyId
+                    ? `${user.email} now has read-only client access.`
+                    : `${user.email} is now BDR.`,
+                )
+              }
+            >
+              {clientCompanyId ? "Make them a client" : "Remove client access"}
             </button>
           </div>
         </section>

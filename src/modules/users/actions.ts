@@ -10,6 +10,10 @@ import { requireOwner } from "@/lib/authz";
 import { hashPassword, validatePassword, NO_PASSWORD } from "@/lib/auth/password";
 import { revokeAllUserSessions } from "@/lib/auth/sessions";
 import { appLink } from "@/lib/public-links";
+import { getMailProvider } from "../mail/provider";
+import { brandEmail, brandEmailText } from "../mail/layout";
+import { resolveSendingIdentity } from "../mail/identity";
+import { brandFrom } from "../workspaces/brand";
 import { describeDevice, isLastLiveOwner, statusOf, type UserStatus } from "./status";
 
 /**
@@ -53,6 +57,9 @@ export interface ManagedUser {
   name: string;
   email: string;
   role: string;
+  /** Which company a CLIENT may see, and its name for the panel (P6/6.3). */
+  clientCompanyId: string | null;
+  clientCompanyName: string | null;
   grants: string[];
   status: UserStatus;
   totpEnabled: boolean;
@@ -113,6 +120,26 @@ export async function listWorkspaceUsers(): Promise<ManagedUser[]> {
   // it decides whether the panel offers to remove or suspend an Owner at all.
   const liveOwners = memberships.filter((m) => m.role === "OWNER" && !m.suspendedAt).length;
 
+  /**
+   * The names of the companies client accounts are pointed at (P6/6.3).
+   *
+   * One query for all of them. Through the GUARDED client, so an id left on a
+   * membership after the company was merged away or deleted resolves to nothing
+   * rather than to a stale name — and could never resolve into another tenant.
+   */
+  const clientCompanyIds = [
+    ...new Set(
+      memberships.map((m) => m.clientCompanyId).filter((v): v is string => typeof v === "string"),
+    ),
+  ];
+  const companies = clientCompanyIds.length
+    ? await getWorkspaceClient(workspaceId).company.findMany({
+        where: { id: { in: clientCompanyIds } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const companyName = new Map(companies.map((c) => [c.id, c.name]));
+
   return memberships.map((m) => {
     const hasPassword =
       m.user.passwordHash !== NO_PASSWORD && m.user.passwordHash.length > 1;
@@ -121,6 +148,10 @@ export async function listWorkspaceUsers(): Promise<ManagedUser[]> {
       name: m.user.name,
       email: m.user.email,
       role: m.role,
+      clientCompanyId: m.clientCompanyId,
+      clientCompanyName: m.clientCompanyId
+        ? (companyName.get(m.clientCompanyId) ?? null)
+        : null,
       grants: Array.isArray(m.grants) ? (m.grants as string[]) : [],
       status: statusOf(
         {
@@ -473,7 +504,14 @@ export async function revokeUserSessions(
 // membership: role, suspension, removal, invitation
 // ---------------------------------------------------------------------------
 
-const ROLES = ["OWNER", "ADMIN", "BDR"] as const;
+/**
+ * The roles an Owner may assign.
+ *
+ * CLIENT is read-only client access (P6/6.3) and is not a smaller BDR: it sees
+ * one company's delivery and nothing else. It carries a company id, which is
+ * why the two mutations below take one.
+ */
+const ROLES = ["OWNER", "ADMIN", "BDR", "CLIENT"] as const;
 
 /**
  * How many Owners this workspace still has who can actually sign in.
@@ -503,9 +541,21 @@ export async function setUserRole(
     return { ok: false, error: "Only an Owner can change roles." };
   }
   const parsed = z
-    .object({ userId: z.string().min(1), role: z.enum(ROLES) })
+    .object({
+      userId: z.string().min(1),
+      role: z.enum(ROLES),
+      /** Which company a CLIENT may see. Ignored for every other role. */
+      clientCompanyId: z.string().trim().optional(),
+    })
     .safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Unknown user or role." };
+
+  if (parsed.data.role === "CLIENT" && !parsed.data.clientCompanyId) {
+    // Refused rather than allowed-and-empty. A client account with no company
+    // is an account that logs in to a page saying nothing, and the Owner would
+    // read that as the feature being broken.
+    return { ok: false, error: "Pick the company this client may see." };
+  }
 
   const { workspaceId, userId: actorId } = await getActiveContext();
   const target = await requireMember(parsed.data.userId, workspaceId);
@@ -521,14 +571,38 @@ export async function setUserRole(
 
   await prismaUnsafe.membership.update({
     where: { userId_workspaceId: { userId: target.id, workspaceId } },
-    data: { role: parsed.data.role },
+    data: {
+      role: parsed.data.role,
+      // Cleared when the role is anything else, so a person promoted out of
+      // client access does not leave a stale company id behind on their row.
+      clientCompanyId:
+        parsed.data.role === "CLIENT" ? (parsed.data.clientCompanyId ?? null) : null,
+      // And a client carries no capabilities at all. `grantAllowed` already
+      // refuses them, but leaving the array populated would make the grants
+      // panel show ticks that mean nothing.
+      ...(parsed.data.role === "CLIENT" ? { grants: [] } : {}),
+    },
   });
+  /**
+   * Every session they have open is revoked.
+   *
+   * A role change has to bite now, in both directions. Somebody demoted to
+   * client access at 14:00 with the pipeline open would otherwise keep reading
+   * it — the shell resolves the role per request, so the next navigation would
+   * catch it, but "the next navigation" is not a guarantee.
+   */
+  const revoked = await revokeAllUserSessions(target.id);
   await audit({
     workspaceId,
     actorUserId: actorId,
     action: "user.role_changed",
     subjectId: target.id,
-    meta: { email: target.email, role: parsed.data.role },
+    meta: {
+      email: target.email,
+      role: parsed.data.role,
+      clientCompanyId: parsed.data.clientCompanyId ?? null,
+      sessionsRevoked: revoked,
+    },
   });
   revalidatePath("/settings");
   revalidatePath("/", "layout");
@@ -649,6 +723,8 @@ const inviteSchema = z.object({
   email: z.string().trim().email().max(200),
   name: z.string().trim().min(1).max(120),
   role: z.enum(ROLES),
+  /** Required when the role is CLIENT (P6/6.3). */
+  clientCompanyId: z.string().trim().optional(),
 });
 
 /**
@@ -671,7 +747,7 @@ const inviteSchema = z.object({
 export async function inviteUser(
   raw: unknown,
 ): Promise<
-  | { ok: true; url: string; expiresAt: string; existing: boolean }
+  | { ok: true; userId: string; url: string; expiresAt: string; existing: boolean }
   | { ok: false; error: string }
 > {
   try {
@@ -681,7 +757,10 @@ export async function inviteUser(
   }
   const parsed = inviteSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Check the name, email and role." };
-  const { email, name, role } = parsed.data;
+  const { email, name, role, clientCompanyId } = parsed.data;
+  if (role === "CLIENT" && !clientCompanyId) {
+    return { ok: false, error: "Pick the company this client may see." };
+  }
   const { workspaceId, userId: actorId } = await getActiveContext();
 
   const normalized = email.toLowerCase();
@@ -713,11 +792,22 @@ export async function inviteUser(
     // erroring — that is almost always what was meant.
     await prismaUnsafe.membership.update({
       where: { id: already.id },
-      data: { role, suspendedAt: null, suspendedBy: null },
+      data: {
+        role,
+        suspendedAt: null,
+        suspendedBy: null,
+        clientCompanyId: role === "CLIENT" ? (clientCompanyId ?? null) : null,
+      },
     });
   } else {
     await prismaUnsafe.membership.create({
-      data: { userId: user.id, workspaceId, role, grants: [] },
+      data: {
+        userId: user.id,
+        workspaceId,
+        role,
+        grants: [],
+        clientCompanyId: role === "CLIENT" ? (clientCompanyId ?? null) : null,
+      },
     });
   }
 
@@ -727,8 +817,174 @@ export async function inviteUser(
     actorUserId: actorId,
     action: "user.invited",
     subjectId: user.id,
-    meta: { email: normalized, role, existingAccount: !!existingUser },
+    meta: {
+      email: normalized,
+      role,
+      clientCompanyId: clientCompanyId ?? null,
+      existingAccount: !!existingUser,
+    },
   });
   revalidatePath("/settings");
-  return { ok: true, ...link, existing: !!existingUser };
+  // The user id travels back so the panel can offer to EMAIL the link (P6/6.4)
+  // — the token is stored hashed, so nothing can re-derive the URL later.
+  return { ok: true, userId: user.id, ...link, existing: !!existingUser };
+}
+
+// ---------------------------------------------------------------------------
+// client access: which companies a client account can be pointed at (P6/6.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * The companies an Owner can hand read-only access to.
+ *
+ * Only companies with something to show — a project or a finalized document.
+ * A client account pointed at a company with neither would log in to an empty
+ * page, which reads as a broken feature rather than as "nothing has started
+ * yet", and the Owner has no way to tell the difference from the picker.
+ */
+export async function listClientCompanies(): Promise<
+  { id: string; name: string; projects: number; documents: number }[]
+> {
+  await requireOwner();
+  const { workspaceId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+
+  const [projects, documents] = await Promise.all([
+    db.project.groupBy({ by: ["companyId"], _count: { _all: true } }),
+    db.document.findMany({
+      where: { watermark: false, finalizedAt: { not: null } },
+      select: { lead: { select: { companyId: true } }, deal: { select: { companyId: true } } },
+    }),
+  ]);
+
+  const counts = new Map<string, { projects: number; documents: number }>();
+  const bump = (id: string | null | undefined, key: "projects" | "documents", n = 1) => {
+    if (!id) return;
+    const row = counts.get(id) ?? { projects: 0, documents: 0 };
+    row[key] += n;
+    counts.set(id, row);
+  };
+  for (const p of projects) bump(p.companyId, "projects", p._count._all);
+  // A document reaches its company through the lead or the deal; both are
+  // asked, because a chain that predates the deals layer has only the lead.
+  for (const d of documents) bump(d.deal?.companyId ?? d.lead?.companyId, "documents");
+
+  if (counts.size === 0) return [];
+  const companies = await db.company.findMany({
+    where: { id: { in: [...counts.keys()] } },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  return companies.map((c) => ({
+    id: c.id,
+    name: c.name,
+    projects: counts.get(c.id)?.projects ?? 0,
+    documents: counts.get(c.id)?.documents ?? 0,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// invitations by email (P6/6.4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Email an invitation link, on an explicit click.
+ *
+ * ── WHY THIS IS ALLOWED, AND WHY IT IS A SECOND BUTTON ──────────────────────
+ *
+ * `inviteUser` returns the link for the Owner to paste, and that stays the
+ * default: an invitation that silently fails to arrive is worse than one the
+ * Owner can see. But pasting a link into a chat window every time is friction
+ * for no reason when transactional mail is already configured.
+ *
+ * CLAUDE.md hard rule #2 forbids the system sending anything on its own. This
+ * is a person pressing a button labelled "send it by email", which is exactly
+ * the explicit user action the rule carves out — so the send happens HERE, in
+ * a separate action, and never as a side effect of creating the invitation.
+ *
+ * The link itself is not re-derivable: a reset token is stored hashed. So the
+ * caller passes back the URL it was just handed, and this action verifies it
+ * belongs to the person being invited before sending it anywhere.
+ */
+export async function emailInviteLink(
+  raw: unknown,
+): Promise<{ ok: true; to: string } | { ok: false; error: string }> {
+  try {
+    await requireOwner();
+  } catch {
+    return { ok: false, error: "Only an Owner can send an invitation." };
+  }
+  const parsed = z
+    .object({ userId: z.string().min(1), url: z.string().trim().min(10).max(500) })
+    .safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Missing the invitation link." };
+
+  const { workspaceId, userId: actorId } = await getActiveContext();
+  const target = await requireMember(parsed.data.userId, workspaceId);
+  if (!target) return { ok: false, error: "That user is not a member of this workspace." };
+
+  /**
+   * The URL must be one of ours, and must be a reset link.
+   *
+   * Without this the action would send arbitrary text to a member's address on
+   * an Owner's say-so — a small open relay with our sending reputation behind
+   * it. Checked against the app's own base URL rather than a substring.
+   */
+  if (!parsed.data.url.startsWith(appLink("/reset/"))) {
+    return { ok: false, error: "That does not look like an invitation link from this app." };
+  }
+
+  const ws = await prismaUnsafe.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { name: true, mailgunConfig: true, brand: true },
+  });
+  const brand = brandFrom(ws?.brand);
+  const identity = resolveSendingIdentity(ws?.mailgunConfig, brand);
+  /**
+   * The workspace's own name, never the product's.
+   *
+   * A literal "Venture OS" in a subject line is the white-label leak the brand
+   * work exists to prevent: on a white-labelled deployment the operator's
+   * invitee would get mail from a company they have never heard of. The brand
+   * module is the fallback, not a string in this file — and a unit test over
+   * every sender enforces it.
+   */
+  const senderName = ws?.name?.trim() || brand.name;
+  const body = {
+    preheader: `Meghívó a ${senderName} munkaterületre`,
+    heading: "Meghívtak egy munkaterületre",
+    paragraphs: [
+      `Szia ${target.name}!`,
+      `Hozzáférést kaptál a ${senderName} munkaterülethez. Az alábbi linken tudsz saját jelszót választani.`,
+      "A link egy órán belül lejár, és csak egyszer használható. Ha lejárt, kérj újat attól, aki meghívott.",
+    ],
+    button: { label: "Jelszó beállítása", url: parsed.data.url },
+    footNote: "Ha nem te kértél hozzáférést, hagyd figyelmen kívül ezt a levelet.",
+    brand,
+  };
+
+  try {
+    await getMailProvider().send({
+      domain: identity.domain,
+      to: target.email,
+      from: identity.from,
+      ...(identity.replyTo ? { replyTo: identity.replyTo } : {}),
+      subject: `Meghívó — ${senderName}`,
+      html: brandEmail(body),
+      text: brandEmailText(body),
+    });
+  } catch (e) {
+    // Reported, never swallowed: the Owner still has the link on screen and
+    // needs to know that pasting it is now the only way through.
+    return { ok: false, error: `A levél nem ment ki: ${(e as Error).message}` };
+  }
+
+  await audit({
+    workspaceId,
+    actorUserId: actorId,
+    action: "user.invite_emailed",
+    subjectId: target.id,
+    meta: { email: target.email },
+  });
+  return { ok: true, to: target.email };
 }
