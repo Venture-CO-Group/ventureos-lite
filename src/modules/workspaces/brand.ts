@@ -110,6 +110,17 @@ function color(v: unknown, fallback: string): string {
   return typeof v === "string" && HEX.test(v.trim()) ? v.trim() : fallback;
 }
 
+/**
+ * A hex colour, and nothing else.
+ *
+ * Exported because the letterhead is no longer the only place a user-chosen
+ * colour reaches a `style` attribute — a task board's accent does too, and a
+ * second regex written slightly differently is a second thing to get wrong.
+ */
+export function isSafeColor(v: unknown): v is string {
+  return typeof v === "string" && HEX.test(v.trim());
+}
+
 /** A bare hostname — no scheme, no port, no path. */
 const BARE_HOST = /^(?=.{1,253}$)(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/i;
 

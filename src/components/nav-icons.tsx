@@ -107,6 +107,20 @@ export const ProjectsIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+/**
+ * Three columns with cards in them: a board, drawn (P8/1).
+ *
+ * Deliberately not another checklist — Projects already owns that shape, and
+ * two nav rows with the same silhouette is how people click the wrong one.
+ */
+export const TasksIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3" y="3" width="5" height="13" rx="1.5" />
+    <rect x="9.5" y="3" width="5" height="18" rx="1.5" />
+    <rect x="16" y="3" width="5" height="9" rx="1.5" />
+  </svg>
+);
+
 /** A bar chart: an aggregate, which is all a sector report ever contains. */
 export const ReportsIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>

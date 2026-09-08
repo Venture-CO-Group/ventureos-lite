@@ -30,6 +30,7 @@ export type PaletteActionId =
   | "go-outreach"
   | "go-campaigns"
   | "go-referrers"
+  | "go-tasks"
   | "go-templates"
   | "go-public-pages"
   | "go-sector-reports"
@@ -112,6 +113,7 @@ export const PALETTE_ACTIONS: PaletteAction[] = [
   { id: "go-outreach", label: "Go to Outreach", keywords: ["message", "draft", "sequence"], href: "/outreach", group: "navigate" },
   { id: "go-campaigns", label: "Go to Campaigns", keywords: ["cold", "email", "sequence"], href: "/campaigns", group: "navigate" },
   { id: "go-referrers", label: "Go to Referrers", keywords: ["referral", "partner", "ledger"], href: "/referrers", group: "navigate" },
+  { id: "go-tasks", label: "Go to Tasks", keywords: ["board", "todo", "kanban", "subtask", "assign"], href: "/tasks", hint: "g t", group: "navigate" },
   { id: "go-templates", label: "Go to Templates", keywords: ["quote", "contract", "letter", "email body"], href: "/templates", group: "navigate" },
   { id: "go-sector-reports", label: "Go to Sector reports", keywords: ["industry", "report", "batch", "szektor", "lead magnet"], href: "/reports-admin", group: "navigate" },
   { id: "go-public-pages", label: "Go to Public Pages", keywords: ["share", "links", "who viewed"], href: "/public-pages", group: "navigate" },

@@ -186,6 +186,10 @@ export async function myTasks(): Promise<GroupedTasks<TaskView>> {
   const rows = await db.task.findMany({
     where: {
       doneAt: null,
+      // A subtask belongs inside its parent's card. Listing both here would
+      // show the same work twice and let an unassigned step of somebody else's
+      // task land on everybody's dashboard (P8/1).
+      parentId: null,
       // Unassigned tasks show up for everyone: an owner nobody set is not a
       // reason for work to disappear.
       OR: [{ assigneeId: userId }, { assigneeId: null }],

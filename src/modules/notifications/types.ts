@@ -39,6 +39,11 @@ export const NOTIFICATION_TYPES = [
   /// point of the signal layer: it fires while the prospect is still at their
   /// desk with the quote open.
   "visitor_signal",
+  /// Somebody put a task on you (P8/1). The one notification people actually
+  /// expect from a task system, and the reason assignment means anything.
+  "task_assigned",
+  /// A comment on a task you are following or were mentioned in.
+  "task_commented",
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -124,6 +129,19 @@ export const NOTIFICATION_TYPE_DEFS: Record<NotificationType, NotificationTypeDe
     "Task due or overdue",
     "A task assigned to you has reached its due time.",
     { emailDigest: true },
+  ),
+  task_assigned: def(
+    "task_assigned",
+    "Task assigned to you",
+    "Somebody put a task on your plate.",
+    // In the digest as well: a task handed over on Friday afternoon should not
+    // wait until somebody happens to open the bell.
+    { emailDigest: true },
+  ),
+  task_commented: def(
+    "task_commented",
+    "Comment on a task",
+    "Somebody commented on a task you are following, or mentioned you on one.",
   ),
   quote_accepted: def(
     "quote_accepted",

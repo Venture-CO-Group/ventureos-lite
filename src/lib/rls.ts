@@ -84,6 +84,14 @@ const BUSINESS_TABLES = [
   // the belt without the braces, and on MySQL is all there is. The email sync
   // layer in particular held whole conversations with clients.
   "tasks",
+  // The board layer around tasks (P8/1). Every one carries workspace_id, so
+  // they are ordinary business tables — but a new table that is NOT listed
+  // here is a table with no policy at all, which is exactly the failure mode
+  // this list exists to prevent.
+  "task_boards",
+  "task_sections",
+  "task_comments",
+  "task_followers",
   "mail_accounts",
   "email_threads",
   "email_messages",

@@ -29,6 +29,7 @@ import {
   CampaignsIcon,
   DocumentsIcon,
   ProjectsIcon,
+  TasksIcon,
   ReportsIcon,
   TemplatesIcon,
   PublicIcon,
@@ -62,6 +63,9 @@ const NAV: NavItem[] = [
   { label: "Calls", icon: <CallsIcon />, href: "/calls" },
   { label: "Meetings", icon: <MeetingsIcon />, href: "/meetings" },
   { label: "Referrers", icon: <ReferrersIcon />, href: "/referrers" },
+  // Boards for work that has steps. Distinct from Projects, which is a
+  // post-sale delivery engagement — see src/modules/tasks/board-logic.ts.
+  { label: "Tasks", icon: <TasksIcon />, href: "/tasks" },
   { label: "Campaigns", icon: <CampaignsIcon />, href: "/campaigns", locked: true },
   { label: "Documents", icon: <DocumentsIcon />, href: "/documents", locked: true },
   // Between Documents and Templates on purpose: a project is the thing that

@@ -967,6 +967,54 @@ model LogUpload {
 /// tasks automatically, so eraseLeadData removes them explicitly. That is
 /// written down here because it is exactly the kind of thing a future migration
 /// forgets.
+/// A board of work, in the Asana sense: a named container with ordered
+/// sections, holding tasks that belong together.
+///
+/// Deliberately NOT called a project. `Project` in this codebase already means
+/// a post-sale delivery engagement carrying a signed contract to its completion
+/// certificate, and two meanings for one word in one product is how a team ends
+/// up arguing about which "project" somebody meant.
+model TaskBoard {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  name        String
+  description String?   @db.Text
+  /// Hex accent for the board chip. Validated before it reaches CSS.
+  color       String?
+  /// Ordering among boards, sparse so a reorder is one write.
+  position    Int       @default(0)
+  /// Archived boards keep their tasks and stop appearing in pickers.
+  archivedAt  DateTime? @map("archived_at")
+  createdBy   String?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  sections TaskSection[]
+  tasks    Task[]
+
+  @@index([workspaceId, archivedAt, position])
+  @@map("task_boards")
+}
+
+/// A column on the board, and a heading in the list view. The same rows, two
+/// arrangements — which is the whole reason sections exist rather than a second
+/// status enum.
+model TaskSection {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  boardId     String   @map("board_id")
+  name        String
+  position    Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  board TaskBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  tasks Task[]
+
+  @@index([workspaceId, boardId, position])
+  @@map("task_sections")
+}
+
 model Task {
   id          String    @id @default(cuid())
   workspaceId String    @map("workspace_id")
@@ -975,23 +1023,91 @@ model Task {
   title       String
   note        String?   @db.Text
   dueAt       DateTime? @map("due_at")
+  /// When the work is meant to START. A task due Friday that takes three days
+  /// is not a Friday problem, and a board with only end dates cannot say so.
+  startAt     DateTime? @map("start_at")
   /// lead | company | document | none
   entityType  String?   @map("entity_type")
   entityId    String?   @map("entity_id")
   /// Who owes this. Null means unassigned, which is visible rather than hidden.
   assigneeId  String?   @map("assignee_id")
   doneAt      DateTime? @map("done_at")
+  completedBy String?   @map("completed_by")
   /// Set when the system created it from a signal, so the UI can say why this
   /// task exists — and so a person's own tasks are distinguishable from ours.
   source      String?
   createdBy   String?   @map("created_by")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // ---- board layer -------------------------------------------------------
+  /// Null for a loose task — a follow-up raised from a lead, a signal's
+  /// suggested call. Those existed long before boards did and must keep
+  /// working without one.
+  boardId   String? @map("board_id")
+  sectionId String? @map("section_id")
+  /// Rank within its section. Sparse (steps of 1024) so dragging a card
+  /// between two others is one write rather than a renumber of the column.
+  position  Int     @default(0)
+  /// none | low | medium | high | urgent
+  priority  String  @default("none")
+  /// Free-text labels, as a JSON array of strings.
+  tags      Json    @default("[]")
+  /// Subtasks. A parent's completion never cascades — ticking a summary line
+  /// to make its children disappear is how work gets lost.
+  parentId  String? @map("parent_id")
+
+  board     TaskBoard?     @relation(fields: [boardId], references: [id], onDelete: SetNull)
+  section   TaskSection?   @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  parent    Task?          @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks  Task[]         @relation("Subtasks")
+  comments  TaskComment[]
+  followers TaskFollower[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([workspaceId, doneAt, dueAt])
   @@index([workspaceId, entityType, entityId])
   @@index([assigneeId, doneAt])
+  @@index([workspaceId, boardId, sectionId, position])
+  @@index([workspaceId, parentId])
   @@map("tasks")
+}
+
+/// The conversation on a task. Where the decision that changed the work gets
+/// written down, instead of in a chat nobody can find six weeks later.
+model TaskComment {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  taskId      String    @map("task_id")
+  userId      String    @map("user_id")
+  body        String    @db.Text
+  /// Users named with @ in the body, as a JSON array of user ids. Stored at
+  /// write time so a later rename cannot silently un-mention somebody.
+  mentions    Json      @default("[]")
+  editedAt    DateTime? @map("edited_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, taskId, createdAt])
+  @@map("task_comments")
+}
+
+/// Who hears about this task. The assignee is one; anybody who comments or is
+/// mentioned becomes another, which is how a question asked on a task reaches
+/// the person who can answer it.
+model TaskFollower {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  taskId      String   @map("task_id")
+  userId      String   @map("user_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([workspaceId, userId])
+  @@map("task_followers")
 }
 
 // ============================================================================
