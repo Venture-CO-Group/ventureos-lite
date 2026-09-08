@@ -1025,6 +1025,52 @@ model TaskSection {
   @@map("task_sections")
 }
 
+/// A saved view, emailed on a schedule (P2/2.1).
+///
+/// ── WHY IT HANGS OFF A VIEW ────────────────────────────────────────────────
+///
+/// The export already takes the columns and the filter that are on screen, and
+/// a saved view already IS a named filter plus columns plus a sort. So a
+/// schedule needs to say almost nothing: which view, what format, how often,
+/// and to whom. Re-specifying the filter here would be a second place for it to
+/// drift out of step with the tab people actually look at.
+///
+/// Deleting the view deletes the schedule with it — a schedule pointing at a
+/// filter nobody can see any more would send a report nobody could reproduce.
+model ScheduledExport {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  viewId      String    @map("view_id")
+  /// Whose schedule it is. Also the fallback recipient.
+  userId      String    @map("user_id")
+  /// csv | xlsx | pdf — the same three the manual export offers.
+  format      String    @default("xlsx")
+  /// daily | weekly | monthly
+  cadence     String    @default("weekly")
+  /// 1 = Monday … 7 = Sunday, for a weekly schedule.
+  dayOfWeek   Int       @default(1) @map("day_of_week")
+  /// Day of month for a monthly schedule, clamped to 28 so February works.
+  dayOfMonth  Int       @default(1) @map("day_of_month")
+  /// Hour of day, 0-23, in the server's timezone.
+  hour        Int       @default(8)
+  /// Where it goes. Empty means the owner's own address.
+  recipients  Json      @default("[]")
+  enabled     Boolean   @default(true)
+  lastRunAt   DateTime? @map("last_run_at")
+  /// When the sweep should pick it up next. Null means "compute it".
+  nextRunAt   DateTime? @map("next_run_at")
+  /// Why the last run failed, when it did. Cleared on the next success.
+  lastError   String?   @map("last_error") @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  view SavedView @relation(fields: [viewId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, enabled])
+  @@index([enabled, nextRunAt])
+  @@map("scheduled_exports")
+}
+
 /// "These two are not the same thing."
 ///
 /// ── WHY THIS TABLE ─────────────────────────────────────────────────────────
@@ -2327,6 +2373,8 @@ model SavedView {
   position    Int      @default(0)
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
+
+  schedules ScheduledExport[]
 
   /// Two views with the same name in one workspace are a UI bug, not a feature.
   @@unique([workspaceId, entity, ownerId, name])

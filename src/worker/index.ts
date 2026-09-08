@@ -27,6 +27,7 @@ import { processAnalyticsPdf } from "../modules/analytics/export-job";
 import { processCommissionPdf } from "../modules/revenue/pdf-job";
 import { processPublicAuditReport } from "../modules/public-audit/report-job";
 import { processLeadsPdf } from "../modules/leads/export-job";
+import { processScheduledExports } from "../modules/leads/schedule-job";
 import { processMeetingBrief } from "../modules/meetings/jobs";
 import { processQuarterlyWinLoss } from "../modules/analytics/digest";
 import { processWeeklyReports } from "../modules/analytics/report-job";
@@ -294,6 +295,10 @@ async function main(): Promise<void> {
         const n = await processAuditWatchSweep();
         // eslint-disable-next-line no-console
         console.log(`[worker] audit watch queued ${n} re-audit(s)`);
+      } else if (job.name === "scheduled-exports") {
+        const n = await processScheduledExports();
+        // eslint-disable-next-line no-console
+        console.log(`[worker] scheduled exports sent ${n} report(s)`);
       } else if (job.name === "task-due") {
         const n = await processTaskDueSweep();
         // eslint-disable-next-line no-console
@@ -343,6 +348,19 @@ async function main(): Promise<void> {
     console.error("[worker] wakeup sweep failed", err);
   });
 
+  /**
+   * Scheduled exports, hourly on the hour (P2/2.1).
+   *
+   * Hourly because the finest granularity a schedule offers is an hour, and a
+   * sweep over rows that are due is boring and inspectable — a BullMQ repeat
+   * key per schedule would need creating and destroying as people edit them,
+   * and an orphaned key would fire for ever with nobody able to find it.
+   */
+  await wakeupsQueue().add(
+    "scheduled-exports",
+    {},
+    { repeat: { pattern: "5 * * * *" }, jobId: "scheduled-exports" },
+  );
   // Task-due sweep, hourly. The dedupe key carries the day, so an overdue task
   // notifies once a day rather than once an hour (P6/1).
   await wakeupsQueue().add(

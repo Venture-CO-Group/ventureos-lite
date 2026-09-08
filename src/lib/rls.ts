@@ -67,6 +67,7 @@ const BUSINESS_TABLES = [
   "content_variants",
   "integrations",
   "saved_views",
+  "scheduled_exports",
   "notifications",
   "notification_preferences",
   "push_subscriptions",

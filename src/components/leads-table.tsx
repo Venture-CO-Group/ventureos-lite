@@ -12,6 +12,7 @@ import type { LeadView } from "@/modules/leads/views";
 import { LeadBulkBar } from "./lead-bulk-bar";
 import { LeadFilterBuilder } from "./lead-filter-builder";
 import { LeadViewTabs } from "./lead-view-tabs";
+import { ExportSchedules } from "./export-schedules";
 import { LeadDetailModal } from "./lead-detail-modal";
 import { EnrichDialog, OverrideDialog } from "./lead-dialogs";
 import { LeadAvatar } from "./lead-avatar";
@@ -325,6 +326,17 @@ export function LeadsTable(props: LeadsTableProps) {
         currentUserId={currentUserId}
         canCurate={canCurateViews}
       />
+
+      {/* Beside the tabs it belongs to, not three clicks away in Settings:
+          somebody editing a filter should be able to see that a colleague
+          receives it every Monday. */}
+      <div className="mb-2 flex flex-wrap justify-end">
+        <ExportSchedules
+          views={views}
+          activeViewId={activeViewId}
+          canExport={canExport}
+        />
+      </div>
 
       <div className="mb-3 flex flex-wrap items-start gap-x-3 gap-y-2">
         <LeadFilterBuilder
