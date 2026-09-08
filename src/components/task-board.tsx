@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { serverActionError } from "@/lib/client/server-action";
 import {
+  addAttachment,
   addComment,
+  addDependency,
   addSubtask,
   archiveBoard,
   createBoard,
@@ -13,13 +15,25 @@ import {
   createSection,
   deleteSection,
   deleteTask,
+  createBoardFromTemplate,
+  deleteAttachment,
+  dependencyCandidates,
   getBoard,
   getTaskDetail,
+  listAttachments,
+  listBoardTemplates,
   moveBoardTask,
+  removeDependency,
   renameSection,
+  setBoardTemplate,
+  setRecurrence,
   setTaskDone,
   updateBoard,
   updateTask,
+  myWork,
+  type BoardTemplateSummary,
+  type MyWorkItem,
+  type TaskAttachmentView,
   type TaskDetailView,
   type WorkspaceMemberOption,
 } from "@/modules/tasks/board-actions";
@@ -28,10 +42,13 @@ import {
   PRIORITY_CLASS,
   PRIORITY_LABEL,
   TASK_PRIORITIES,
+  describeRecurrence,
   priorityRank,
+  readRecurrence,
   type TaskPriority,
 } from "@/modules/tasks/board-logic";
 import { TYPE_LABEL, type TaskType } from "@/modules/tasks/logic";
+import { MAX_ATTACHMENT_BYTES } from "@/modules/tasks/attachment-rules";
 import { Modal } from "./modal";
 import { useUndo } from "./undo-toast";
 
@@ -204,6 +221,16 @@ export function TaskBoards({
   const [board, setBoard] = useState<BoardView | null>(initialBoard);
   const [boardId, setBoardId] = useState<string | null>(initialBoard?.id ?? null);
   const [view, setView] = useState<"board" | "list">("board");
+  /**
+   * "My work" is a third tab rather than a filter, because it is a different
+   * question. The board answers "where is everything"; this answers "what do I
+   * do next", across every board — which the dashboard panel cannot, since it
+   * knows nothing about boards and so cannot say which piece of work a task
+   * came from.
+   */
+  const [mine, setMine] = useState<MyWorkItem[] | null>(null);
+  const [templates, setTemplates] = useState<BoardTemplateSummary[]>([]);
+  const [fromTemplate, setFromTemplate] = useState(false);
   const [mineOnly, setMineOnly] = useState(false);
   const [showDone, setShowDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -233,6 +260,12 @@ export function TaskBoards({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    listBoardTemplates()
+      .then(setTemplates)
+      .catch(() => setTemplates([]));
+  }, []);
 
   async function guard(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -335,6 +368,30 @@ export function TaskBoards({
         >
           + Board
         </button>
+        {templates.length > 0 && (
+          <button
+            onClick={() => setFromTemplate(true)}
+            data-testid="from-template"
+            className="rounded-[10px] border border-line bg-panel px-3 py-2 text-[12.5px] text-muted hover:text-ink"
+          >
+            + From template
+          </button>
+        )}
+        <button
+          onClick={async () => {
+            if (mine) {
+              setMine(null);
+              return;
+            }
+            setMine(await myWork().catch(() => []));
+          }}
+          data-testid="my-work"
+          className={`ml-auto rounded-[10px] border px-3 py-2 text-[12.5px] ${
+            mine ? "border-accent bg-accent-soft text-ink" : "border-line bg-panel text-muted hover:text-ink"
+          }`}
+        >
+          My work
+        </button>
       </div>
 
       {error && (
@@ -344,6 +401,70 @@ export function TaskBoards({
         >
           {error}
         </p>
+      )}
+
+      {/* ---------- my work, across boards (P3/3.4) ---------- */}
+      {mine && (
+        <div className="mb-4 rounded-card border border-line bg-panel" data-testid="my-work-list">
+          <div className="border-b border-line px-3.5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+            My work · every board · {mine.length}
+          </div>
+          {mine.length === 0 && (
+            <p className="p-6 text-center text-[12.5px] text-muted">
+              Nothing is assigned to you right now.
+            </p>
+          )}
+          {mine.map((t) => {
+            const due = dueLabel(t.dueAt);
+            const priority = (t.priority as TaskPriority) ?? "none";
+            return (
+              <button
+                key={t.id}
+                onClick={() => {
+                  if (t.boardId) setBoardId(t.boardId);
+                  setOpenTaskId(t.id);
+                }}
+                data-testid="my-work-row"
+                className="flex w-full items-center gap-2.5 border-b border-line px-3.5 py-2.5 text-left last:border-b-0 hover:bg-panel-2"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12.5px] text-ink">{t.title}</span>
+                  <span className="block truncate text-[10.5px] text-muted">
+                    {t.boardName ?? "no board"}
+                    {t.sectionName ? ` · ${t.sectionName}` : ""}
+                    {t.entityLabel ? ` · ${t.entityLabel}` : ""}
+                  </span>
+                </span>
+                {/* A blocked task is not the next thing to pick up, and saying
+                    so is the point of having dependencies at all. */}
+                {t.blockedCount > 0 && (
+                  <span
+                    data-testid="my-work-blocked"
+                    className="flex-none rounded-full bg-[rgba(245,184,65,0.15)] px-2 py-0.5 text-[10px] font-semibold text-warn"
+                  >
+                    waiting on {t.blockedCount}
+                  </span>
+                )}
+                {priority !== "none" && (
+                  <span
+                    className={`flex-none rounded-full px-2 py-0.5 text-[10px] font-semibold ${PRIORITY_CLASS[priority]}`}
+                  >
+                    {PRIORITY_LABEL[priority]}
+                  </span>
+                )}
+                {due.text && (
+                  <span
+                    className={`w-[92px] flex-none text-right text-[11px] ${
+                      due.overdue ? "text-[#FF5C7A]" : "text-muted"
+                    }`}
+                  >
+                    {due.text}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       )}
 
       {!board && (
@@ -415,6 +536,16 @@ export function TaskBoards({
                 </button>
               ))}
             </div>
+
+            <button
+              onClick={() => void guard(() => setBoardTemplate(board.id, true))}
+              disabled={busy}
+              title="Keep this board's sections and tasks as a reusable starting point. Its due dates become offsets."
+              data-testid="save-as-template"
+              className="rounded-[10px] border border-line bg-panel px-2.5 py-1.5 text-[12px] text-muted hover:text-ink disabled:opacity-60"
+            >
+              Save as template
+            </button>
 
             <label className="flex items-center gap-1.5 text-[12px] text-muted">
               <input
@@ -568,6 +699,20 @@ export function TaskBoards({
           members={members}
           onClose={() => setOpenTaskId(null)}
           onChanged={() => void refresh()}
+        />
+      )}
+
+      {fromTemplate && (
+        <FromTemplateDialog
+          templates={templates}
+          onClose={() => setFromTemplate(false)}
+          onCreate={async (templateId, name) => {
+            const res = await createBoardFromTemplate({ templateId, name });
+            if (!res.ok) throw new Error(res.error);
+            setFromTemplate(false);
+            setBoardId(res.boardId);
+            router.refresh();
+          }}
         />
       )}
 
@@ -795,6 +940,10 @@ function TaskDetail({
   const [saving, setSaving] = useState(false);
   /** Subtask ticks shown before the server has confirmed them. */
   const [optimistic, setOptimistic] = useState<Record<string, boolean>>({});
+  /** Other tasks on this board, to depend on. */
+  const [candidates, setCandidates] = useState<
+    Array<{ id: string; title: string; doneAt: Date | null }>
+  >([]);
 
   const load = useCallback(async () => {
     setTask(await getTaskDetail(taskId).catch(() => null));
@@ -802,7 +951,10 @@ function TaskDetail({
 
   useEffect(() => {
     void load();
-  }, [load]);
+    dependencyCandidates(taskId)
+      .then(setCandidates)
+      .catch(() => setCandidates([]));
+  }, [load, taskId]);
 
   async function save(patch: Record<string, unknown>) {
     await run(() => updateTask({ id: taskId, ...patch }));
@@ -811,16 +963,31 @@ function TaskDetail({
   /**
    * Every write in this panel goes through here.
    *
-   * Four of them used to `await` a server action and throw the result away, so
-   * a subtask that failed to delete or a comment that failed to post looked
-   * exactly like one that worked — the panel reloaded and the change simply was
-   * not there.
+   * ── TWO FAILURE MODES, BOTH SEEN IN PRACTICE ──────────────────────────────
+   *
+   * Four writes used to `await` a server action and throw the result away, so a
+   * subtask that failed to delete looked exactly like one that worked.
+   *
+   * Then this helper caught THROWN errors and ignored RETURNED ones — and the
+   * newer actions (dependencies, attachments, recurrence) report refusals as
+   * `{ ok: false, error }` rather than by throwing. So "that would make a loop"
+   * and "that file type is not accepted" were computed, returned, and silently
+   * dropped: the dialog just did nothing. Both shapes are handled now, because
+   * an action's contract is not something a caller should have to remember.
    */
   async function run(fn: () => Promise<unknown>, after?: () => void) {
     setSaving(true);
     setError(null);
     try {
-      await fn();
+      const res = await fn();
+      if (res && typeof res === "object" && "ok" in res && res.ok === false) {
+        const message = "error" in res && typeof res.error === "string" ? res.error : null;
+        setError(message ?? "That did not work.");
+        // Still reload: the server refused, so the panel must show what is
+        // actually stored rather than the state the click implied.
+        await load();
+        return;
+      }
       await load();
       onChanged();
       after?.();
@@ -1028,6 +1195,167 @@ function TaskDetail({
         </p>
       </div>
 
+      {/* ---------- dependencies (P3/3.1) ---------- */}
+      <div className="mb-3">
+        <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+          Waiting for
+        </div>
+        {task.blockedBy.map((b) => (
+          <div
+            key={b.id}
+            data-testid="dependency-row"
+            className="flex items-center gap-2 py-1 text-[12.5px]"
+          >
+            <span className={b.doneAt ? "text-muted line-through" : "text-warn"}>
+              {b.doneAt ? "✓" : "⏳"} {b.title}
+            </span>
+            <button
+              onClick={() => void run(() => removeDependency({ taskId, blockedById: b.id }))}
+              className="ml-auto text-[12px] text-muted hover:text-[#FFB3C2]"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+
+        <select
+          value=""
+          onChange={(e) => {
+            if (!e.target.value) return;
+            void run(() => addDependency({ taskId, blockedById: e.target.value }));
+          }}
+          data-testid="dependency-add"
+          className={`${INPUT} mt-1`}
+        >
+          <option value="">+ Wait for another task on this board…</option>
+          {candidates
+            .filter((c) => !task.blockedBy.some((b) => b.id === c.id))
+            .map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.title}
+                {c.doneAt ? " (done)" : ""}
+              </option>
+            ))}
+        </select>
+
+        {task.blocking.length > 0 && (
+          <p className="mt-1 text-[10.5px] text-muted">
+            {task.blocking.length} task{task.blocking.length === 1 ? "" : "s"} waiting on this one:{" "}
+            {task.blocking.map((b) => b.title).join(", ")}
+          </p>
+        )}
+        {/* Stated, because it is a decision rather than an omission. */}
+        <p className="mt-1 text-[10.5px] text-muted">
+          Shown, not enforced — a blocked task can still be ticked. A graph drawn
+          wrong should not be a board on which nothing can move.
+        </p>
+      </div>
+
+      {/* ---------- recurrence (P3/3.2) ---------- */}
+      <div className="mb-3 grid gap-2 sm:grid-cols-2">
+        <label className="text-[11px] uppercase tracking-[0.1em] text-muted">
+          Repeat
+          <select
+            value={task.recurrence?.cadence ?? ""}
+            onChange={(e) =>
+              void run(() =>
+                setRecurrence({
+                  taskId,
+                  recurrence: e.target.value
+                    ? {
+                        cadence: e.target.value as "daily" | "weekly" | "monthly",
+                        dayOfWeek: task.recurrence?.dayOfWeek ?? 1,
+                        dayOfMonth: task.recurrence?.dayOfMonth ?? 1,
+                      }
+                    : null,
+                }),
+              )
+            }
+            data-testid="detail-recurrence"
+            className={`${INPUT} mt-1`}
+          >
+            <option value="">Happens once</option>
+            <option value="daily">Every day</option>
+            <option value="weekly">Every week</option>
+            <option value="monthly">Every month</option>
+          </select>
+        </label>
+        {task.recurrence && (
+          <p className="self-end text-[11px] leading-relaxed text-muted">
+            {describeRecurrence(task.recurrence as never)}. The next one is created
+            when you tick this — so the board holds one at a time rather than a
+            queue of future copies.
+          </p>
+        )}
+      </div>
+
+      {/* ---------- attachments (P3/3.5) ---------- */}
+      <div className="mb-3">
+        <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+          Files
+        </div>
+        {task.attachments.map((a) => (
+          <div
+            key={a.id}
+            data-testid="attachment-row"
+            className="flex items-center gap-2 py-1 text-[12.5px]"
+          >
+            <a
+              href={`/api/files/${a.path}`}
+              target="_blank"
+              rel="noreferrer"
+              className="min-w-0 flex-1 truncate text-[#C9CEE3] underline hover:text-ink"
+            >
+              {a.filename}
+            </a>
+            <span className="flex-none text-[10.5px] tabular-nums text-muted">
+              {Math.max(1, Math.round(a.sizeBytes / 1024))} KB
+            </span>
+            <button
+              onClick={() => void run(() => deleteAttachment(a.id))}
+              className="text-[12px] text-muted hover:text-[#FFB3C2]"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <input
+          type="file"
+          data-testid="attachment-input"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (!file) return;
+            if (file.size > MAX_ATTACHMENT_BYTES) {
+              setError(
+                `That file is ${Math.round(file.size / 1_000_000)} MB; the limit is ${
+                  MAX_ATTACHMENT_BYTES / 1_000_000
+                } MB.`,
+              );
+              return;
+            }
+            // Base64 through the server action rather than a signed upload URL:
+            // the files volume is local to this deployment, and 15 MB is well
+            // inside what one request can carry.
+            const buf = await file.arrayBuffer();
+            let binary = "";
+            const bytes = new Uint8Array(buf);
+            for (let i = 0; i < bytes.length; i += 8192) {
+              binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+            }
+            await run(() =>
+              addAttachment({
+                taskId,
+                filename: file.name,
+                contentType: file.type || "application/octet-stream",
+                base64: btoa(binary),
+              }),
+            );
+          }}
+          className="mt-1 w-full text-[11.5px] text-muted file:mr-2 file:rounded-[8px] file:border file:border-line file:bg-panel file:px-2.5 file:py-1.5 file:text-[11.5px] file:text-ink"
+        />
+      </div>
+
       {/* ---------- comments ---------- */}
       <div>
         <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
@@ -1140,6 +1468,100 @@ function NewBoardDialog({
             setError(null);
             try {
               await onCreate(name.trim(), color);
+            } catch (e) {
+              setError(serverActionError(e));
+            } finally {
+              setBusy(false);
+            }
+          }}
+          className="rounded-[10px] border-[1.5px] border-transparent bg-canvas px-4 py-2 text-[13px] font-semibold text-ink shadow-glow [background-clip:padding-box,border-box] [background-image:linear-gradient(#00051D,#00051D),linear-gradient(135deg,#310B59,#7427C6)] [background-origin:border-box] disabled:opacity-60"
+        >
+          Create
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+
+/**
+ * A new board from a saved template (P3/3.3).
+ *
+ * Assignees and comments deliberately do NOT come across. An onboarding
+ * template that arrives pre-assigned to whoever happened to build it is a
+ * board somebody has to un-assign first, and a comment from a previous
+ * engagement is somebody else's conversation.
+ */
+function FromTemplateDialog({
+  templates,
+  onClose,
+  onCreate,
+}: {
+  templates: BoardTemplateSummary[];
+  onClose: () => void;
+  onCreate: (templateId: string, name: string) => Promise<void>;
+}) {
+  const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const chosen = templates.find((t) => t.id === templateId);
+
+  return (
+    <Modal onClose={onClose}>
+      <h3 className="mb-3 font-display text-lg font-bold lowercase">new board from a template</h3>
+      {error && <p className="mb-2 text-[12px] text-[#FFB3C2]">{error}</p>}
+
+      <label className="text-[11px] uppercase tracking-[0.1em] text-muted">
+        Template
+        <select
+          value={templateId}
+          onChange={(e) => setTemplateId(e.target.value)}
+          data-testid="template-select"
+          className={`${INPUT} mt-1`}
+        >
+          {templates.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name} · {t.sections} columns, {t.tasks} tasks
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {chosen?.description && (
+        <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted">{chosen.description}</p>
+      )}
+
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Name for the new board"
+        data-testid="template-board-name"
+        className={`${INPUT} mt-2.5`}
+      />
+      <p className="mt-2 text-[11.5px] leading-relaxed text-muted">
+        Columns, tasks, notes and priorities come across. Due dates are recreated
+        from the template&apos;s offsets — &ldquo;three days after we start&rdquo;.
+        Assignees and comments do not: work should not arrive pre-assigned to
+        whoever built the template.
+      </p>
+
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          onClick={onClose}
+          className="rounded-[10px] border border-line bg-panel px-4 py-2 text-[13px] hover:bg-panel-2"
+        >
+          Cancel
+        </button>
+        <button
+          disabled={!name.trim() || !templateId || busy}
+          data-testid="template-create"
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              await onCreate(templateId, name.trim());
             } catch (e) {
               setError(serverActionError(e));
             } finally {

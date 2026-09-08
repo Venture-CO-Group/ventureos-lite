@@ -206,7 +206,14 @@ export async function listBoards(
 ): Promise<BoardSummary[]> {
   const db = getWorkspaceClient(workspaceId);
   const boards = await db.taskBoard.findMany({
-    where: opts.includeArchived ? {} : { archivedAt: null },
+    // Templates are excluded ALWAYS, not just when archived boards are.
+    // A template is a board nobody works in (P3/3.3); leaving it in the
+    // switcher would invite somebody to add real work to the thing every
+    // future board is copied from.
+    where: {
+      isTemplate: false,
+      ...(opts.includeArchived ? {} : { archivedAt: null }),
+    },
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],
     select: { id: true, name: true, color: true, archivedAt: true, position: true },
   });

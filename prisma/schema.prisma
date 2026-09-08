@@ -995,6 +995,14 @@ model TaskBoard {
   position    Int       @default(0)
   /// Archived boards keep their tasks and stop appearing in pickers.
   archivedAt  DateTime? @map("archived_at")
+  /// A template is a board nobody works in (P3/3.3).
+  ///
+  /// A flag rather than a separate table, because a template IS a board: named
+  /// sections holding tasks with titles, notes, priorities and relative due
+  /// offsets. A parallel `BoardTemplate` model would duplicate all of that and
+  /// then drift from it. Templates are hidden from the switcher and from every
+  /// picker; "New board from template" copies one.
+  isTemplate  Boolean   @default(false) @map("is_template")
   createdBy   String?   @map("created_by")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
@@ -1142,12 +1150,35 @@ model Task {
   /// to make its children disappear is how work gets lost.
   parentId  String? @map("parent_id")
 
-  board     TaskBoard?     @relation(fields: [boardId], references: [id], onDelete: SetNull)
-  section   TaskSection?   @relation(fields: [sectionId], references: [id], onDelete: SetNull)
-  parent    Task?          @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
-  subtasks  Task[]         @relation("Subtasks")
-  comments  TaskComment[]
-  followers TaskFollower[]
+  /// How this task repeats, when it does (P3/3.2).
+  ///
+  /// `{ cadence, dayOfWeek, dayOfMonth, hour }` — the same shape a scheduled
+  /// export uses, so "the first Monday of every month" is computed by one
+  /// tested function rather than two. Null means it happens once.
+  ///
+  /// A recurring task SPAWNS ITS SUCCESSOR when it is completed, rather than
+  /// existing as a template that generates instances on a timer. A board that
+  /// fills with future copies of the same task is a board nobody can read, and
+  /// a task nobody ticked should not silently pile up behind it.
+  recurrence     Json?
+  /// The completed task this one was spawned from, for the trail.
+  recurredFromId String? @map("recurred_from_id")
+  /// On a TEMPLATE board: how many days after use the due date falls. Copied
+  /// into a real `dueAt` when the template is used, and null on an ordinary
+  /// task, which carries `dueAt` itself.
+  dueOffsetDays  Int?    @map("due_offset_days")
+
+  board       TaskBoard?       @relation(fields: [boardId], references: [id], onDelete: SetNull)
+  section     TaskSection?     @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  parent      Task?            @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks    Task[]           @relation("Subtasks")
+  comments    TaskComment[]
+  followers   TaskFollower[]
+  attachments TaskAttachment[]
+  /// Tasks that must finish before this one can start (P3/3.1).
+  blockedBy   TaskDependency[] @relation("Blocked")
+  /// Tasks this one is holding up.
+  blocking    TaskDependency[] @relation("Blocker")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1158,6 +1189,58 @@ model Task {
   @@index([workspaceId, boardId, sectionId, position])
   @@index([workspaceId, parentId])
   @@map("tasks")
+}
+
+/// "This cannot start until that is done." (P3/3.1)
+///
+/// ── WHY AN EXPLICIT TABLE ──────────────────────────────────────────────────
+///
+/// A self-referencing many-to-many needs a join table anyway, and an explicit
+/// one carries `workspace_id` — which means the tenant guard scopes it like
+/// every other business row instead of relying on both endpoints being ours.
+///
+/// A dependency is REPORTED, never enforced: a blocked task can still be
+/// ticked. Refusing the tick would mean the product deciding that its own graph
+/// is more accurate than the person looking at the work, and a badly drawn
+/// graph would then be a board on which nothing can move.
+model TaskDependency {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  /// The task that is blocked.
+  taskId      String   @map("task_id")
+  /// The task it is waiting for.
+  blockedById String   @map("blocked_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  task      Task @relation("Blocked", fields: [taskId], references: [id], onDelete: Cascade)
+  blockedBy Task @relation("Blocker", fields: [blockedById], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, blockedById])
+  @@index([workspaceId, blockedById])
+  @@map("task_dependencies")
+}
+
+/// A file on a task (P3/3.5).
+///
+/// The bytes live on the shared files volume under `tasks/`, served through the
+/// authenticated route like every other stored file, and the owning workspace
+/// is resolved from this row rather than from the path.
+model TaskAttachment {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  taskId      String   @map("task_id")
+  filename    String
+  /// Path relative to FILES_DIR.
+  path        String
+  contentType String   @map("content_type")
+  sizeBytes   Int      @map("size_bytes")
+  uploadedBy  String?  @map("uploaded_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, taskId])
+  @@map("task_attachments")
 }
 
 /// The conversation on a task. Where the decision that changed the work gets

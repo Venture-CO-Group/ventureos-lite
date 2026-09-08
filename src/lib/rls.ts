@@ -94,6 +94,8 @@ const BUSINESS_TABLES = [
   "task_sections",
   "task_comments",
   "task_followers",
+  "task_dependencies",
+  "task_attachments",
   "mail_accounts",
   "email_threads",
   "email_messages",

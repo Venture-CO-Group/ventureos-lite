@@ -32,6 +32,16 @@ export async function resolveFileWorkspace(rel: string): Promise<string | null> 
       const m = await prismaUnsafe.meeting.findFirst({ where: { briefPdfPath: rel }, select: { workspaceId: true } });
       return m?.workspaceId ?? null;
     }
+    case "tasks": {
+      // tasks/<taskId>-<random>.<ext> — the owner comes from the ATTACHMENT
+      // row rather than from the path, so a guessed filename resolves to
+      // nothing rather than to whichever task the prefix happens to name.
+      const a = await prismaUnsafe.taskAttachment.findFirst({
+        where: { path: rel },
+        select: { workspaceId: true },
+      });
+      return a?.workspaceId ?? null;
+    }
     case "audits": {
       // audits/<auditId>.pdf | audits/<auditId>-desktop.png | -mobile.png
       const auditId = file.replace(/\.(pdf|png|jpe?g)$/i, "").replace(/-(desktop|mobile)$/i, "");

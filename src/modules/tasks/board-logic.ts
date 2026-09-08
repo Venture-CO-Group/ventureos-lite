@@ -183,3 +183,115 @@ export function extractMentions(
   }
   return [...found];
 }
+
+
+// ---------------------------------------------------------------------------
+// dependencies (P3/3.1)
+// ---------------------------------------------------------------------------
+
+export interface DependencyEdge {
+  /** The task that is blocked. */
+  taskId: string;
+  /** The task it is waiting for. */
+  blockedById: string;
+}
+
+/**
+ * Would adding this edge create a cycle?
+ *
+ * ── WHY THIS MATTERS MORE THAN IT LOOKS ─────────────────────────────────────
+ *
+ * A cycle is not a cosmetic problem. "A waits for B, B waits for A" is a pair
+ * of tasks that can never be started according to the graph, and once three or
+ * four are involved nobody looking at the board can see why nothing is
+ * startable. It is also the reason board dependencies were deliberately left
+ * out of the first version: a badly drawn graph is worse than no graph.
+ *
+ * A depth-first walk FORWARD from the proposed blocker: if we can already reach
+ * the blocked task by following "waits for" edges, adding this one closes a
+ * loop. Self-dependency is the degenerate case and is caught first.
+ */
+export function wouldCycle(
+  edges: DependencyEdge[],
+  taskId: string,
+  blockedById: string,
+): boolean {
+  if (taskId === blockedById) return true;
+
+  // blocker -> everything that blocker is itself waiting for.
+  const waitsFor = new Map<string, string[]>();
+  for (const e of edges) {
+    const list = waitsFor.get(e.taskId) ?? [];
+    list.push(e.blockedById);
+    waitsFor.set(e.taskId, list);
+  }
+
+  const seen = new Set<string>();
+  const stack = [blockedById];
+  while (stack.length > 0) {
+    const at = stack.pop()!;
+    if (at === taskId) return true;
+    if (seen.has(at)) continue;
+    seen.add(at);
+    for (const next of waitsFor.get(at) ?? []) stack.push(next);
+  }
+  return false;
+}
+
+/**
+ * Is this task waiting on something unfinished?
+ *
+ * Reported, never enforced: a blocked task can still be ticked. Refusing the
+ * tick would mean the product deciding its own graph is more accurate than the
+ * person looking at the work — and a graph somebody drew wrong would then be a
+ * board on which nothing can move.
+ */
+export function blockedBy(
+  task: { id: string },
+  edges: DependencyEdge[],
+  doneById: ReadonlyMap<string, boolean>,
+): string[] {
+  return edges
+    .filter((e) => e.taskId === task.id && doneById.get(e.blockedById) === false)
+    .map((e) => e.blockedById);
+}
+
+// ---------------------------------------------------------------------------
+// recurrence (P3/3.2)
+// ---------------------------------------------------------------------------
+
+export interface TaskRecurrence {
+  cadence: "daily" | "weekly" | "monthly";
+  /** 1-7, ISO weekday. Weekly only. */
+  dayOfWeek?: number;
+  /** 1-28. Monthly only. */
+  dayOfMonth?: number;
+}
+
+/** Read a recurrence off a JSON column, refusing anything malformed. */
+export function readRecurrence(raw: unknown): TaskRecurrence | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const cadence = r.cadence;
+  if (cadence !== "daily" && cadence !== "weekly" && cadence !== "monthly") return null;
+  const out: TaskRecurrence = { cadence };
+  if (typeof r.dayOfWeek === "number" && r.dayOfWeek >= 1 && r.dayOfWeek <= 7) {
+    out.dayOfWeek = Math.round(r.dayOfWeek);
+  }
+  if (typeof r.dayOfMonth === "number" && r.dayOfMonth >= 1 && r.dayOfMonth <= 28) {
+    out.dayOfMonth = Math.round(r.dayOfMonth);
+  }
+  return out;
+}
+
+/** A sentence a person can check against what they meant. */
+export function describeRecurrence(r: TaskRecurrence): string {
+  if (r.cadence === "daily") return "Repeats every day";
+  if (r.cadence === "weekly") {
+    const names = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    return `Repeats every ${names[r.dayOfWeek ?? 1]}`;
+  }
+  const d = r.dayOfMonth ?? 1;
+  const suffix = d === 1 ? "st" : d === 2 ? "nd" : d === 3 ? "rd" : "th";
+  return `Repeats on the ${d}${suffix} of every month`;
+}

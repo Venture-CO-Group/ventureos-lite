@@ -1,5 +1,8 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
@@ -9,7 +12,22 @@ import { recordUndo, type UndoToken } from "../undo/store";
 import { TASK_TYPES } from "./logic";
 import { buildPriorityMatrix, priorityMapFrom, QUADRANTS } from "@/modules/audit/priority";
 import type { AuditCheck } from "@/modules/audit/types";
-import { TASK_PRIORITIES, extractMentions, nextPosition } from "./board-logic";
+import {
+  TASK_PRIORITIES,
+  extractMentions,
+  nextPosition,
+  readRecurrence,
+  wouldCycle,
+  type DependencyEdge,
+} from "./board-logic";
+import { nextRunAt } from "@/modules/leads/schedule-logic";
+import {
+  ALLOWED_ATTACHMENT_TYPES,
+  MAX_ATTACHMENTS_PER_TASK,
+  MAX_ATTACHMENT_BYTES,
+} from "./attachment-rules";
+
+const FILES_DIR = process.env.FILES_DIR ?? "/data/files";
 import {
   addFollowers,
   createBoard as createBoardRow,
@@ -353,6 +371,16 @@ export async function setTaskDone(
         })
       : null;
 
+  /**
+   * A recurring task spawns its successor here (P3/3.2).
+   *
+   * Best-effort: a missing successor is an inconvenience, and losing it must
+   * not undo a tick that has already happened.
+   */
+  if (count > 0 && done) {
+    await spawnRecurrence(workspaceId, userId, taskId).catch(() => null);
+  }
+
   revalidatePath("/tasks");
   revalidatePath("/");
   return { ok: true, undo };
@@ -406,6 +434,13 @@ export interface TaskDetailView {
   subtasks: Array<{ id: string; title: string; doneAt: Date | null; assigneeId: string | null }>;
   comments: TaskCommentView[];
   followers: string[];
+  /** What this task is waiting for (P3/3.1), with whether it is still open. */
+  blockedBy: Array<{ id: string; title: string; doneAt: Date | null }>;
+  /** What is waiting for THIS one, so a delay's cost is visible. */
+  blocking: Array<{ id: string; title: string }>;
+  /** Null when it happens once. */
+  recurrence: { cadence: string; dayOfWeek?: number; dayOfMonth?: number } | null;
+  attachments: TaskAttachmentView[];
 }
 
 export async function getTaskDetail(taskId: string): Promise<TaskDetailView | null> {
@@ -438,6 +473,24 @@ export async function getTaskDetail(taskId: string): Promise<TaskDetailView | nu
         select: { id: true, body: true, userId: true, createdAt: true, editedAt: true },
       },
       followers: { select: { userId: true } },
+      recurrence: true,
+      blockedBy: {
+        select: { blockedBy: { select: { id: true, title: true, doneAt: true } } },
+      },
+      blocking: {
+        select: { task: { select: { id: true, title: true } } },
+      },
+      attachments: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          filename: true,
+          path: true,
+          contentType: true,
+          sizeBytes: true,
+          createdAt: true,
+        },
+      },
     },
   });
   if (!task) return null;
@@ -459,6 +512,10 @@ export async function getTaskDetail(taskId: string): Promise<TaskDetailView | nu
       userName: name.get(c.userId) ?? "Someone",
     })),
     followers: task.followers.map((f) => f.userId),
+    blockedBy: task.blockedBy.map((d) => d.blockedBy),
+    blocking: task.blocking.map((d) => d.task),
+    recurrence: readRecurrence(task.recurrence),
+    attachments: task.attachments,
   };
 }
 
@@ -668,4 +725,623 @@ export async function createBoardFromAudit(
   revalidatePath("/tasks");
   revalidatePath("/audit");
   return { ok: true, boardId: board.id, tasks: created };
+}
+
+
+// ---------------------------------------------------------------------------
+// dependencies (P3/3.1)
+// ---------------------------------------------------------------------------
+
+const depSchema = z.object({
+  taskId: z.string().min(1),
+  blockedById: z.string().min(1),
+});
+
+/**
+ * "This cannot start until that is done."
+ *
+ * Refused when it would close a cycle. That is the whole reason dependencies
+ * were left out of the first version: "A waits for B, B waits for A" is a pair
+ * of tasks that can never be started according to the graph, and once three or
+ * four are involved nobody looking at the board can see why nothing is
+ * startable. A badly drawn graph is worse than no graph.
+ */
+export async function addDependency(
+  raw: unknown,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const input = depSchema.safeParse(raw);
+  if (!input.success) return { ok: false, error: "Unknown task." };
+  const { taskId, blockedById } = input.data;
+  const { workspaceId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+
+  if (taskId === blockedById) {
+    return { ok: false, error: "A task cannot wait for itself." };
+  }
+  // Both ends must be ours; the guarded client makes a foreign id find nothing.
+  const both = await db.task.findMany({
+    where: { id: { in: [taskId, blockedById] } },
+    select: { id: true, title: true },
+  });
+  if (both.length !== 2) return { ok: false, error: "One of those tasks no longer exists." };
+
+  const existing = await db.taskDependency.findMany({
+    select: { taskId: true, blockedById: true },
+  });
+  if (wouldCycle(existing as DependencyEdge[], taskId, blockedById)) {
+    return {
+      ok: false,
+      error:
+        "That would make a loop — the two tasks would end up waiting for each other, and neither could ever start.",
+    };
+  }
+
+  await db.taskDependency
+    .create({ data: { workspaceId, taskId, blockedById } })
+    .catch(() => {
+      // The unique index: asking twice is not an error.
+    });
+  revalidatePath("/tasks");
+  return { ok: true };
+}
+
+export async function removeDependency(
+  raw: unknown,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const input = depSchema.safeParse(raw);
+  if (!input.success) return { ok: false, error: "Unknown task." };
+  const { workspaceId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+  await db.taskDependency.deleteMany({
+    where: { taskId: input.data.taskId, blockedById: input.data.blockedById },
+  });
+  revalidatePath("/tasks");
+  return { ok: true };
+}
+
+/** Candidates to depend on: other tasks on the same board. */
+export async function dependencyCandidates(
+  taskId: string,
+): Promise<Array<{ id: string; title: string; doneAt: Date | null }>> {
+  const { workspaceId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+  const task = await db.task.findUnique({
+    where: { id: taskId },
+    select: { boardId: true },
+  });
+  if (!task?.boardId) return [];
+  return db.task.findMany({
+    where: { boardId: task.boardId, parentId: null, id: { not: taskId } },
+    orderBy: { position: "asc" },
+    take: 200,
+    select: { id: true, title: true, doneAt: true },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// recurrence (P3/3.2)
+// ---------------------------------------------------------------------------
+
+const recurrenceSchema = z.object({
+  taskId: z.string().min(1),
+  recurrence: z
+    .object({
+      cadence: z.enum(["daily", "weekly", "monthly"]),
+      dayOfWeek: z.coerce.number().int().min(1).max(7).optional(),
+      dayOfMonth: z.coerce.number().int().min(1).max(28).optional(),
+    })
+    .nullable(),
+});
+
+export async function setRecurrence(
+  raw: unknown,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const input = recurrenceSchema.safeParse(raw);
+  if (!input.success) return { ok: false, error: "Check the repeat settings." };
+  const { workspaceId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+  await db.task.update({
+    where: { id: input.data.taskId },
+    data: { recurrence: (input.data.recurrence ?? null) as never },
+  });
+  revalidatePath("/tasks");
+  return { ok: true };
+}
+
+/**
+ * Spawn the successor of a completed recurring task.
+ *
+ * ── WHY ON COMPLETION AND NOT ON A TIMER ────────────────────────────────────
+ *
+ * A timer that generates instances fills a board with future copies of the
+ * same task, and a task nobody ticked piles up behind the ones nobody ticked
+ * before it. Spawning on completion means the board always holds exactly one
+ * of each recurring task: the next one.
+ *
+ * Called from `setTaskDone`. Never throws outward — a successor is a
+ * convenience, and losing it must not undo a tick that already happened.
+ */
+async function spawnRecurrence(
+  workspaceId: string,
+  userId: string,
+  taskId: string,
+): Promise<string | null> {
+  const db = getWorkspaceClient(workspaceId);
+  const done = await db.task.findUnique({
+    where: { id: taskId },
+    select: {
+      id: true,
+      boardId: true,
+      sectionId: true,
+      title: true,
+      note: true,
+      type: true,
+      priority: true,
+      tags: true,
+      assigneeId: true,
+      entityType: true,
+      entityId: true,
+      recurrence: true,
+      position: true,
+    },
+  });
+  const rule = readRecurrence(done?.recurrence);
+  if (!done || !rule) return null;
+
+  // Same arithmetic as a scheduled export, so "the first Monday of every
+  // month" is computed by one tested function rather than two.
+  const due = nextRunAt(
+    {
+      cadence: rule.cadence,
+      dayOfWeek: rule.dayOfWeek ?? 1,
+      dayOfMonth: rule.dayOfMonth ?? 1,
+      hour: 17,
+    },
+    new Date(Date.now() + 60_000),
+  );
+
+  const next = await db.task.create({
+    data: {
+      workspaceId,
+      boardId: done.boardId,
+      sectionId: done.sectionId,
+      title: done.title,
+      note: done.note,
+      type: done.type,
+      priority: done.priority,
+      tags: done.tags as never,
+      assigneeId: done.assigneeId,
+      entityType: done.entityType,
+      entityId: done.entityId,
+      dueAt: due,
+      // The rule travels with the successor, or the chain stops after one.
+      recurrence: done.recurrence as never,
+      recurredFromId: done.id,
+      position: done.position,
+      createdBy: userId,
+      source: "recurring",
+    },
+    select: { id: true },
+  });
+  // Whoever owes it should hear about it, exactly as for a fresh assignment.
+  if (done.assigneeId) await addFollowers(workspaceId, next.id, [done.assigneeId]);
+  return next.id;
+}
+
+// ---------------------------------------------------------------------------
+// templates (P3/3.3)
+// ---------------------------------------------------------------------------
+
+export interface BoardTemplateSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  sections: number;
+  tasks: number;
+}
+
+export async function listBoardTemplates(): Promise<BoardTemplateSummary[]> {
+  const { workspaceId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+  const rows = await db.taskBoard.findMany({
+    where: { isTemplate: true, archivedAt: null },
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      _count: { select: { sections: true, tasks: true } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    description: r.description,
+    sections: r._count.sections,
+    tasks: r._count.tasks,
+  }));
+}
+
+/**
+ * Turn a board into a template, or a template back into a board.
+ *
+ * A template IS a board — named sections holding tasks with titles, notes and
+ * priorities — so this is a flag rather than a copy. Its tasks keep their
+ * relative due offsets instead of dates, because "three days after we start"
+ * is the only thing a template can honestly say.
+ */
+export async function setBoardTemplate(
+  boardId: string,
+  isTemplate: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { workspaceId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+  const board = await db.taskBoard.findUnique({ where: { id: boardId }, select: { id: true } });
+  if (!board) return { ok: false, error: "That board no longer exists." };
+
+  await db.taskBoard.update({ where: { id: boardId }, data: { isTemplate } });
+  if (isTemplate) {
+    // Absolute dates make no sense on a template. Convert each one into an
+    // offset from today so the shape of the plan survives.
+    const tasks = await db.task.findMany({
+      where: { boardId, dueAt: { not: null } },
+      select: { id: true, dueAt: true },
+    });
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    for (const t of tasks) {
+      const days = Math.max(
+        0,
+        Math.round((t.dueAt!.getTime() - today.getTime()) / 86_400_000),
+      );
+      await db.task.update({
+        where: { id: t.id },
+        data: { dueOffsetDays: days, dueAt: null },
+      });
+    }
+  }
+  revalidatePath("/tasks");
+  return { ok: true };
+}
+
+const fromTemplateSchema = z.object({
+  templateId: z.string().min(1),
+  name: z.string().trim().min(1).max(120),
+});
+
+/**
+ * A new board, copied from a template.
+ *
+ * Sections, tasks, notes, priorities and tags come across; assignees and
+ * comments do not. An onboarding template that arrives pre-assigned to
+ * whoever happened to build it is a board somebody has to un-assign first, and
+ * a comment from a previous engagement is somebody else's conversation.
+ */
+export async function createBoardFromTemplate(
+  raw: unknown,
+): Promise<{ ok: true; boardId: string; tasks: number } | { ok: false; error: string }> {
+  const input = fromTemplateSchema.safeParse(raw);
+  if (!input.success) return { ok: false, error: "Check the name." };
+  const { workspaceId, userId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+
+  const template = await db.taskBoard.findUnique({
+    where: { id: input.data.templateId },
+    select: {
+      id: true,
+      isTemplate: true,
+      color: true,
+      description: true,
+      sections: { orderBy: { position: "asc" }, select: { id: true, name: true, position: true } },
+    },
+  });
+  if (!template || !template.isTemplate) {
+    return { ok: false, error: "That template no longer exists." };
+  }
+
+  const existing = await db.taskBoard.findMany({
+    where: { isTemplate: false },
+    select: { position: true },
+  });
+  const board = await db.taskBoard.create({
+    data: {
+      workspaceId,
+      name: input.data.name,
+      description: template.description,
+      color: template.color,
+      position: nextPosition(existing.map((b) => b.position)),
+      createdBy: userId,
+      sections: {
+        create: template.sections.map((s) => ({
+          workspaceId,
+          name: s.name,
+          position: s.position,
+        })),
+      },
+    },
+    select: { id: true },
+  });
+
+  const newSections = await db.taskSection.findMany({
+    where: { boardId: board.id },
+    orderBy: { position: "asc" },
+    select: { id: true, name: true },
+  });
+  const sectionFor = new Map(
+    template.sections.map((s, i) => [s.id, newSections[i]?.id ?? null] as const),
+  );
+
+  const sourceTasks = await db.task.findMany({
+    where: { boardId: template.id, parentId: null },
+    orderBy: { position: "asc" },
+    select: {
+      id: true,
+      sectionId: true,
+      title: true,
+      note: true,
+      type: true,
+      priority: true,
+      tags: true,
+      dueOffsetDays: true,
+      position: true,
+    },
+  });
+
+  const today = new Date();
+  today.setHours(17, 0, 0, 0);
+  let created = 0;
+  for (const t of sourceTasks) {
+    const dueAt =
+      t.dueOffsetDays === null
+        ? null
+        : new Date(today.getTime() + t.dueOffsetDays * 86_400_000);
+    await db.task.create({
+      data: {
+        workspaceId,
+        boardId: board.id,
+        sectionId: t.sectionId ? (sectionFor.get(t.sectionId) ?? null) : null,
+        title: t.title,
+        note: t.note,
+        type: t.type,
+        priority: t.priority,
+        tags: t.tags as never,
+        dueAt,
+        position: t.position,
+        createdBy: userId,
+        source: "template",
+      },
+    });
+    created += 1;
+  }
+
+  revalidatePath("/tasks");
+  return { ok: true, boardId: board.id, tasks: created };
+}
+
+// ---------------------------------------------------------------------------
+// my work, across boards (P3/3.4)
+// ---------------------------------------------------------------------------
+
+export interface MyWorkItem {
+  id: string;
+  title: string;
+  priority: string;
+  dueAt: Date | null;
+  boardId: string | null;
+  boardName: string | null;
+  sectionName: string | null;
+  entityLabel: string | null;
+  entityHref: string | null;
+  blockedCount: number;
+}
+
+/**
+ * Everything assigned to me, across every board.
+ *
+ * ── WHY THIS IS NOT THE DASHBOARD PANEL ─────────────────────────────────────
+ *
+ * The dashboard panel groups by urgency and knows nothing about boards: it
+ * cannot say which piece of work a task came from, which is the first thing
+ * somebody asks when they see it. A board answers "where is everything"; this
+ * answers "what do I do next", which is a sort across all of them.
+ */
+export async function myWork(): Promise<MyWorkItem[]> {
+  const { workspaceId, userId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+
+  const rows = await db.task.findMany({
+    where: { doneAt: null, parentId: null, assigneeId: userId },
+    orderBy: [{ dueAt: "asc" }, { position: "asc" }],
+    take: 200,
+    select: {
+      id: true,
+      title: true,
+      priority: true,
+      dueAt: true,
+      boardId: true,
+      entityType: true,
+      entityId: true,
+      board: { select: { name: true } },
+      section: { select: { name: true } },
+    },
+  });
+  if (rows.length === 0) return [];
+
+  // What is still waiting on something, so the list can say so rather than
+  // presenting a blocked task as the next thing to pick up.
+  const deps = await db.taskDependency.findMany({
+    where: { taskId: { in: rows.map((r) => r.id) } },
+    select: { taskId: true, blockedById: true },
+  });
+  const blockerIds = [...new Set(deps.map((d) => d.blockedById))];
+  const blockers = blockerIds.length
+    ? await db.task.findMany({
+        where: { id: { in: blockerIds } },
+        select: { id: true, doneAt: true },
+      })
+    : [];
+  const open = new Set(blockers.filter((b) => !b.doneAt).map((b) => b.id));
+  const blockedCount = new Map<string, number>();
+  for (const d of deps) {
+    if (!open.has(d.blockedById)) continue;
+    blockedCount.set(d.taskId, (blockedCount.get(d.taskId) ?? 0) + 1);
+  }
+
+  const leadIds = rows.filter((r) => r.entityType === "lead" && r.entityId).map((r) => r.entityId!);
+  const companyIds = rows
+    .filter((r) => r.entityType === "company" && r.entityId)
+    .map((r) => r.entityId!);
+  const [leads, companies] = await Promise.all([
+    leadIds.length
+      ? db.lead.findMany({
+          where: { id: { in: leadIds } },
+          select: { id: true, contactName: true, company: { select: { name: true } } },
+        })
+      : Promise.resolve([]),
+    companyIds.length
+      ? db.company.findMany({ where: { id: { in: companyIds } }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+  ]);
+  const leadLabel = new Map(leads.map((l) => [l.id, l.contactName || l.company?.name || "lead"]));
+  const companyLabel = new Map(companies.map((c) => [c.id, c.name]));
+
+  return rows.map((r) => {
+    let entityLabel: string | null = null;
+    let entityHref: string | null = null;
+    if (r.entityType === "lead" && r.entityId) {
+      entityLabel = leadLabel.get(r.entityId) ?? null;
+      entityHref = `/leads?lead=${r.entityId}`;
+    } else if (r.entityType === "company" && r.entityId) {
+      entityLabel = companyLabel.get(r.entityId) ?? null;
+      entityHref = `/leads?company=${r.entityId}`;
+    }
+    return {
+      id: r.id,
+      title: r.title,
+      priority: r.priority,
+      dueAt: r.dueAt,
+      boardId: r.boardId,
+      boardName: r.board?.name ?? null,
+      sectionName: r.section?.name ?? null,
+      entityLabel,
+      entityHref,
+      blockedCount: blockedCount.get(r.id) ?? 0,
+    };
+  });
+}
+
+
+// ---------------------------------------------------------------------------
+// attachments (P3/3.5)
+// ---------------------------------------------------------------------------
+
+export interface TaskAttachmentView {
+  id: string;
+  filename: string;
+  path: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: Date;
+}
+
+export async function listAttachments(taskId: string): Promise<TaskAttachmentView[]> {
+  const { workspaceId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+  return db.taskAttachment.findMany({
+    where: { taskId },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      filename: true,
+      path: true,
+      contentType: true,
+      sizeBytes: true,
+      createdAt: true,
+    },
+  });
+}
+
+const attachSchema = z.object({
+  taskId: z.string().min(1),
+  filename: z.string().trim().min(1).max(200),
+  contentType: z.string().trim().min(1).max(120),
+  /** The file itself, base64. Bounded by MAX_ATTACHMENT_BYTES after decoding. */
+  base64: z.string().min(1),
+});
+
+export async function addAttachment(
+  raw: unknown,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const input = attachSchema.safeParse(raw);
+  if (!input.success) return { ok: false, error: "That file could not be read." };
+  if (!ALLOWED_ATTACHMENT_TYPES.has(input.data.contentType)) {
+    return {
+      ok: false,
+      error: "That file type is not accepted. Documents, spreadsheets, images, PDFs and zips are.",
+    };
+  }
+
+  const bytes = Buffer.from(input.data.base64, "base64");
+  if (bytes.length === 0) return { ok: false, error: "That file is empty." };
+  if (bytes.length > MAX_ATTACHMENT_BYTES) {
+    return {
+      ok: false,
+      error: `That file is ${Math.round(bytes.length / 1_000_000)} MB; the limit is ${
+        MAX_ATTACHMENT_BYTES / 1_000_000
+      } MB.`,
+    };
+  }
+
+  const { workspaceId, userId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+  const task = await db.task.findUnique({ where: { id: input.data.taskId }, select: { id: true } });
+  if (!task) return { ok: false, error: "That task no longer exists." };
+
+  const count = await db.taskAttachment.count({ where: { taskId: input.data.taskId } });
+  if (count >= MAX_ATTACHMENTS_PER_TASK) {
+    return { ok: false, error: `A task holds at most ${MAX_ATTACHMENTS_PER_TASK} files.` };
+  }
+
+  /**
+   * The stored name is generated, never the uploaded one.
+   *
+   * A filename from a browser is attacker-controlled text: "../../.env" is a
+   * path, and a duplicate name would overwrite somebody else's file. The
+   * original is kept in the row for display only.
+   */
+  const ext = (input.data.filename.split(".").pop() ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const rel = `tasks/${input.data.taskId}-${randomBytes(8).toString("hex")}${ext ? `.${ext}` : ""}`;
+  await mkdir(join(FILES_DIR, "tasks"), { recursive: true });
+  await writeFile(join(FILES_DIR, rel), bytes);
+
+  const row = await db.taskAttachment.create({
+    data: {
+      workspaceId,
+      taskId: input.data.taskId,
+      filename: input.data.filename,
+      path: rel,
+      contentType: input.data.contentType,
+      sizeBytes: bytes.length,
+      uploadedBy: userId,
+    },
+    select: { id: true },
+  });
+  revalidatePath("/tasks");
+  return { ok: true, id: row.id };
+}
+
+export async function deleteAttachment(
+  id: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { workspaceId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+  const row = await db.taskAttachment.findUnique({ where: { id }, select: { path: true } });
+  if (!row) return { ok: false, error: "That file no longer exists." };
+
+  await db.taskAttachment.delete({ where: { id } });
+  // The row is the record; a file left on disk is a leak, but a failed unlink
+  // must not leave a row pointing at nothing.
+  await unlink(join(FILES_DIR, row.path)).catch(() => {});
+  revalidatePath("/tasks");
+  return { ok: true };
 }

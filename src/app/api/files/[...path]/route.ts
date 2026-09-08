@@ -53,10 +53,28 @@ export async function GET(
   try {
     const buf = await readFile(join(FILES_DIR, rel));
     const ext = rel.split(".").pop()?.toLowerCase() ?? "";
+    /**
+     * Task attachments are DOWNLOADED, never rendered in place.
+     *
+     * Everything else under this route is something we produced — an audit
+     * screenshot, a generated PDF — and previewing it inline is the point. A
+     * task attachment is a file a person uploaded, served back from our own
+     * origin, so rendering it inline would let an uploaded document execute
+     * with our domain behind it. `attachment` makes the browser save it.
+     */
+    const isUpload = rel.startsWith("tasks/");
     return new Response(new Uint8Array(buf), {
       headers: {
         "Content-Type": CONTENT_TYPES[ext] ?? "application/octet-stream",
         "Cache-Control": "private, max-age=60",
+        ...(isUpload
+          ? {
+              "Content-Disposition": `attachment; filename="${rel
+                .split("/")
+                .pop()
+                ?.replace(/[^A-Za-z0-9._-]/g, "_")}"`,
+            }
+          : {}),
       },
     });
   } catch {
