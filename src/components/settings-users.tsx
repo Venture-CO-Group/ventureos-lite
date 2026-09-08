@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   createPasswordResetLink,
@@ -221,8 +221,12 @@ export function SettingsUsers({
               </tr>
             )}
             {shown.map((u) => (
-              <>
-                <tr key={u.userId} className="border-b border-line last:border-0">
+              // A Fragment, keyed. A bare <> around the row and its expandable
+              // session row has no key, and React logs a warning for every
+              // member in the table — which `every-page.spec.ts` correctly
+              // treats as a failure.
+              <Fragment key={u.userId}>
+                <tr className="border-b border-line last:border-0">
                   <td className="px-2 py-2.5">
                     <span className="block text-ink">
                       {u.name}
@@ -441,7 +445,7 @@ export function SettingsUsers({
 
                 {/* ---- session detail --------------------------------- */}
                 {expanded === u.userId && u.sessions.length > 0 && (
-                  <tr key={`${u.userId}-sessions`} className="border-b border-line">
+                  <tr className="border-b border-line">
                     <td colSpan={6} className="px-2 pb-3">
                       <div className="rounded-[10px] border border-line bg-panel-2/40 p-3">
                         <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
@@ -468,7 +472,7 @@ export function SettingsUsers({
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>
