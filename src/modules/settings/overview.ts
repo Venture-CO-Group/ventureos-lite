@@ -52,6 +52,7 @@ export async function getAdminOverview(): Promise<AdminOverview> {
     watchCount,
     auditLogCount,
     pendingProposals,
+    teamCount,
   ] = await Promise.all([
     prismaUnsafe.membership.count({ where: { workspaceId, state: "ACTIVE" } }),
     prismaUnsafe.membership.count({ where: { workspaceId, state: "SUSPENDED" } }),
@@ -65,6 +66,7 @@ export async function getAdminOverview(): Promise<AdminOverview> {
     db.auditWatch.count({ where: { enabled: true } }),
     db.auditLog.count(),
     db.proposal.count({ where: { status: "PENDING" } }),
+    db.team.count({ where: { archivedAt: null } }),
   ]);
 
   const hidden = hiddenFeatures(flags);
@@ -80,6 +82,7 @@ export async function getAdminOverview(): Promise<AdminOverview> {
       ...(suspendedCount > 0
         ? [{ label: "Suspended", value: String(suspendedCount), attention: true }]
         : []),
+      { label: "Teams", value: String(teamCount) },
     ],
     workspace: [
       {
