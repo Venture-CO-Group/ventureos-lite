@@ -1,8 +1,18 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { readAuditLog, type AuditLogPage, type AuditLogRow } from "@/modules/auditlog/actions";
+import { useRouter } from "next/navigation";
+import {
+  exportAuditLog,
+  readAuditLog,
+  setAuditRetention,
+  type AuditLogPage,
+  type AuditLogRow,
+  type AuditRetentionView,
+} from "@/modules/auditlog/actions";
 import { AUDIT_LOG_CATEGORIES } from "@/modules/auditlog/categories";
+import { describeAuditRetention } from "@/modules/auditlog/retention";
+import { serverActionError } from "@/lib/client/server-action";
 
 /**
  * Settings → Audit log (CLAUDE.md hard rule #8).
@@ -29,14 +39,24 @@ const ACTION_LABEL: Record<string, string> = {
   "import.run": "import",
   "import.rollback": "import visszavonva",
   "cold_email.signoff": "hideg e-mail jóváhagyás",
+  "audit_log.exported": "napló exportálva",
+  "audit_log.retention_changed": "napló megőrzés módosítva",
+  "audit_log.pruned": "napló ritkítva",
 };
 
 function when(iso: string): string {
   return new Date(iso).toLocaleString("hu-HU");
 }
 
-export function AuditLogPanel() {
+export function AuditLogPanel({ retention }: { retention: AuditRetentionView }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [days, setDays] = useState(String(retention.days));
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [category, setCategory] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState<AuditLogPage | null>(null);
@@ -48,6 +68,62 @@ export function AuditLogPanel() {
       setPage(res);
       setRows((prev) => (cursor ? [...prev, ...res.rows] : res.rows));
     });
+  }
+
+  /**
+   * Take the whole log away with you (P5/5.3).
+   *
+   * The first request in a data-protection incident is an extract of the log,
+   * and "log in and scroll, fifty rows at a time" is not an answer to a
+   * regulator, a client's security questionnaire, or a lawyer. The export is
+   * itself logged — a record of who read the record of who did what.
+   */
+  async function download() {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      const res = await exportAuditLog({ from: from || undefined, to: to || undefined });
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      // A BOM, because this file is opened in Excel far more often than in a
+      // text editor, and without one every Hungarian name arrives mangled.
+      const blob = new Blob([`\uFEFF${res.csv}`], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setNote(`${res.rows} bejegyzés letöltve.`);
+      // The export itself became a row; show it.
+      load();
+    } catch (e) {
+      setError(serverActionError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveRetention() {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      const res = await setAuditRetention(Number(days));
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setNote("Megőrzési szabály mentve.");
+      router.refresh();
+    } catch (e) {
+      setError(serverActionError(e));
+    } finally {
+      setBusy(false);
+    }
   }
 
   // Reload from the top whenever the filter changes; the search is applied on
@@ -67,6 +143,99 @@ export function AuditLogPanel() {
         Ki mit csinált, és mikor. Jogosultság-változás, export, törlés, dokumentum
         véglegesítés, számla-beküldés. <b>Csak olvasható</b> — ez a lényege.
       </p>
+
+      {note && (
+        <p
+          data-testid="audit-log-note"
+          className="mb-3 rounded-[8px] border border-[rgba(61,220,151,0.35)] bg-[rgba(61,220,151,0.08)] px-3 py-2 text-[12px] text-[#8CEFC0]"
+        >
+          {note}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="mb-3 text-[12px] text-[#FFB3C2]">
+          {error}
+        </p>
+      )}
+
+      <div className="mb-3 grid gap-2 rounded-[10px] border border-line bg-panel-2 p-3 sm:grid-cols-[1fr_auto]">
+        <div className="grid gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+            Kivonat
+          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              data-testid="audit-export-from"
+              className="min-h-[32px] rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+            />
+            <span className="text-[11.5px] text-muted">–</span>
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              data-testid="audit-export-to"
+              className="min-h-[32px] rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+            />
+            <button
+              onClick={() => void download()}
+              disabled={busy}
+              data-testid="audit-export"
+              className={BTN}
+            >
+              CSV letöltés
+            </button>
+          </div>
+          <span className="text-[11px] text-muted">
+            Dátum nélkül a teljes napló. A letöltés maga is bekerül a naplóba.
+          </span>
+        </div>
+
+        <div className="grid gap-1.5 sm:justify-items-end">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+            Megőrzés
+          </span>
+          <div className="flex items-center gap-1.5">
+            <select
+              value={days}
+              onChange={(e) => setDays(e.target.value)}
+              disabled={!retention.canEdit || busy}
+              data-testid="audit-retention-days"
+              className="min-h-[32px] rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2 py-1 text-[12px] text-ink outline-none focus:border-accent"
+            >
+              <option value="0">Örökre</option>
+              <option value="90">90 nap</option>
+              <option value="180">180 nap</option>
+              <option value="365">1 év</option>
+              <option value="730">2 év</option>
+              <option value="1825">5 év</option>
+              <option value="2555">7 év</option>
+            </select>
+            {retention.canEdit && (
+              <button
+                onClick={() => void saveRetention()}
+                disabled={busy || Number(days) === retention.days}
+                data-testid="audit-retention-save"
+                className={BTN}
+              >
+                Mentés
+              </button>
+            )}
+          </div>
+          <span className="text-[11px] text-muted sm:text-right" data-testid="audit-retention-state">
+            {describeAuditRetention(retention.days)} · {retention.total} bejegyzés
+            {retention.expiring > 0 && (
+              <>
+                {" · "}
+                <b className="text-warn">{retention.expiring}</b> a következő
+                éjszakai söprésnél törlődik
+              </>
+            )}
+          </span>
+        </div>
+      </div>
 
       <div className="mb-3 flex flex-wrap gap-1.5">
         {AUDIT_LOG_CATEGORIES.map((c) => (

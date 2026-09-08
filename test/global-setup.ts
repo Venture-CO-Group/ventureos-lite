@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { resolveTestEnv } from "./helpers/env";
 
 /**
  * Apply the row-level-security policies ONCE for the whole run.
@@ -9,10 +10,17 @@ import { PrismaClient } from "@prisma/client";
  * either file was run alone, which is the most expensive kind.
  */
 export default async function setup(): Promise<void> {
-  if ((process.env.DB_FLAVOR ?? "postgres") !== "postgres") return;
-  if (!process.env.DATABASE_URL) return;
+  /**
+   * The global setup runs in the Vitest MAIN process, where `test.env` from the
+   * config has not been applied — so it saw `.env`'s container database URL and
+   * warned that it could not connect, on every local run. A green isolation
+   * suite that never applied a policy is worse than a red one.
+   */
+  const env = resolveTestEnv();
+  if ((env.DB_FLAVOR ?? "postgres") !== "postgres") return;
+  if (!env.DATABASE_URL) return;
 
-  const prisma = new PrismaClient();
+  const prisma = new PrismaClient({ datasources: { db: { url: env.DATABASE_URL } } });
   try {
     const { applyRls } = await import("../src/lib/rls");
     await applyRls(prisma);

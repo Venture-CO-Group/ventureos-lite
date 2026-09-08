@@ -28,6 +28,7 @@ import { processCommissionPdf } from "../modules/revenue/pdf-job";
 import { processPublicAuditReport } from "../modules/public-audit/report-job";
 import { processLeadsPdf } from "../modules/leads/export-job";
 import { processScheduledExports } from "../modules/leads/schedule-job";
+import { processAuditLogRetention } from "../modules/auditlog/jobs";
 import { processMeetingBrief } from "../modules/meetings/jobs";
 import { processQuarterlyWinLoss } from "../modules/analytics/digest";
 import { processWeeklyReports } from "../modules/analytics/report-job";
@@ -295,6 +296,10 @@ async function main(): Promise<void> {
         const n = await processAuditWatchSweep();
         // eslint-disable-next-line no-console
         console.log(`[worker] audit watch queued ${n} re-audit(s)`);
+      } else if (job.name === "audit-log-retention") {
+        const n = await processAuditLogRetention();
+        // eslint-disable-next-line no-console
+        console.log(`[worker] pruned ${n} audit-log row(s)`);
       } else if (job.name === "scheduled-exports") {
         const n = await processScheduledExports();
         // eslint-disable-next-line no-console
@@ -360,6 +365,20 @@ async function main(): Promise<void> {
     "scheduled-exports",
     {},
     { repeat: { pattern: "5 * * * *" }, jobId: "scheduled-exports" },
+  );
+  /**
+   * Audit-log retention, nightly (P5/5.3).
+   *
+   * Nightly rather than hourly: the finest period on offer is ninety days, so
+   * checking twenty-four times a day would only mean twenty-three no-op passes
+   * over every workspace. Each sweep that removes anything leaves an
+   * `audit_log.pruned` row behind — otherwise a gap in the log is
+   * indistinguishable from somebody covering their tracks.
+   */
+  await wakeupsQueue().add(
+    "audit-log-retention",
+    {},
+    { repeat: { pattern: "40 3 * * *" }, jobId: "audit-log-retention" },
   );
   // Task-due sweep, hourly. The dedupe key carries the day, so an overdue task
   // notifies once a day rather than once an hour (P6/1).

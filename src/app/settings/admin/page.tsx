@@ -9,6 +9,7 @@ import { SettingsHealthRules } from "@/components/settings-health-rules";
 import { SettingsProjectTemplates } from "@/components/settings-project-templates";
 import { SettingsQuoteRules } from "@/components/settings-quote-rules";
 import { AuditLogPanel } from "@/components/audit-log";
+import { getAuditRetention } from "@/modules/auditlog/actions";
 import { SettingsTargets } from "@/components/settings-targets";
 import { SettingsAuditWatches } from "@/components/settings-audit-watches";
 import { SettingsAuditScoring } from "@/components/settings-audit-scoring";
@@ -113,6 +114,9 @@ export default async function AdminSettingsPage() {
   const canManageFields = await hasGrant("fields.manage");
   const dataQuality = await getDataQuality();
   const workflows = await getWorkflows();
+  // Retention sits inside the log panel: how long the rows are kept belongs
+  // beside the rows, not in a separate box halfway down the page (P5/5.3).
+  const auditRetention = owner ? await getAuditRetention() : null;
 
   return (
     <AppShell activePath="/settings">
@@ -146,7 +150,7 @@ export default async function AdminSettingsPage() {
         <SettingsQuoteRules view={quoteRules} isOwner={owner} />
         <SettingsAuditScoring view={auditScoring} />
         <SettingsAuditWatches />
-        {owner && <AuditLogPanel />}
+        {owner && auditRetention && <AuditLogPanel retention={auditRetention} />}
         {owner && (
           <SettingsUsers
             users={managedUsers}

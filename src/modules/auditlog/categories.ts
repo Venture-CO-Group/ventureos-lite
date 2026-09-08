@@ -16,7 +16,17 @@ export const AUDIT_LOG_CATEGORIES = [
   {
     id: "data",
     label: "Adat: export, törlés, egyesítés",
-    prefixes: ["export.", "lead.deleted", "lead.erasure", "data.", "import.", "retention."],
+    prefixes: [
+      "export.",
+      "lead.deleted",
+      "lead.erasure",
+      "data.",
+      "import.",
+      "retention.",
+      // Reading and pruning the log are themselves data events, and the row
+      // that explains a gap in the log has to be findable (P5/5.3).
+      "audit_log.",
+    ],
   },
   {
     id: "documents",
