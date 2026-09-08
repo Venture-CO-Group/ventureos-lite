@@ -75,8 +75,11 @@ export async function emitWebhookEvent(
  */
 export async function emitLeadCreated(workspaceId: string, leadId: string): Promise<number> {
   try {
-    const lead = await prismaUnsafe.lead.findUnique({
-      where: { id: leadId },
+    // Both keys, not just the id: this runs on the unguarded client, and a
+    // caller that ever passed a lead from elsewhere must read as "not found"
+    // rather than as a payload built from another tenant's row.
+    const lead = await prismaUnsafe.lead.findFirst({
+      where: { id: leadId, workspaceId },
       select: {
         id: true,
         contactName: true,
