@@ -257,6 +257,21 @@ model User {
   /// rather than the Membership: it is a picture of a person, and someone in two
   /// workspaces is the same person in both.
   avatarPath          String?              @map("avatar_path")
+  /// ── PROFILE FIELDS ────────────────────────────────────────────────────
+  ///
+  /// On the User rather than the Membership, all four: a job title, a phone
+  /// number, a timezone and a language belong to a person, and somebody in two
+  /// workspaces is the same person in both.
+  ///
+  /// `timezone` earns its place first: the start-of-day task email has to know
+  /// when somebody's day starts, and without it the digest would either go out
+  /// at UTC midnight for everybody or guess. An IANA name ("Europe/Budapest"),
+  /// not an offset — an offset is wrong twice a year.
+  jobTitle            String?              @map("job_title")
+  phone               String?
+  timezone            String?
+  /// UI language. Null means the workspace/browser default decides.
+  locale              String?
   /// PLATFORM operator, not a workspace role.
   ///
   /// Role (OWNER/ADMIN/BDR) is per membership and says what someone may do
@@ -2180,6 +2195,14 @@ model NotificationPreference {
   inApp       Boolean? @map("in_app")
   push        Boolean?
   emailDigest Boolean? @map("email_digest")
+  /// An email straight away, not batched into a digest (P8/2).
+  ///
+  /// The one channel that sends per event. Default ON for `task_assigned`
+  /// only, because that is the notification whose whole value is arriving
+  /// before the person next opens the app — the same choice Asana makes. Every
+  /// other type stays digest-only; a product that mails on every event is a
+  /// product whose mail gets filtered.
+  emailNow    Boolean? @map("email_now")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@unique([workspaceId, userId, type])

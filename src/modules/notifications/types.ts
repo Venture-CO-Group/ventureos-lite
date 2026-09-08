@@ -52,6 +52,17 @@ export interface Channels {
   inApp: boolean;
   push: boolean;
   emailDigest: boolean;
+  /**
+   * An email straight away, not batched (P8/2).
+   *
+   * The one per-event channel, and it stays that way on purpose. A product
+   * that mails on every notification is a product whose mail gets filtered,
+   * so this defaults ON for exactly one type — `task_assigned` — where the
+   * whole value is arriving before the person next opens the app. That is the
+   * same line Asana draws, and it is the reason the digest below exists for
+   * everything else.
+   */
+  emailNow: boolean;
 }
 
 export interface NotificationTypeDef {
@@ -76,19 +87,28 @@ export interface NotificationTypeDef {
  * emailDigest is on only where a missed item costs something. It batches into
  * the existing Monday digest — the playbook is explicit that this must not
  * become per-event mail.
+ *
+ * emailNow is off everywhere except `task_assigned`. See the field comment on
+ * `Channels.emailNow`: one per-event email, for the one event whose value is
+ * arriving before somebody next opens the app.
  */
 function def(
   type: NotificationType,
   label: string,
   description: string,
-  opts: { ownerOnly?: boolean; emailDigest?: boolean } = {},
+  opts: { ownerOnly?: boolean; emailDigest?: boolean; emailNow?: boolean } = {},
 ): NotificationTypeDef {
   return {
     type,
     label,
     description,
     ownerOnly: opts.ownerOnly ?? false,
-    defaults: { inApp: true, push: false, emailDigest: opts.emailDigest ?? false },
+    defaults: {
+      inApp: true,
+      push: false,
+      emailDigest: opts.emailDigest ?? false,
+      emailNow: opts.emailNow ?? false,
+    },
   };
 }
 
@@ -134,9 +154,16 @@ export const NOTIFICATION_TYPE_DEFS: Record<NotificationType, NotificationTypeDe
     "task_assigned",
     "Task assigned to you",
     "Somebody put a task on your plate.",
-    // In the digest as well: a task handed over on Friday afternoon should not
-    // wait until somebody happens to open the bell.
-    { emailDigest: true },
+    /**
+     * The only type that mails immediately.
+     *
+     * A task handed over on Friday afternoon should not wait until somebody
+     * happens to open the bell, and a weekly digest is far too late to be the
+     * first anybody hears of it. In the digest too, so it still shows up in
+     * the weekly summary — but the email that matters is the one that arrives
+     * within the minute.
+     */
+    { emailDigest: true, emailNow: true },
   ),
   task_commented: def(
     "task_commented",
@@ -190,7 +217,7 @@ export const NOTIFICATION_TYPE_DEFS: Record<NotificationType, NotificationTypeDe
   ),
 };
 
-const ALL_OFF: Channels = { inApp: false, push: false, emailDigest: false };
+const ALL_OFF: Channels = { inApp: false, push: false, emailDigest: false, emailNow: false };
 
 export function isNotificationType(value: unknown): value is NotificationType {
   return typeof value === "string" && (NOTIFICATION_TYPES as readonly string[]).includes(value);
@@ -232,7 +259,7 @@ export function resolveChannels(
   const resolved = defaultChannels(type);
   // Only an explicit boolean overrides. null/undefined mean "no opinion", and
   // spreading them in would turn a channel the TYPE enables into a falsy value.
-  for (const key of ["inApp", "push", "emailDigest"] as const) {
+  for (const key of ["inApp", "push", "emailDigest", "emailNow"] as const) {
     const value = stored?.[key];
     if (typeof value === "boolean") resolved[key] = value;
   }

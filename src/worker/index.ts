@@ -29,6 +29,7 @@ import { processPublicAuditReport } from "../modules/public-audit/report-job";
 import { processLeadsPdf } from "../modules/leads/export-job";
 import { processScheduledExports } from "../modules/leads/schedule-job";
 import { processAuditLogRetention } from "../modules/auditlog/jobs";
+import { processTaskDigests } from "../modules/tasks/digest-job";
 import {
   processWebhookDeliveries,
   processWebhookLogRetention,
@@ -300,6 +301,10 @@ async function main(): Promise<void> {
         const n = await processAuditWatchSweep();
         // eslint-disable-next-line no-console
         console.log(`[worker] audit watch queued ${n} re-audit(s)`);
+      } else if (job.name === "task-digest") {
+        const n = await processTaskDigests();
+        // eslint-disable-next-line no-console
+        console.log(`[worker] start-of-day task digest sent to ${n} person(s)`);
       } else if (job.name === "webhook-deliveries") {
         const n = await processWebhookDeliveries();
         // eslint-disable-next-line no-console
@@ -408,6 +413,23 @@ async function main(): Promise<void> {
     "webhook-deliveries",
     {},
     { repeat: { pattern: "* * * * *" }, jobId: "webhook-deliveries" },
+  );
+  /**
+   * The start-of-day task email (P8/2), hourly on the hour.
+   *
+   * Hourly rather than once a day, because "the start of the day" is a
+   * different instant for every person: the job mails whoever has just reached
+   * 07:00 in THEIR timezone. A single daily firing could only be right for one
+   * zone, and this product already runs for a team that travels.
+   *
+   * Sending once per person per day is enforced by a dedupe key carrying their
+   * local date, not by the cron expression — so a retried job, a worker
+   * restart or a second worker cannot produce a second email.
+   */
+  await wakeupsQueue().add(
+    "task-digest",
+    {},
+    { repeat: { pattern: "2 * * * *" }, jobId: "task-digest" },
   );
   // The delivery log holds full payload copies — lead names, contract totals —
   // so it expires like any other tenant data. Nightly.

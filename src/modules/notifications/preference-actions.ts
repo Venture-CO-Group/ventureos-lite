@@ -53,7 +53,7 @@ export async function getNotificationPreferences(): Promise<PreferenceMatrix> {
   const [stored, role, devices] = await Promise.all([
     db.notificationPreference.findMany({
       where: { userId },
-      select: { type: true, inApp: true, push: true, emailDigest: true },
+      select: { type: true, inApp: true, push: true, emailDigest: true, emailNow: true },
     }),
     roleOf(userId, workspaceId),
     countSubscriptions(workspaceId, userId),
@@ -66,7 +66,14 @@ export async function getNotificationPreferences(): Promise<PreferenceMatrix> {
     const row = byType.get(type);
     const channels = resolveChannels(
       type,
-      row ? { inApp: row.inApp, push: row.push, emailDigest: row.emailDigest } : null,
+      row
+        ? {
+            inApp: row.inApp,
+            push: row.push,
+            emailDigest: row.emailDigest,
+            emailNow: row.emailNow,
+          }
+        : null,
       role,
     );
     return {
@@ -87,7 +94,7 @@ export async function getNotificationPreferences(): Promise<PreferenceMatrix> {
 
 const setSchema = z.object({
   type: z.string(),
-  channel: z.enum(["inApp", "push", "emailDigest"]),
+  channel: z.enum(["inApp", "push", "emailDigest", "emailNow"]),
   value: z.boolean(),
 });
 
@@ -110,7 +117,7 @@ export async function setNotificationPreference(
   const db = getWorkspaceClient(workspaceId);
   const current = await db.notificationPreference.findFirst({
     where: { userId, type },
-    select: { inApp: true, push: true, emailDigest: true },
+    select: { inApp: true, push: true, emailDigest: true, emailNow: true },
   });
   // The row is written from the RESOLVED state, not from defaults, so flipping
   // one switch cannot silently reset the other two.

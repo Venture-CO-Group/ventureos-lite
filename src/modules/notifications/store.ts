@@ -63,6 +63,14 @@ export interface DeliverInput {
 export interface DeliverResult {
   created: number;
   /**
+   * Recipients whose immediate-email channel is on for this type (P8/2).
+   *
+   * Returned rather than mailed, for exactly the reason `pushUserIds` is:
+   * this store stays free of network I/O so it can be tested against a
+   * database without a mail provider. `safeDeliver` does the sending.
+   */
+  emailUserIds: string[];
+  /**
    * Recipients whose push channel is on. Returned rather than pushed to,
    * because the store must stay free of network I/O to be testable — the
    * caller (or the push module) decides whether to actually send.
@@ -77,36 +85,46 @@ export interface DeliverResult {
  * id in a job payload is not a reason to fail an event that already happened.
  */
 export async function deliverNotification(input: DeliverInput): Promise<DeliverResult> {
-  if (!isNotificationType(input.type)) return { created: 0, pushUserIds: [] };
+  const NOTHING: DeliverResult = { created: 0, pushUserIds: [], emailUserIds: [] };
+  if (!isNotificationType(input.type)) return NOTHING;
   const userIds = [...new Set(input.userIds)].filter(Boolean);
-  if (userIds.length === 0) return { created: 0, pushUserIds: [] };
+  if (userIds.length === 0) return NOTHING;
 
   // Membership carries the role, and the role decides Owner-only types.
   const memberships = await prismaUnsafe.membership.findMany({
     where: { workspaceId: input.workspaceId, userId: { in: userIds } },
     select: { userId: true, role: true },
   });
-  if (memberships.length === 0) return { created: 0, pushUserIds: [] };
+  if (memberships.length === 0) return NOTHING;
 
   const db = getWorkspaceClient(input.workspaceId);
   const prefs = await db.notificationPreference.findMany({
     where: { userId: { in: memberships.map((m) => m.userId) }, type: input.type },
-    select: { userId: true, inApp: true, push: true, emailDigest: true },
+    select: { userId: true, inApp: true, push: true, emailDigest: true, emailNow: true },
   });
   const prefByUser = new Map(prefs.map((p) => [p.userId, p]));
 
   const dedupeKey = dedupeKeyFor(input.type, input.entityId ?? "", input.discriminator);
   let created = 0;
   const pushUserIds: string[] = [];
+  const emailUserIds: string[] = [];
 
   for (const membership of memberships) {
     const stored = prefByUser.get(membership.userId);
     const channels = resolveChannels(
       input.type,
-      stored ? { inApp: stored.inApp, push: stored.push, emailDigest: stored.emailDigest } : null,
+      stored
+        ? {
+            inApp: stored.inApp,
+            push: stored.push,
+            emailDigest: stored.emailDigest,
+            emailNow: stored.emailNow,
+          }
+        : null,
       membership.role,
     );
     if (channels.push) pushUserIds.push(membership.userId);
+    if (channels.emailNow) emailUserIds.push(membership.userId);
     if (!channels.inApp) continue;
 
     // The unique index is what actually enforces once-only; this is the
@@ -133,7 +151,7 @@ export async function deliverNotification(input: DeliverInput): Promise<DeliverR
     }
   }
 
-  return { created, pushUserIds };
+  return { created, pushUserIds, emailUserIds };
 }
 
 export async function listNotifications(

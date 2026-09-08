@@ -103,10 +103,15 @@ describe("who may receive what", () => {
     // is exactly when this matters.
     const channels = resolveChannels(
       "proposal_pending",
-      { inApp: true, push: true, emailDigest: true },
+      { inApp: true, push: true, emailDigest: true, emailNow: true },
       "GUEST",
     );
-    expect(channels).toEqual({ inApp: false, push: false, emailDigest: false });
+    expect(channels).toEqual({
+      inApp: false,
+      push: false,
+      emailDigest: false,
+      emailNow: false,
+    });
   });
 });
 
@@ -118,7 +123,7 @@ describe("resolving a user's channels", () => {
   });
 
   it("lets a stored preference override each channel independently", () => {
-    const stored = { inApp: false, push: true, emailDigest: false };
+    const stored = { inApp: false, push: true, emailDigest: false, emailNow: true };
     expect(resolveChannels("callback_due", stored, "BDR")).toEqual(stored);
   });
 
@@ -158,6 +163,7 @@ describe("resolving a user's channels", () => {
       inApp: false,
       push: false,
       emailDigest: false,
+      emailNow: false,
     });
   });
 });
@@ -196,5 +202,44 @@ describe("retention", () => {
     const now = new Date("2026-08-16T12:00:00Z");
     const cutoff = retentionCutoff(now);
     expect(cutoff.toISOString()).toBe("2026-05-18T12:00:00.000Z");
+  });
+});
+
+/**
+ * The immediate-email channel (P8/2).
+ *
+ * The design rule for email has always been "batch into a digest, never one
+ * message per event", and that is still the rule for twelve of the thirteen
+ * types. It is the wrong rule for exactly one: a task somebody just put on
+ * your plate. A handover on Friday afternoon that first surfaces in Monday's
+ * digest is a handover that did not happen.
+ */
+describe("which types mail immediately", () => {
+  it("is task_assigned, and only task_assigned", () => {
+    const immediate = NOTIFICATION_TYPES.filter((t) => defaultChannels(t).emailNow);
+    expect(immediate).toEqual(["task_assigned"]);
+  });
+
+  it("leaves task_assigned in the digest as well", () => {
+    // Belt and braces: the immediate mail is what matters, and the digest is
+    // what covers somebody who has turned the immediate one off.
+    expect(defaultChannels("task_assigned").emailDigest).toBe(true);
+  });
+
+  it("can be switched off per person without touching the other channels", () => {
+    const resolved = resolveChannels("task_assigned", { emailNow: false }, "BDR");
+    expect(resolved.emailNow).toBe(false);
+    expect(resolved.inApp).toBe(true);
+    expect(resolved.emailDigest).toBe(true);
+  });
+
+  it("can be switched on for a type that does not default to it", () => {
+    expect(resolveChannels("visitor_signal", { emailNow: true }, "OWNER").emailNow).toBe(true);
+  });
+
+  it("stays off for an Owner-only type somebody may not receive", () => {
+    expect(
+      resolveChannels("proposal_pending", { emailNow: true }, "CLIENT").emailNow,
+    ).toBe(false);
   });
 });

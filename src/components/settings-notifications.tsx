@@ -76,7 +76,11 @@ export function SettingsNotifications({ initial }: { initial: PreferenceMatrix }
   /** Writes still in flight. Surfaced as `data-saving` for the operator and for tests. */
   const [saving, setSaving] = useState(0);
 
-  async function toggle(type: string, channel: "inApp" | "push" | "emailDigest", value: boolean) {
+  async function toggle(
+    type: string,
+    channel: "inApp" | "push" | "emailDigest" | "emailNow",
+    value: boolean,
+  ) {
     setError(null);
     // Optimistic: a checkbox that waits for a round trip feels broken.
     setRows((r) => r.map((row) => (row.type === type ? { ...row, [channel]: value } : row)));
@@ -227,7 +231,26 @@ export function SettingsNotifications({ initial }: { initial: PreferenceMatrix }
               </th>
               <th className={headerClass}>In-app</th>
               <th className={headerClass}>Push</th>
-              <th className={headerClass}>Email</th>
+              {/*
+                Two email columns, because they are two different promises.
+
+                "Straight away" is one message per event and defaults on for
+                exactly one type — a task somebody just put on your plate,
+                where the whole value is arriving before you next open the app.
+                "Digest" batches into the Monday summary and the start-of-day
+                task email. A product that mails on every notification is a
+                product whose mail gets filtered.
+              */}
+              <th className={headerClass}>
+                Email
+                <span className="block text-[9.5px] normal-case tracking-normal">
+                  straight away
+                </span>
+              </th>
+              <th className={headerClass}>
+                Email
+                <span className="block text-[9.5px] normal-case tracking-normal">digest</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -252,6 +275,14 @@ export function SettingsNotifications({ initial }: { initial: PreferenceMatrix }
                     label={`${row.label} push`}
                     testId={`pref-${row.type}-push`}
                     onChange={(v) => toggle(row.type, "push", v)}
+                  />
+                </td>
+                <td className="border-t border-line px-2 py-2.5 text-center">
+                  <Toggle
+                    on={row.emailNow}
+                    label={`${row.label} email straight away`}
+                    testId={`pref-${row.type}-emailNow`}
+                    onChange={(v) => toggle(row.type, "emailNow", v)}
                   />
                 </td>
                 <td className="border-t border-line px-2 py-2.5 text-center">

@@ -17,6 +17,7 @@ import { getWorkspaceClient } from "@/lib/db";
 import { deliverNotification, type DeliverInput } from "./store";
 import { sendPushToUsers } from "./push";
 import { allMembers, leadAndOwners, leadRecipients, workspaceOwners } from "./recipients";
+import { sendNotificationEmails } from "./email-now";
 
 /**
  * Deliver in-app, then push to whoever asked for it.
@@ -33,12 +34,30 @@ import { allMembers, leadAndOwners, leadRecipients, workspaceOwners } from "./re
  */
 export async function safeDeliver(input: DeliverInput): Promise<void> {
   let pushUserIds: string[] = [];
+  let emailUserIds: string[] = [];
   try {
-    ({ pushUserIds } = await deliverNotification(input));
+    ({ pushUserIds, emailUserIds } = await deliverNotification(input));
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error(`[notify] ${input.type} failed`, e);
     return;
+  }
+
+  /**
+   * The immediate-email channel (P8/2).
+   *
+   * Fired before push, because it is the one that reaches somebody who does
+   * not have the app open — which is the whole reason it exists. Its own
+   * module swallows every failure, so no `try` is needed here beyond the one
+   * around the delivery itself.
+   */
+  if (emailUserIds.length > 0) {
+    await sendNotificationEmails(input.workspaceId, emailUserIds, {
+      type: input.type,
+      title: input.title,
+      body: input.body ?? null,
+      href: input.href,
+    });
   }
 
   if (pushUserIds.length === 0) return;

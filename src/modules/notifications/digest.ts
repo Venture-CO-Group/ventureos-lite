@@ -31,7 +31,7 @@ export async function countDigestableUnread(
     }),
     db.notificationPreference.findMany({
       where: { userId },
-      select: { type: true, inApp: true, push: true, emailDigest: true },
+      select: { type: true, inApp: true, push: true, emailDigest: true, emailNow: true },
     }),
   ]);
 
@@ -42,7 +42,12 @@ export async function countDigestableUnread(
     const channels = resolveChannels(
       row.type as NotificationType,
       stored
-        ? { inApp: stored.inApp, push: stored.push, emailDigest: stored.emailDigest }
+        ? {
+            inApp: stored.inApp,
+            push: stored.push,
+            emailDigest: stored.emailDigest,
+            emailNow: stored.emailNow,
+          }
         : null,
       role,
     );
