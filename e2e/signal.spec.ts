@@ -53,7 +53,7 @@ test.afterAll(async () => {
 });
 
 test("approving a frame promotion versions the frame; rejecting mutates nothing", async ({ page }) => {
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/sales");
 
   // Both proposals are pending and visible.
   await expect(page.locator(`[data-proposal="${frameProposalId}"]`)).toBeVisible();

@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PALETTE_ACTIONS, GOTO_MAP } from "../../src/modules/search/palette";
 import { TOUR_STEPS, CHECKLIST } from "../../src/modules/onboarding/tour";
+import {
+  ADMIN_SECTIONS,
+  PERSONAL_SECTIONS,
+} from "../../src/modules/settings/sections";
 
 /**
  * The in-app help, checked against the app it describes.
@@ -60,9 +64,25 @@ describe("the onboarding tour and checklist point at real places", () => {
     ...CHECKLIST.map((c) => c.href),
   ];
 
+  /**
+   * Reachable through a MENU, not necessarily through the sidebar.
+   *
+   * The sidebar used to be the whole route table. Since settings was split
+   * into sections (P8/3) a legitimate destination can live in the settings
+   * menu instead — "connect your mailbox" now points at /settings/email,
+   * which is a real page reachable in one click and will never be a sidebar
+   * entry. The guarantee that matters is unchanged: the tour must not send
+   * somebody to a page nothing links to.
+   */
+  const reachable = new Set([
+    ...navHrefs,
+    ...PERSONAL_SECTIONS.map((s) => s.href),
+    ...ADMIN_SECTIONS.map((s) => s.href),
+  ]);
+
   for (const href of [...new Set(hrefs)]) {
-    it(`${href} is a page the nav knows about`, () => {
-      expect(navHrefs.includes(href), `${href} is not in the nav`).toBe(true);
+    it(`${href} is reachable from a menu`, () => {
+      expect(reachable.has(href), `${href} is in no menu`).toBe(true);
     });
   }
 

@@ -22,7 +22,7 @@ test.afterAll(async () => {
  * written by nothing at all.
  */
 test("audit scoring is configurable, and the numbers reach the database", async ({ page }) => {
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/audit");
   await page.locator("#audit-scoring").scrollIntoViewIfNeeded();
 
   // All eight categories are on screen — the level people actually think at.
@@ -56,7 +56,7 @@ test("audit scoring is configurable, and the numbers reach the database", async 
 });
 
 test("a band order that would strand a verdict is refused", async ({ page }) => {
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/audit");
   await page.locator("#audit-scoring").scrollIntoViewIfNeeded();
   await page.getByTestId("verdict-strong").fill("30");
   await page.getByTestId("verdict-possible").fill("40");
@@ -69,7 +69,7 @@ test("a band order that would strand a verdict is refused", async ({ page }) => 
 test("switching every category off is refused rather than silently disabling the module", async ({
   page,
 }) => {
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/audit");
   await page.locator("#audit-scoring").scrollIntoViewIfNeeded();
   for (const key of [
     "security",
@@ -90,7 +90,7 @@ test("switching every category off is refused rather than silently disabling the
 });
 
 test("the scoring can be put back to the defaults", async ({ page }) => {
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/audit");
   await page.locator("#audit-scoring").scrollIntoViewIfNeeded();
   await page.getByTestId("weight-legal").fill("40");
   await page.getByTestId("verdict-strong").fill("50");

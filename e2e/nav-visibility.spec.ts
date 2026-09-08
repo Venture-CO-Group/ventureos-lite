@@ -20,7 +20,7 @@ test("switching a menu item off removes it from the sidebar and the palette", as
   await expect(sidebar.getByText("Campaigns", { exact: true })).toBeVisible();
 
   // ---- switch it off -----------------------------------------------------
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/workspace");
   const toggle = page.getByTestId("nav-toggle-campaigns").locator("input");
   await expect(toggle).toBeChecked();
   await toggle.uncheck();
@@ -52,7 +52,7 @@ test("switching a menu item off removes it from the sidebar and the palette", as
   expect(res?.status()).toBeLessThan(400);
 
   // ---- switch it back on -------------------------------------------------
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/workspace");
   await page.getByTestId("nav-toggle-campaigns").locator("input").check();
   await expect(page.getByTestId("nav-visibility-saved")).toBeVisible();
   await page.goto("/leads");
@@ -60,7 +60,7 @@ test("switching a menu item off removes it from the sidebar and the palette", as
 });
 
 test("the screens nobody may be locked out of cannot be switched off", async ({ page }) => {
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/workspace");
   // They are not rendered as switches at all — a disabled checkbox invites
   // somebody to keep clicking it.
   await expect(page.getByTestId("nav-toggle-leads")).toHaveCount(0);

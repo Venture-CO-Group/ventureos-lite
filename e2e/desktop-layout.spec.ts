@@ -29,6 +29,8 @@ const PAGES = [
   "/referrers",
   // The software half of what used to be one 16-panel page.
   "/settings/admin",
+  "/settings/admin/members",
+  "/settings/admin/workspace",
 ];
 
 test.describe("desktop layout", () => {

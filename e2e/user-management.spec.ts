@@ -42,7 +42,7 @@ test.afterAll(async () => {
 test("inviting somebody creates the account and hands back a link they set their own password with", async ({
   page,
 }) => {
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/members");
   await page.getByTestId("invite-user").click();
   await page.getByTestId("invite-name").fill("New Person");
   await page.getByTestId("invite-email").fill(INVITEE);
@@ -67,12 +67,12 @@ test("inviting somebody creates the account and hands back a link they set their
   expect(token).not.toBeNull();
 
   // And it shows as Invited, not as "no password", which reads like a fault.
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/members");
   await expect(page.getByTestId(`user-status-${user!.id}`)).toHaveText("Invited");
 });
 
 test("a role can be changed from the table", async ({ page }) => {
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/members");
   await page.getByTestId(`user-role-${victimId}`).selectOption("ADMIN");
   await expect(page.getByTestId("users-message")).toContainText("ADMIN");
 
@@ -103,7 +103,7 @@ test("suspending somebody stops them immediately, and restoring lets them back",
   await theirPage.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 20_000 });
 
   // ---- suspend -----------------------------------------------------------
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/members");
   page.once("dialog", (d) => d.accept());
   await page.getByTestId(`user-suspend-${victimId}`).click();
   await expect(page.getByTestId("users-message")).toContainText("suspended");
@@ -133,7 +133,7 @@ test("suspending somebody stops them immediately, and restoring lets them back",
   expect(theirPage.url()).toContain("/login");
 
   // ---- restore -----------------------------------------------------------
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/members");
   await expect(page.getByTestId(`user-status-${victimId}`)).toHaveText("Suspended");
   await page.getByTestId(`user-suspend-${victimId}`).click();
   await expect(page.getByTestId("users-message")).toContainText("can sign in again");
@@ -162,7 +162,7 @@ test("an Owner is offered the destructive controls only while somebody else can 
   });
   expect(owners.length).toBeGreaterThan(0);
 
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/members");
 
   if (owners.length === 1) {
     const last = owners[0]!.userId;
@@ -188,7 +188,7 @@ test("an Owner is offered the destructive controls only while somebody else can 
 });
 
 test("a session list shows which devices somebody is signed in on", async ({ page }) => {
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/members");
   const me = await prisma.membership.findFirst({
     where: { workspaceId },
     include: { user: { select: { id: true, email: true } } },

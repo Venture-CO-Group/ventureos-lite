@@ -201,8 +201,8 @@ export function Campaigns({ status, campaigns }: { status: ColdStatus; campaigns
             <b>Cold email is locked for this workspace.</b> Hungarian law (2008. évi XLVIII. tv.)
             restricts unsolicited electronic advertising, including B2B. The module activates only
             after counsel sign-off is recorded in{" "}
-            <Link href="/settings" className="text-accent-ink underline">
-              Settings
+            <Link href="/settings/admin/integrations" className="text-accent-ink underline">
+              Settings → integrations
             </Link>
             {" "}— this is a business gate, not a toggle.
           </span>

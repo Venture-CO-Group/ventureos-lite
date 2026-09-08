@@ -334,7 +334,7 @@ export async function notifyNewLogin(params: {
     type: "new_login",
     title: `New sign-in — ${params.device}`,
     body: `Signed in${where} at ${params.at.toISOString().slice(0, 16).replace("T", " ")}. If this was not you, change your password and revoke the session.`,
-    href: "/settings?security=password",
+    href: "/settings/security?security=password",
     entityType: "session",
     entityId: params.userId,
     discriminator: `${params.device}|${params.ip ?? "-"}|${params.at.toISOString().slice(0, 10)}`,

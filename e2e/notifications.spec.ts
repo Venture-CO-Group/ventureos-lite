@@ -148,7 +148,7 @@ test("the bell is reachable on a phone", async ({ page }) => {
 });
 
 test("the preference matrix lists every type this role may receive", async ({ page }) => {
-  await page.goto("/settings");
+  await page.goto("/settings/notifications");
   const panel = page.getByTestId("settings-notifications");
   await expect(panel).toBeVisible();
 
@@ -163,7 +163,7 @@ test("the preference matrix lists every type this role may receive", async ({ pa
 });
 
 test("a preference toggle persists across a reload", async ({ page }) => {
-  await page.goto("/settings");
+  await page.goto("/settings/notifications");
   const panel = page.getByTestId("settings-notifications");
 
   const push = page.getByTestId("pref-callback_due-push");
@@ -192,27 +192,47 @@ test("a preference toggle persists across a reload", async ({ page }) => {
   expect(typeof wasOn).toBe("boolean");
 });
 
-test("flipping one channel leaves the other two alone", async ({ page }) => {
-  await page.goto("/settings");
+test("flipping one channel leaves the other three alone", async ({ page }) => {
+  await page.goto("/settings/notifications");
   const inApp = page.getByTestId("pref-escalation-inApp");
   const digest = page.getByTestId("pref-escalation-emailDigest");
+  // Four channels now: the immediate-email one was added for task assignment
+  // (P8/2), and a partial preference row must not disturb it either.
+  const now = page.getByTestId("pref-escalation-emailNow");
 
   const digestBefore = await digest.isChecked();
+  const nowBefore = await now.isChecked();
   await inApp.setChecked(false);
   // Same optimistic-write race as above.
   await expect(page.getByTestId("settings-notifications")).toHaveAttribute("data-saving", "false");
   await page.reload();
 
   // The row is written from the RESOLVED state, so turning in-app off must not
-  // have silently reset the digest column to its default.
+  // have silently reset the other columns to their defaults.
   await expect(digest).toBeChecked({ checked: digestBefore });
+  await expect(now).toBeChecked({ checked: nowBefore });
   await expect(inApp).not.toBeChecked();
 
   await inApp.setChecked(true);
 });
 
+/**
+ * The one channel that mails per event (P8/2).
+ *
+ * Every other type batches into a digest. `task_assigned` does not, because a
+ * task handed over on Friday afternoon that first surfaces in Monday's digest
+ * is a handover that did not happen.
+ */
+test("only task assignment mails straight away by default", async ({ page }) => {
+  await page.goto("/settings/notifications");
+  await expect(page.getByTestId("pref-task_assigned-emailNow")).toBeChecked();
+  for (const type of ["escalation", "callback_due", "quote_accepted", "meeting_booked"]) {
+    await expect(page.getByTestId(`pref-${type}-emailNow`), type).not.toBeChecked();
+  }
+});
+
 test("push says why it is unavailable rather than failing silently", async ({ page }) => {
-  await page.goto("/settings");
+  await page.goto("/settings/notifications");
   const panel = page.getByTestId("settings-notifications");
   const enable = page.getByTestId("push-enable");
 

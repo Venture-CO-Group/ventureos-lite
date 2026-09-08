@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 /** P1/1e — the download must be authenticated and must be a real zip. */
 test("signed-in users can download a valid extension zip", async ({ page }) => {
-  await page.goto("/settings");
+  await page.goto("/settings/extension");
   const link = page.getByTestId("download-extension");
   await expect(link).toBeVisible();
 

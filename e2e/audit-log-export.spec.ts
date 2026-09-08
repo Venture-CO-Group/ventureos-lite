@@ -40,7 +40,7 @@ test("the audit log can be taken away as a CSV, and saying so is itself logged",
     },
   });
 
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/security");
   await page.getByTestId("settings-audit-log").scrollIntoViewIfNeeded();
 
   const before = await prisma.auditLog.count({
@@ -89,7 +89,7 @@ test("the audit log can be taken away as a CSV, and saying so is itself logged",
 });
 
 test("a retention period can be set, and it says what it will remove", async ({ page }) => {
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/security");
   await page.getByTestId("settings-audit-log").scrollIntoViewIfNeeded();
 
   // The default is keep-for-ever, and that is on purpose: no default should

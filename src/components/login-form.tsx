@@ -27,7 +27,7 @@ export function LoginForm({ next }: { next: string }) {
       });
       if (res.ok) {
         // A seeded or reset account lands on Settings to pick a real password.
-        router.replace(res.mustChangePassword ? "/settings?security=password" : next);
+        router.replace(res.mustChangePassword ? "/settings/security?security=password" : next);
         router.refresh();
         return;
       }

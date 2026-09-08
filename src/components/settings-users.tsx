@@ -146,7 +146,7 @@ export function SettingsUsers({
   }, [users]);
 
   return (
-    <div className={CARD} id="users">
+    <div className={CARD} id="users" data-testid="settings-users">
       <div className="mb-4 flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="font-display text-2xl font-bold lowercase tracking-display">users</h2>

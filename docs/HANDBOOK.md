@@ -23,6 +23,45 @@ Feature-level behaviour lives in [`spec.md`](spec.md).
 
 ---
 
+## 0. Where everything is
+
+Settings is two groups of pages, each behind its own menu.
+
+**Your settings** — every member has these, and they are about the person
+signed in:
+
+| Page | What is there |
+|---|---|
+| Settings → **profile** | Name, job title, photo, timezone, language |
+| Settings → **sign-in & security** | Password, two-factor, your signed-in devices |
+| Settings → **notifications** | What reaches you, and on which channel |
+| Settings → **email** | Connect your own mailbox for the Inbox |
+| Settings → **browser extension** | The LinkedIn capture extension and its tokens |
+
+**Admin settings** — super admin only, and about how the software behaves:
+
+| Page | What is there |
+|---|---|
+| admin → **overview** | A map, saying what is still on a default |
+| admin → **members & teams** | Invite, roles, capabilities, suspend, remove, ownership |
+| admin → **workspace** | Letterhead, menu visibility, custom fields, workflow rules, data quality |
+| admin → **sales & delivery** | Targets, quote rules, account health, milestone templates, Signal Engine proposals |
+| admin → **site audit** | What the opportunity score is made of, re-audit watches |
+| admin → **integrations** | API keys, what they cost, outbound webhooks, invoicing, cold-email sign-off |
+| admin → **security & compliance** | Two-factor policy, the audit log and its retention, GDPR |
+| admin → **workspaces** | Provision one, copy settings into it, repair one |
+
+> Both pages used to be a single scroll — the admin one was twenty panels in a
+> column, and finding any of them meant knowing roughly how far down it lived.
+> If you are looking for something this handbook mentions and cannot see it,
+> the menu on the left of the settings page is the index.
+
+The **overview** page is worth a minute after any change: it lists what is
+still on an out-of-the-box default, in amber. A default nobody chose is the
+thing that goes unnoticed for a year.
+
+---
+
 ## 1. Users and grants
 
 ### Roles vs. grants
@@ -77,7 +116,7 @@ default.
 
 ### Granting a capability
 
-1. **Settings → users & grants**.
+1. **Settings → admin → members & teams**.
 2. Find the person's row; each grant is a toggle grouped by module.
 3. Click the toggle. It saves immediately.
 
@@ -86,15 +125,15 @@ which grant, and when.
 
 ### Adding someone to a workspace
 
-**Settings → workspace → add member**: enter their email address and pick a
-role. If no user exists with that address, one is created.
+**Settings → admin → members & teams → invite somebody**: enter their email
+address and pick a role. If no user exists with that address, one is created.
 
 What they start with depends on the role, per the table above — a BDR is
 useful immediately and needs handing only the document grants. Add those one at
 a time; the safe default is to grant nothing legally binding until somebody is
 blocked by its absence.
 
-**Inviting by email.** *Settings → admin → users* → **invite somebody**. You
+**Inviting by email.** *Settings → admin → members & teams* → **invite somebody**. You
 get a single-use, one-hour link. Paste it over a channel you trust, or press
 **Email it to them** to send it from the transactional domain — that button is
 a deliberate second step, because an invitation that silently fails to arrive
@@ -102,7 +141,7 @@ is worse than one you can see on screen.
 
 ### Removing access, or standing somebody down
 
-Both are in the product now: *Settings → admin → users*.
+Both are in the product now: *Settings → admin → members & teams*.
 
 **Suspend** is the honest middle ground and usually the right answer. It
 revokes every live session at once and `tryGetActiveContext` refuses to resolve
@@ -121,7 +160,7 @@ Both are audit-logged with who did it, to whom, and when.
 
 A client who can see their own project and their own documents — and nothing
 else — is what makes the delivery side sellable. Set it in *Settings → admin →
-users*: open the person, pick the company under **Client access**, save.
+members & teams*: open the person, pick the company under **Client access**, save.
 
 They see **one company's** projects with their milestones, and its
 **finalized** documents. Not drafts: a quote still carrying its DRAFT
@@ -146,7 +185,7 @@ Two things worth knowing:
 
 ### 1.7 Requiring two-factor authentication
 
-*Settings → admin → security policy* → **Require two-factor authentication**.
+*Settings → admin → security & compliance* → **Require two-factor authentication**.
 
 Anybody without an authenticator is sent to the enrolment screen on their next
 click. That is enrolment, not a lockout: nobody is signed out, they register
@@ -181,7 +220,7 @@ Data cannot be moved or reported across workspaces afterwards.
 
 ### Creating one
 
-**Settings → workspaces → create workspace.** You need:
+**Settings → admin → workspaces → create workspace.** You need:
 
 - **Name** — internal label shown in the switcher.
 - **Legal name** — the exact registered company name. This is printed on every
@@ -194,12 +233,12 @@ with the default document templates and default settings.
 
 Do these before generating any document from it:
 
-1. **Settings → brand** — tax number (adószám) and registered address. They fill
+1. **Settings → admin → workspace → letterhead** — tax number (adószám) and registered address. They fill
    `{{workspace.tax_id}}` and `{{workspace.address}}` on legal documents.
-2. **Settings → email** — the verified Mailgun sending domain for this
+2. **Settings → admin → integrations** — the verified Mailgun sending domain for this
    workspace, if it differs from the installation default.
-3. **Settings → AI budget** — see §5. New workspaces default to **$2/day**.
-4. **Settings → ICP** — scoring thresholds, if this entity targets a different
+3. **Settings → admin → workspaces** — see §5. New workspaces default to **$2/day**.
+4. **Settings → admin → sales** — scoring thresholds, if this entity targets a different
    customer profile.
 
 ### Switching
@@ -301,7 +340,7 @@ midnight.
 
 ### Setting the cap
 
-**Settings → AI budget**. Default is **$2.00/day** per workspace.
+**Settings → admin → workspaces**. Default is **$2.00/day** per workspace.
 
 Sensible starting points:
 
@@ -412,7 +451,7 @@ happened.
 
 ## 6b. The audit log: reading it, exporting it, keeping it
 
-*Settings → admin → audit log*. Owner-only, and read-only — an audit log with a
+*Settings → admin → security & compliance → audit log*. Owner-only, and read-only — an audit log with a
 delete button answers no question at all.
 
 **Exporting it.** Pick a date range (or none, for everything) and press **CSV
@@ -440,7 +479,7 @@ after the fact, from somebody covering their tracks.
 
 ## 6c. Outbound webhooks
 
-*Settings → admin → kimenő webhookok*. Owner-only.
+*Settings → admin → integrations → kimenő webhookok*. Owner-only.
 
 Nine events go out — lead created and stage-changed, deal stage-changed and
 won, document finalized and accepted, invoice issued, meeting booked, audit
@@ -502,7 +541,7 @@ not flag rows as hidden.
 
 ### Executing an erasure request
 
-Owner only. **Settings → Data & privacy → Erase lead data**.
+Owner only. **Settings → admin → security & compliance → Erase lead data**.
 
 1. Select the lead.
 2. Type the confirmation phrase exactly as shown.
@@ -525,7 +564,7 @@ docker compose -f docker-compose.prod.yml logs worker | grep -i erasure
 Hungarian accounting law requires issued invoices to be retained for eight
 years. **An invoice is not erasable personal data you may delete on request.**
 
-**Settings → Data & privacy → `eraseDocumentsOnErasure`** controls whether
+**Settings → admin → security & compliance → `eraseDocumentsOnErasure`** controls whether
 generated documents are destroyed along with the lead. Decide this deliberately,
 with your accountant:
 
@@ -556,12 +595,12 @@ leads with **no activity for 12 months**, while keeping aggregate statistics
 intact. Your win-rate history survives; the individual's name and contact
 details do not.
 
-Adjust the window in **Settings → Data & privacy → `anonymizeAfterDays`**
+Adjust the window in **Settings → admin → security & compliance → `anonymizeAfterDays`**
 (default 365). The job is idempotent — re-running it changes nothing.
 
 ### Data export (subject access requests)
 
-Requires the `exports.run` grant. **Settings → Data & privacy → Run export**
+Requires the `exports.run` grant. **Settings → admin → security & compliance → Run export**
 produces a CSV bundle written to `/data/files/exports/`, downloadable through
 the authenticated file route. Every export is audit-logged.
 
@@ -681,7 +720,7 @@ raises a proposal in the approval queue. It never changes a number on its own.
 
 ### Your own fields
 
-**Settings → Fields.** Add fields to leads, companies and deals: text, number,
+**Settings → admin → workspace → fields.** Add fields to leads, companies and deals: text, number,
 date, single or multi select, checkbox, URL. They show on the record, as
 optional table columns, in the filter builder, in CSV import and export, and in
 search where they hold words.
@@ -697,7 +736,7 @@ reason — they would silently change what your existing data MEANS:
 
 ### Data quality: duplicates and imports
 
-**Settings → Data quality** lists records that look like the same company or the
+**Settings → admin → workspace → data quality** lists records that look like the same company or the
 same person — a shared adószám is certain, a shared domain is strong, a similar
 name is a suggestion — and every import that has run.
 
@@ -715,7 +754,7 @@ deleting a lead by hand.
 
 ### Automation
 
-**Settings → Automation.** Rules of the form *when* something happens, *if* it
+**Settings → admin → workspace → workflow rules.** Rules of the form *when* something happens, *if* it
 looks a certain way, *then* do this. Twenty per workspace, Owner-only, each with
 an on/off switch and a run log.
 
@@ -740,7 +779,7 @@ A session now lasts **30 days**, or **7 days without use** — whichever comes
 first. The old behaviour signed you out mid-week; the idle limit is the part
 that actually protects a laptop left in a drawer.
 
-**Settings → security** lists your signed-in devices by something you can
+**Settings → sign-in & security** lists your signed-in devices by something you can
 recognise ("Chrome on macOS"), highlights the one you are using, and lets you
 revoke any of the others individually. A sign-in on your account raises a
 notification to you and to nobody else.
@@ -755,14 +794,14 @@ somebody gets in. Every lockout is on the audit log.
 
 | Task | Where |
 |---|---|
-| Change your password / 2FA | Settings → security |
-| Sign out other devices | Settings → security |
-| Grant a capability | Settings → users & grants |
-| Add a person | Settings → workspace → add member |
-| New workspace | Settings → workspaces → create workspace |
+| Change your password / 2FA | Settings → sign-in & security |
+| Sign out other devices | Settings → sign-in & security |
+| Grant a capability | Settings → admin → members & teams |
+| Add a person | Settings → admin → members & teams |
+| New workspace | Settings → admin → workspaces |
 | Edit a template | Templates → pick type + language → save → activate |
-| Change AI cap | Settings → AI budget |
-| Add your own field | Settings → Fields |
+| Change AI cap | Settings → admin → workspaces |
+| Add your own field | Settings → admin → workspace |
 | Merge two duplicates | Settings → Data quality → Compare… |
 | Undo a merge (30 days) | Settings → Data quality → recent merges → Undo |
 | Roll an import back (7 days) | Settings → Data quality → imports → Roll back |

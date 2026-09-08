@@ -71,7 +71,7 @@ export const CHECKLIST: ChecklistItem[] = [
     id: "connect_email",
     label: "Connect your mailbox",
     hint: "Correspondence threads onto the lead it belongs to.",
-    href: "/settings",
+    href: "/settings/email",
   },
   {
     id: "first_lead",

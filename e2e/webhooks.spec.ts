@@ -16,7 +16,7 @@ test.afterAll(async () => {
 });
 
 async function openPanel(page: import("@playwright/test").Page) {
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/integrations");
   await page.getByTestId("settings-webhooks").scrollIntoViewIfNeeded();
 }
 

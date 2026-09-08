@@ -320,7 +320,7 @@ test("the health thresholds are editable in Settings and change the scoring", as
   await expect(page.getByTestId("health-row").first()).toHaveAttribute("data-level", "amber");
 
   // Loosen it to 6 months: the same client is now green.
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/sales");
   const amber = page.getByTestId("health-rule-quietAmberMonths");
   await amber.fill("6");
   await amber.blur();
@@ -330,7 +330,7 @@ test("the health thresholds are editable in Settings and change the scoring", as
   await expect(page.getByTestId("health-empty")).toBeVisible();
 
   await page.getByTestId("health-rules-reset").isVisible().catch(() => {});
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/sales");
   await page.getByTestId("health-rules-reset").click();
   await expect(page.getByTestId("health-rule-quietAmberMonths")).toHaveValue("2");
   await prisma.lead.deleteMany({ where: { workspaceId, companyId } });

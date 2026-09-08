@@ -9,7 +9,7 @@ test("an owner can issue and revoke a capture token", async ({ page }) => {
   // revoke assertion then matched two rows and failed in strict mode, which is
   // the test's own leftovers rather than the product.
   const label = `e2e laptop ${Math.random().toString(36).slice(2, 8)}`;
-  await page.goto("/settings");
+  await page.goto("/settings/extension");
 
   await page.getByPlaceholder(/Which browser/i).fill(label);
   await page.getByTestId("issue-capture-token").click();

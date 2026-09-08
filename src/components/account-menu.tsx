@@ -86,7 +86,7 @@ export function AccountMenu({
               {role} · {workspaceName}
             </span>
           </div>
-          <Link href="/settings#security" className={item} onClick={() => setOpen(false)} role="menuitem">
+          <Link href="/settings/security" className={item} onClick={() => setOpen(false)} role="menuitem">
             Password &amp; two-factor
           </Link>
           <Link href="/settings" className={item} onClick={() => setOpen(false)} role="menuitem">

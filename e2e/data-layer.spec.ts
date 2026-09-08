@@ -15,7 +15,7 @@ test.describe.configure({ mode: "serial" });
 const FIELD_LABEL = `E2E Segment ${Date.now()}`;
 
 test("an Owner defines a custom select field", async ({ page }) => {
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/workspace");
   const panel = page.getByTestId("settings-fields");
   await expect(panel).toBeVisible();
 
@@ -43,7 +43,7 @@ test("the field appears as a column and as a filter condition", async ({ page })
 });
 
 test("Settings shows the data-quality panel with its merge and import lists", async ({ page }) => {
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/workspace");
   const panel = page.getByTestId("settings-data-quality");
   await expect(panel).toBeVisible();
   await expect(panel).toContainText("undoable for 30 days");

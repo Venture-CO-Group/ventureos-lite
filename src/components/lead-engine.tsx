@@ -439,7 +439,7 @@ export function LeadEngine({
                     {readiness.state === "not_installed" && (
                       <>
                         <a
-                          href="/settings#extension"
+                          href="/settings/extension"
                           data-testid="extension-install"
                           className="rounded-[10px] border border-line bg-panel px-3 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-panel-2"
                         >
@@ -454,7 +454,7 @@ export function LeadEngine({
                     {readiness.state === "not_configured" && (
                       <>
                         <a
-                          href="/settings#extension"
+                          href="/settings/extension"
                           data-testid="extension-configure"
                           className="rounded-[10px] border border-line bg-panel px-3 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-panel-2"
                         >

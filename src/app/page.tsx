@@ -73,8 +73,8 @@ export default async function Home() {
               <p className="text-[12.5px] leading-relaxed text-muted">
                 Runs weekly on aggregates. Proposals (frame promotion, score weights) require
                 n≥20 and wait for your approval in{" "}
-                <a href="/settings" className="text-accent-ink">
-                  Settings
+                <a href="/settings/admin/sales" className="text-accent-ink">
+                  Settings → sales
                 </a>
                 . Nothing self-modifies.
               </p>

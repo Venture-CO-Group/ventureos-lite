@@ -214,7 +214,7 @@ test("a workflow rule creates a draft a human must send, and it appears in the l
   page,
 }) => {
   const name = `E2E rule ${tag()}`;
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/workspace");
 
   const panel = page.getByTestId("settings-workflows");
   await expect(panel).toBeVisible();
@@ -246,7 +246,7 @@ test("a workflow rule creates a draft a human must send, and it appears in the l
   await expect(page.locator("tr", { hasText: leadName })).toContainText("contacted");
 
   // The run log records it.
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/workspace");
   const rule = page
     .getByTestId("rule-list")
     .locator("li")
@@ -260,7 +260,7 @@ test("a workflow rule creates a draft a human must send, and it appears in the l
   await expect(page.getByTestId("lead-timeline")).toContainText("Following up");
 
   // Clean up so the rule does not fire for every later spec.
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/workspace");
   await page
     .getByTestId("rule-list")
     .locator("li")

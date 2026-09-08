@@ -40,7 +40,7 @@ async function waitForPair(page: import("@playwright/test").Page) {
   await expect
     .poll(
       async () => {
-        await page.goto("/settings/admin");
+        await page.goto("/settings/admin/workspace");
         return page.getByTestId("duplicates-companies").getByText(/Danubia/).count();
       },
       { timeout: 90_000, intervals: [2_000] },
@@ -72,7 +72,7 @@ test("a pair can be dismissed, stays dismissed, and can be put back", async ({ p
   expect(row.dismissedBy).toBeTruthy();
 
   // ---- and it is gone from the list, on a fresh load --------------------
-  await page.goto("/settings/admin");
+  await page.goto("/settings/admin/workspace");
   const after = page.getByTestId("duplicates-companies");
   if (await after.isVisible()) {
     await expect(after.getByText(/Danubia/)).toHaveCount(0);
