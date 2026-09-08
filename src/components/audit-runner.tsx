@@ -19,6 +19,7 @@ import {
   exportAuditPdf,
   publishShare,
 } from "@/modules/audit/actions";
+import { createBoardFromAudit } from "@/modules/tasks/board-actions";
 
 const POLL_MS = 1500;
 /**
@@ -80,6 +81,9 @@ export function AuditRunner({
   const [pdf, setPdf] = useState<"idle" | "generating" | string>("idle");
   const [share, setShare] = useState<{ url: string; expiresAt: string } | null>(null);
   const [sharing, setSharing] = useState(false);
+  /** The board built from this audit's failing checks (P1/1.3). */
+  const [plan, setPlan] = useState<{ boardId: string; tasks: number } | null>(null);
+  const [planning, setPlanning] = useState(false);
   // Set when the poller gave up rather than the audit finishing. Without it,
   // "we stopped asking" and "it is still working" looked identical on screen.
   const [gaveUp, setGaveUp] = useState(false);
@@ -125,6 +129,7 @@ export function AuditRunner({
     setAdded(null);
     setPdf("idle");
     setShare(null);
+    setPlan(null);
     setGaveUp(false);
     setBusy(true);
     setStartedAt(Date.now());
@@ -408,6 +413,41 @@ export function AuditRunner({
                     className="mt-2 w-full rounded-[10px] border border-line bg-panel px-3 py-2 text-[13px] font-semibold text-ink hover:bg-panel-2"
                   >
                     Export branded PDF
+                  </button>
+                )}
+                {/*
+                  The priority matrix already decides what to do first; this
+                  carries that decision into work instead of leaving it as a
+                  chart somebody re-types by hand.
+                */}
+                {plan ? (
+                  <a
+                    href={`/tasks?board=${plan.boardId}`}
+                    data-testid="open-audit-plan"
+                    className="mt-2 block w-full rounded-[10px] border border-accent bg-accent-soft px-3 py-2 text-center text-[13px] font-semibold text-[#E4D3FF]"
+                  >
+                    Open the plan · {plan.tasks} tasks
+                  </a>
+                ) : (
+                  <button
+                    onClick={async () => {
+                      setPlanning(true);
+                      setError(null);
+                      try {
+                        const res = await createBoardFromAudit(view.id);
+                        if (res.ok) setPlan({ boardId: res.boardId, tasks: res.tasks });
+                        else setError(res.error);
+                      } catch (e) {
+                        setError(serverActionError(e));
+                      } finally {
+                        setPlanning(false);
+                      }
+                    }}
+                    disabled={planning}
+                    data-testid="make-audit-plan"
+                    className="mt-2 w-full rounded-[10px] border border-line bg-panel px-3 py-2 text-[13px] font-semibold text-ink hover:bg-panel-2 disabled:opacity-60"
+                  >
+                    {planning ? "Building…" : "Make a plan from this"}
                   </button>
                 )}
                 <button

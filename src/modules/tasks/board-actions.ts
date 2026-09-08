@@ -7,6 +7,8 @@ import { getActiveContext } from "@/lib/session";
 import { isSafeColor } from "@/modules/workspaces/brand";
 import { recordUndo, type UndoToken } from "../undo/store";
 import { TASK_TYPES } from "./logic";
+import { buildPriorityMatrix, priorityMapFrom, QUADRANTS } from "@/modules/audit/priority";
+import type { AuditCheck } from "@/modules/audit/types";
 import { TASK_PRIORITIES, extractMentions, nextPosition } from "./board-logic";
 import {
   addFollowers,
@@ -533,4 +535,137 @@ export async function addComment(raw: unknown): Promise<{ id: string }> {
 
   revalidatePath("/tasks");
   return { id: comment.id };
+}
+
+
+// ---------------------------------------------------------------------------
+// a board from an audit (P1/1.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Turn an audit's findings into a piece of work.
+ *
+ * ── WHY THIS BUTTON ─────────────────────────────────────────────────────────
+ *
+ * The priority matrix (P2/4) already decides what is worth doing first: every
+ * failing check carries an impact and an effort, and the four quadrants are
+ * "quick wins / worth planning / fill-ins / later". That was a chart. Nothing
+ * carried it into work, so the plan was re-typed by hand into whatever the
+ * operator happened to use.
+ *
+ * The four quadrants ARE four sections, in the order they should be read. Each
+ * finding becomes a task with a priority derived from the same impact/effort
+ * pair, so the board opens already sorted the way the matrix argued for.
+ *
+ * Passing checks are excluded — `buildPriorityMatrix` already does that, and
+ * listing them would turn a plan back into an inventory.
+ */
+export async function createBoardFromAudit(
+  auditId: string,
+): Promise<
+  | { ok: true; boardId: string; tasks: number }
+  | { ok: false; error: string }
+> {
+  const { workspaceId, userId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+
+  const audit = await db.auditResult.findUnique({
+    where: { id: auditId },
+    select: { id: true, url: true, checks: true, status: true, companyId: true },
+  });
+  if (!audit) return { ok: false, error: "Audit not found." };
+  if (audit.status !== "done") {
+    return { ok: false, error: "Wait for the audit to finish first." };
+  }
+
+  const checks = Array.isArray(audit.checks) ? (audit.checks as unknown as AuditCheck[]) : [];
+  const ws = await prismaUnsafe.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { auditConfig: true },
+  });
+  const matrix = buildPriorityMatrix(checks, priorityMapFrom(ws?.auditConfig));
+  const total = matrix.quadrants.reduce((n, q) => n + q.findings.length, 0);
+  if (total === 0) {
+    // Nothing failing is a good result, and an empty board is not a plan.
+    return { ok: false, error: "This audit has no failing checks — there is nothing to plan." };
+  }
+
+  const site = audit.url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const existing = await db.taskBoard.findMany({ select: { position: true } });
+
+  // Only quadrants that actually have findings become columns: four headings
+  // with two of them empty is a board that looks unfinished on arrival.
+  const used = matrix.quadrants.filter((q) => q.findings.length > 0);
+  const board = await db.taskBoard.create({
+    data: {
+      workspaceId,
+      name: `${site} — audit plan`,
+      description: `From the site audit of ${audit.url}. Ordered by the impact/effort matrix.`,
+      position: nextPosition(existing.map((b) => b.position)),
+      createdBy: userId,
+      sections: {
+        create: used.map((q, i) => ({
+          workspaceId,
+          name: QUADRANTS.find((def) => def.id === q.id)!.en,
+          position: (i + 1) * 1024,
+        })),
+      },
+    },
+    select: { id: true },
+  });
+
+  const sections = await db.taskSection.findMany({
+    where: { boardId: board.id },
+    orderBy: { position: "asc" },
+    select: { id: true, name: true },
+  });
+
+  /**
+   * Impact and effort collapse into one priority.
+   *
+   * The matrix keeps them as two axes because that is what makes a quadrant;
+   * a task carries one field, so the mapping has to be stated somewhere. High
+   * impact and cheap is the most urgent thing on any list.
+   */
+  const priorityFor = (impact: string, effort: string): string => {
+    if (impact === "high") return effort === "quick" ? "urgent" : "high";
+    if (impact === "medium") return "medium";
+    return "low";
+  };
+
+  let created = 0;
+  for (const q of used) {
+    const sectionName = QUADRANTS.find((def) => def.id === q.id)!.en;
+    const sectionId = sections.find((s) => s.name === sectionName)?.id ?? null;
+    for (const [i, f] of q.findings.entries()) {
+      await db.task.create({
+        data: {
+          workspaceId,
+          boardId: board.id,
+          sectionId,
+          title: f.label,
+          note: [
+            f.detail ? `Measured: ${f.detail}` : null,
+            `Impact ${f.impact} · effort ${f.effort}`,
+            `From the audit of ${audit.url}`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          priority: priorityFor(f.impact, f.effort),
+          tags: f.category ? [f.category] : [],
+          position: (i + 1) * 1024,
+          createdBy: userId,
+          source: "audit_plan",
+          // Hangs off the company when the audit knows one, so the work is
+          // reachable from the client rather than only from the board.
+          ...(audit.companyId ? { entityType: "company", entityId: audit.companyId } : {}),
+        },
+      });
+      created += 1;
+    }
+  }
+
+  revalidatePath("/tasks");
+  revalidatePath("/audit");
+  return { ok: true, boardId: board.id, tasks: created };
 }
