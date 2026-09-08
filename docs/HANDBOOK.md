@@ -29,15 +29,18 @@ Feature-level behaviour lives in [`spec.md`](spec.md).
 
 Two independent layers:
 
-**Role** (`OWNER`, `ADMIN`, `BDR`) — set when a person is added to a workspace.
-It governs broad access: only an Owner can change grants, provision workspaces,
-finalize legal documents, or change retention policy.
+**Role** (`OWNER`, `ADMIN`, `BDR`, `CLIENT`) — set when a person is added to a
+workspace. It governs broad access: only an Owner can change grants, provision
+workspaces, finalize legal documents, manage users, or change retention policy.
+
+`CLIENT` is **read-only client access**, and it is not a smaller BDR — see
+§1.6 below.
 
 **Grants** — individual capabilities, assigned per user *per workspace*. They
 are checked server-side on every mutation, not just hidden in the UI. Turning
 one on takes effect immediately; no redeploy, no restart.
 
-The seven grants:
+The fourteen grants:
 
 | Grant | What it unlocks |
 |---|---|
@@ -47,11 +50,30 @@ The seven grants:
 | `documents.send` | Email a document to a client, and publish its public accept link |
 | `templates.edit` | Edit quote/contract/certificate/email templates |
 | `signal_engine.approve` | Approve the weekly Signal Engine proposals |
-| `exports.run` | Run a full data export |
+| `exports.run` | Run a full data export, and schedule one |
+| `fields.manage` | Define the workspace's own lead/company/deal fields |
+| `data.merge` | Merge two companies or two leads |
+| `leads.delete` | Hard-delete a lead, in one or in bulk, and roll an import back |
+| `settings.manage` | Targets, workflow rules, health thresholds, quote rules, audit scoring |
+| `audit_log.read` | Read and export the audit log |
+| `public_pages.manage` | Publish and withdraw share links and booking pages |
+| `sector_reports.manage` | Commission, generate and publish a sector report |
 
-**Default:** an Owner gets all seven. Everyone else gets **none** until you
-explicitly grant them. This is deliberate — the document and template grants
-control legally binding output.
+**Defaults, and why they are not "nothing":**
+
+- **Owner and Admin** carry all fourteen implicitly.
+- **BDR** carries everything EXCEPT the five document/template grants. Those
+  five decide what the company is legally bound by, and `templates.edit` is the
+  same power one step back — it decides what every future document *says*.
+  Everything else on the list is the daily job, and gating it was stopping a
+  BDR from exporting a list or merging two obvious duplicates.
+- **CLIENT** carries nothing, and cannot be given anything. The refusal is
+  checked before the grants list is even read, so an entry left behind by a
+  role change cannot hand a read-only account a capability.
+
+An implicit capability still shows as a toggle, and **unticking it withdraws
+it** — that is written down as a `!`-prefixed entry, and it beats the role
+default.
 
 ### Granting a capability
 
@@ -67,30 +89,71 @@ which grant, and when.
 **Settings → workspace → add member**: enter their email address and pick a
 role. If no user exists with that address, one is created.
 
-They start with zero grants regardless of role (except Owner). Add the grants
-they need, one at a time — the safe default is to grant nothing until someone
-is blocked by its absence.
+What they start with depends on the role, per the table above — a BDR is
+useful immediately and needs handing only the document grants. Add those one at
+a time; the safe default is to grant nothing legally binding until somebody is
+blocked by its absence.
 
-### Removing access
+**Inviting by email.** *Settings → admin → users* → **invite somebody**. You
+get a single-use, one-hour link. Paste it over a channel you trust, or press
+**Email it to them** to send it from the transactional domain — that button is
+a deliberate second step, because an invitation that silently fails to arrive
+is worse than one you can see on screen.
 
-There is no "remove member" button yet. To revoke someone today:
+### Removing access, or standing somebody down
 
-```bash
-# 1. Kill their live sessions immediately.
-docker compose -f docker-compose.prod.yml exec db psql -U venture -d ventureos -c \
-  "UPDATE sessions SET revoked_at = now() WHERE revoked_at IS NULL AND user_id =
-   (SELECT id FROM users WHERE email = 'person@example.hu');"
+Both are in the product now: *Settings → admin → users*.
 
-# 2. Remove their membership.
-docker compose -f docker-compose.prod.yml exec db psql -U venture -d ventureos -c \
-  "DELETE FROM memberships WHERE user_id =
-   (SELECT id FROM users WHERE email = 'person@example.hu');"
-```
+**Suspend** is the honest middle ground and usually the right answer. It
+revokes every live session at once and `tryGetActiveContext` refuses to resolve
+a suspended membership, so a browser left open at 14:00 stops reading the
+workspace immediately rather than when its cookie expires. Their history keeps
+its author — "who wrote this note" is a question people ask months later.
 
-Step 1 takes effect on their very next request — the session row is the
-authority, so a browser holding a valid cookie is signed out at once. Step 2
-alone would also deny them (no membership, no workspace), but revoking first
-closes the window.
+**Remove** deletes the membership. Use it when somebody was added by mistake.
+The last live Owner cannot be suspended or removed: a workspace with no Owner
+cannot grant a role or restore itself, and recovering one needs shell access to
+the server — that is not a support process, it is an outage.
+
+Both are audit-logged with who did it, to whom, and when.
+
+### 1.6 Client access (read-only)
+
+A client who can see their own project and their own documents — and nothing
+else — is what makes the delivery side sellable. Set it in *Settings → admin →
+users*: open the person, pick the company under **Client access**, save.
+
+They see **one company's** projects with their milestones, and its
+**finalized** documents. Not drafts: a quote still carrying its DRAFT
+watermark is a working document, and a client seeing a draft price is how a
+negotiation goes wrong before it starts. No leads, no pipeline, no other
+client, and every other screen in the product simply redirects them back to
+their portal.
+
+They cannot change anything. That is enforced in three independent places —
+they hold no capability, the database layer refuses every write on their
+behalf, and the shell will not render a page outside the portal — so
+forgetting one of them in a future screen would leak a read, never a change.
+
+Two things worth knowing:
+
+- **Changing this signs them out of every device.** A role change has to bite
+  immediately, in both directions.
+- **A client with no company sees nothing.** That is deliberate, but it reads
+  like a broken feature, so the users panel refuses to make somebody a client
+  without picking one, and the row says `no company — sees nothing` if one ever
+  ends up that way.
+
+### 1.7 Requiring two-factor authentication
+
+*Settings → admin → security policy* → **Require two-factor authentication**.
+
+Anybody without an authenticator is sent to the enrolment screen on their next
+click. That is enrolment, not a lockout: nobody is signed out, they register
+one and carry on. Before you flip it, the panel says how many people that will
+be. Turning it back off removes nobody's authenticator.
+
+---
 
 ### Locked out / lost second factor
 
@@ -300,34 +363,35 @@ Red flags:
 
 ### Quarterly: restore drill
 
-The only real test is restoring somewhere that is not production. On a scratch
-machine with Docker:
+There is a script for this now, and it runs on the server:
 
 ```bash
-# 1. Copy the newest dump off the server
-scp root@SZERVER_IP:/var/backups/ventureos/db-*.dump ./
-
-# 2. Throwaway Postgres
-docker run -d --name restore-test \
-  -e POSTGRES_PASSWORD=test -e POSTGRES_DB=ventureos \
-  -e POSTGRES_USER=venture -p 55432:5432 postgres:16-alpine
-
-# 3. Restore into it
-cat db-20260812-033001.dump | docker exec -i restore-test \
-  pg_restore -U venture -d ventureos --no-owner
-
-# 4. Does it hold real data?
-docker exec restore-test psql -U venture -d ventureos -c \
-  "SELECT (SELECT count(*) FROM workspaces) AS workspaces,
-          (SELECT count(*) FROM leads)      AS leads,
-          (SELECT count(*) FROM documents)  AS documents;"
-
-# 5. Clean up
-docker rm -f restore-test
+cd /opt/ventureos-lite
+./scripts/restore-drill.sh
 ```
 
-Counts should match production within a day's activity. Write down the date you
-last did this.
+It loads the newest dump into a **throwaway database beside the live one** and
+asks it questions, because a `pg_restore` into an empty schema exits zero and
+reports success. It checks that the whole schema came back, that there is a
+workspace and a user (without those nobody can log in to a restored system at
+all), how far the migration history reaches, how fresh the *data* is rather
+than the file, whether the row-level-security policies survived, and whether
+the files archive has anything in it. Then it drops the scratch database.
+
+It does not touch the live database, does not delete a backup file, and lists
+the files archive rather than extracting it. It exits non-zero if anything
+failed, so it works from cron:
+
+```
+0 4 1 */3 * cd /opt/ventureos-lite && ./scripts/restore-drill.sh >> /var/log/ventureos-drill.log 2>&1
+```
+
+**What each failure means, and the order for a REAL restore** — including the
+one instruction that decides whether a botched restore is recoverable (rename
+the live database, do not drop it) — is in
+[`docs/restore-drill.md`](restore-drill.md). Write down each drill in the table
+at the bottom of that file: an undocumented drill is one nobody can prove
+happened.
 
 ### What is and is not backed up
 
@@ -343,6 +407,90 @@ last did this.
 
 > ⚠️ **Backups live on the same server as the data.** Pull them down weekly, or
 > enable Vultr snapshots. A single-machine loss otherwise takes both.
+
+---
+
+## 6b. The audit log: reading it, exporting it, keeping it
+
+*Settings → admin → audit log*. Owner-only, and read-only — an audit log with a
+delete button answers no question at all.
+
+**Exporting it.** Pick a date range (or none, for everything) and press **CSV
+letöltés**. The actor column carries a name, not an id: an extract whose actor
+column holds cuids answers "somebody" to every question worth asking. The file
+carries a BOM, because it is opened in Excel far more often than in a text
+editor. The export is itself logged — a record of who read the record of who
+did what.
+
+This is the thing to reach for first in a data-protection incident. "Log in and
+scroll, fifty rows at a time" is not an answer to a regulator, a client's
+security questionnaire, or a lawyer.
+
+**Keeping it.** The default is **for ever**, deliberately: no default should
+quietly shred a workspace's audit history. Pick a period and the panel says how
+many rows the next nightly sweep will remove before you save. Below ninety days
+is refused — a log that rotates faster than a quarter cannot answer a question
+about last quarter, which is the main thing anybody asks it.
+
+Every sweep that removes anything leaves an `audit_log.pruned` entry behind,
+and those are never pruned. Otherwise a gap in the log is indistinguishable,
+after the fact, from somebody covering their tracks.
+
+---
+
+## 6c. Outbound webhooks
+
+*Settings → admin → kimenő webhookok*. Owner-only.
+
+Nine events go out — lead created and stage-changed, deal stage-changed and
+won, document finalized and accepted, invoice issued, meeting booked, audit
+completed. This is what makes the software integrable instead of an island.
+
+Three things to know:
+
+- **The secret is shown once**, on creation and on rotation. Write it down
+  then. Not because it cannot be read back, but because a screen that
+  re-displays it for ever is a screen somebody eventually screenshots.
+- **Press "Teszt küldése"** after setting one up. Otherwise the only way to
+  find out whether it works is to wait for a real lead to move and then guess
+  whether the silence means "no events yet" or "wrong URL".
+- **The panel refuses a lot on purpose**: plain `http`, bare IP addresses,
+  `localhost`, the compose service names, anything internal. An outbound
+  webhook makes this server fetch a URL somebody typed, and this server sits on
+  a Docker network beside the database. The hostname is also resolved before
+  each send, because a public name can point at `127.0.0.1`.
+
+Twenty consecutive failures switches an endpoint off and says why. The last
+five deliveries per endpoint are on screen with their response codes.
+
+Receiver documentation, with working verification code, is in
+[`docs/integrations/webhooks.md`](integrations/webhooks.md) — hand it to
+whoever is building the other end.
+
+---
+
+## 6d. Copying settings into a new workspace
+
+*Settings → admin → workspaces → create workspace* → **Copy settings from**.
+
+A new workspace already gets the defaults. This copies what somebody actually
+tuned: brand and letterhead, custom fields, pipelines and stages, document and
+project templates, workflow rules, quote rules, scoring and gates, targets,
+hidden menu items. Tick what you want.
+
+**Only settings.** Leads, companies, documents, invoices, the audit log,
+members and API keys never travel — that is another company's data, and the
+whole tenancy guarantee is that it cannot cross. The Claude budget does not
+travel either: a spending cap is a per-workspace decision.
+
+It is additive and never destructive — anything the new workspace already has
+is left alone — so it is safe to run against a workspace already in use, and
+safe to run twice. **Workflow rules arrive switched off**: a rule that lands
+armed would trip automation nobody has read on the first lead somebody enters.
+Read them, then enable them.
+
+Both workspaces get an audit-log entry, so the source's own log shows that its
+configuration was read.
 
 ---
 
