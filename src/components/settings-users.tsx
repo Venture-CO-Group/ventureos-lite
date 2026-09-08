@@ -18,6 +18,10 @@ import {
 import type { ManagedUser } from "@/modules/users/actions";
 import type { UserStatus } from "@/modules/users/status";
 import { Modal } from "./modal";
+import { serverActionError } from "@/lib/client/server-action";
+import { bulkMemberAction, type BulkMemberResult } from "@/modules/members/bulk";
+import { MemberDrawer } from "./member-drawer";
+import { MEMBERSHIP_STATE_DEFS } from "@/modules/members/lifecycle";
 
 /**
  * Users (P8/2).
@@ -111,6 +115,62 @@ export function SettingsUsers({
     kind: "reset" | "invite";
   } | null>(null);
 
+  /**
+   * Bulk selection (§3).
+   *
+   * A Set of ids rather than a flag on each row: the row objects come from the
+   * server on every refresh, so a flag would be lost the moment anything else
+   * on the page revalidated — which is exactly when somebody is mid-selection.
+   */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [teamFilter, setTeamFilter] = useState("all");
+  const [bulkAction, setBulkAction] = useState("");
+  const [bulkRole, setBulkRole] = useState("BDR");
+  const [bulkTeam, setBulkTeam] = useState("");
+  const [bulkReport, setBulkReport] = useState<BulkMemberResult | null>(null);
+  const [drawerFor, setDrawerFor] = useState<ManagedUser | null>(null);
+
+  function toggle(id: string) {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function runBulk() {
+    if (selected.size === 0 || !bulkAction) return;
+    setMsg(null);
+    setBulkReport(null);
+    startTransition(async () => {
+      try {
+        const res = await bulkMemberAction({
+          userIds: [...selected],
+          action: bulkAction,
+          ...(bulkAction === "role" ? { role: bulkRole } : {}),
+          ...(bulkAction === "team" ? { teamId: bulkTeam } : {}),
+        });
+        if (!res.ok) {
+          setMsg({ kind: "err", text: res.error });
+          return;
+        }
+        // The report is the point: a bulk operation must never partially
+        // apply silently, so every row's outcome stays on screen.
+        setBulkReport(res.result);
+        setMsg({
+          kind: res.result.refused === 0 ? "ok" : "err",
+          text: `${res.result.changed} changed, ${res.result.refused} refused.`,
+        });
+        setSelected(new Set());
+        router.refresh();
+      } catch (e) {
+        setMsg({ kind: "err", text: serverActionError(e) });
+      }
+    });
+  }
+
   function run(fn: () => Promise<{ ok: boolean; error?: string }>, okText: string) {
     setMsg(null);
     startTransition(async () => {
@@ -126,18 +186,30 @@ export function SettingsUsers({
     if (window.confirm(question)) fn();
   }
 
+  /** Every team anybody is on, for the filter (§3). */
+  const allTeams = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string }>();
+    for (const u of users) for (const t of u.teams) byId.set(t.id, { id: t.id, name: t.name });
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, "hu"));
+  }, [users]);
+
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     return users.filter((u) => {
       if (statusFilter !== "all" && u.status !== statusFilter) return false;
+      if (roleFilter !== "all" && u.role !== roleFilter) return false;
+      if (teamFilter !== "all" && !u.teams.some((t) => t.id === teamFilter)) return false;
       if (!q) return true;
       return (
         u.name.toLowerCase().includes(q) ||
         u.email.toLowerCase().includes(q) ||
-        u.role.toLowerCase().includes(q)
+        u.role.toLowerCase().includes(q) ||
+        // Searching a team name finds its members, which is how somebody looks
+        // for "who is on the Budapest desk".
+        u.teams.some((t) => t.name.toLowerCase().includes(q))
       );
     });
-  }, [users, query, statusFilter]);
+  }, [users, query, statusFilter, roleFilter, teamFilter]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: users.length };
@@ -206,12 +278,155 @@ export function SettingsUsers({
         </div>
       )}
 
+      <div className="mb-3 flex flex-wrap items-center gap-1.5">
+        <select
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+          data-testid="filter-role"
+          className="min-h-[32px] rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2 py-1 text-[11.5px] text-ink outline-none focus:border-accent"
+        >
+          <option value="all">Every role</option>
+          {["OWNER", "ADMIN", "BDR", "CLIENT"].map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+        {allTeams.length > 0 && (
+          <select
+            value={teamFilter}
+            onChange={(e) => setTeamFilter(e.target.value)}
+            data-testid="filter-team"
+            className="min-h-[32px] rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2 py-1 text-[11.5px] text-ink outline-none focus:border-accent"
+          >
+            <option value="all">Every team</option>
+            {allTeams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <span className="text-[11.5px] text-muted">
+          {shown.length} of {users.length}
+        </span>
+      </div>
+
+      {/*
+        ---- the bulk bar ----
+
+        Appears only with a selection, because a permanently visible bar with
+        nothing selected is a control that does nothing. Its report stays on
+        screen after the action: a bulk operation must never partially apply
+        silently, and "9 changed, 3 refused" without saying WHICH three is the
+        same problem one step removed.
+      */}
+      {selected.size > 0 && (
+        <div
+          data-testid="bulk-bar"
+          className="mb-3 flex flex-wrap items-center gap-1.5 rounded-[10px] border border-accent bg-accent-soft px-3 py-2"
+        >
+          <b className="text-[12px] text-[#E4D3FF]" data-testid="bulk-count">
+            {selected.size} selected
+          </b>
+          <select
+            value={bulkAction}
+            onChange={(e) => setBulkAction(e.target.value)}
+            data-testid="bulk-action"
+            className="min-h-[32px] rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2 py-1 text-[11.5px] text-ink outline-none focus:border-accent"
+          >
+            <option value="">Choose an action…</option>
+            <option value="role">Change role</option>
+            <option value="team">Add to a team</option>
+            <option value="suspend">Suspend</option>
+            <option value="reinstate">Reinstate</option>
+            <option value="resend">Resend invitation</option>
+          </select>
+          {bulkAction === "role" && (
+            <select
+              value={bulkRole}
+              onChange={(e) => setBulkRole(e.target.value)}
+              data-testid="bulk-role"
+              className="min-h-[32px] rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2 py-1 text-[11.5px] text-ink outline-none focus:border-accent"
+            >
+              {["BDR", "ADMIN", "OWNER"].map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          )}
+          {bulkAction === "team" && (
+            <select
+              value={bulkTeam}
+              onChange={(e) => setBulkTeam(e.target.value)}
+              data-testid="bulk-team"
+              className="min-h-[32px] rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2 py-1 text-[11.5px] text-ink outline-none focus:border-accent"
+            >
+              <option value="">Which team…</option>
+              {allTeams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            onClick={runBulk}
+            disabled={
+              pending || !bulkAction || (bulkAction === "team" && !bulkTeam)
+            }
+            data-testid="bulk-apply"
+            className={BTN}
+          >
+            {pending ? "Working…" : "Apply"}
+          </button>
+          <button onClick={() => setSelected(new Set())} className={BTN}>
+            Clear
+          </button>
+        </div>
+      )}
+
+      {bulkReport && (
+        <div
+          data-testid="bulk-report"
+          className="mb-3 overflow-hidden rounded-[10px] border border-line"
+        >
+          {bulkReport.results.map((r) => (
+            <div
+              key={r.userId}
+              data-testid="bulk-report-row"
+              className="flex flex-wrap items-baseline gap-2 border-b border-line px-3 py-1.5 text-[11.5px] last:border-0"
+            >
+              <span className={r.ok ? "text-[#8CEFC0]" : "text-muted"}>
+                {r.ok ? "done" : "refused"}
+              </span>
+              <code className="text-ink">{r.email}</code>
+              {r.error && <span className="text-muted">— {r.error}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] border-collapse text-[12.5px]">
+        <table className="w-full min-w-[900px] border-collapse text-[12.5px]">
           <thead>
             <tr className="border-b border-line text-left text-[10.5px] uppercase tracking-[0.1em] text-muted">
+              <th className="px-2 py-1.5">
+                <input
+                  type="checkbox"
+                  checked={shown.length > 0 && shown.every((u) => selected.has(u.userId))}
+                  onChange={(e) =>
+                    setSelected(e.target.checked ? new Set(shown.map((u) => u.userId)) : new Set())
+                  }
+                  data-testid="select-all"
+                  style={{ accentColor: "#7427C6" }}
+                  aria-label="Select everybody shown"
+                />
+              </th>
               <th className="px-2 py-1.5 font-semibold">User</th>
               <th className="px-2 py-1.5 font-semibold">Role</th>
+              <th className="px-2 py-1.5 font-semibold">Teams</th>
               <th className="px-2 py-1.5 font-semibold">Status</th>
               <th className="px-2 py-1.5 font-semibold">Last sign-in</th>
               <th className="px-2 py-1.5 font-semibold">Devices</th>
@@ -221,7 +436,7 @@ export function SettingsUsers({
           <tbody data-testid="users-table">
             {shown.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-2 py-6 text-center text-muted">
+                <td colSpan={8} className="px-2 py-6 text-center text-muted">
                   Nobody matches that.
                 </td>
               </tr>
@@ -234,11 +449,54 @@ export function SettingsUsers({
               <Fragment key={u.userId}>
                 <tr className="border-b border-line last:border-0">
                   <td className="px-2 py-2.5">
-                    <span className="block text-ink">
-                      {u.name}
-                      {u.isSelf && <span className="ml-1.5 text-[11px] text-muted">(you)</span>}
-                    </span>
-                    <span className="block text-[11.5px] text-muted">{u.email}</span>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(u.userId)}
+                      onChange={() => toggle(u.userId)}
+                      data-testid={`select-${u.userId}`}
+                      style={{ accentColor: "#7427C6" }}
+                      aria-label={`Select ${u.email}`}
+                    />
+                  </td>
+                  <td className="px-2 py-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setDrawerFor(u)}
+                      data-testid={`open-member-${u.userId}`}
+                      className="flex items-center gap-2 text-left"
+                    >
+                      {/* Their own photo where they are represented, initials
+                          where there is none — the same rule as the shell. */}
+                      {u.avatarUrl ? (
+                        /* eslint-disable-next-line @next/next/no-img-element --
+                           authenticated route; next/image's optimiser cannot
+                           fetch it */
+                        <img
+                          src={u.avatarUrl}
+                          alt=""
+                          width={26}
+                          height={26}
+                          className="h-[26px] w-[26px] flex-none rounded-full border border-line object-cover"
+                        />
+                      ) : (
+                        <span className="grid h-[26px] w-[26px] flex-none place-items-center rounded-full bg-grad text-[10px] font-semibold text-ink">
+                          {u.name
+                            .split(" ")
+                            .slice(0, 2)
+                            .map((w) => w.charAt(0).toUpperCase())
+                            .join("")}
+                        </span>
+                      )}
+                      <span className="min-w-0">
+                        <span className="block text-ink underline decoration-dotted">
+                          {u.name}
+                          {u.isSelf && (
+                            <span className="ml-1.5 text-[11px] text-muted">(you)</span>
+                          )}
+                        </span>
+                        <span className="block text-[11.5px] text-muted">{u.email}</span>
+                      </span>
+                    </button>
                   </td>
 
                   <td className="px-2 py-2.5">
@@ -301,6 +559,32 @@ export function SettingsUsers({
                     )}
                   </td>
 
+                  {/* The testid is on the CELL, not on the chip wrapper: it has
+                      to exist for somebody on no team too, or an assertion
+                      about "this person has no teams" has nothing to hold. */}
+                  <td className="px-2 py-2.5" data-testid={`user-teams-${u.userId}`}>
+                    {u.teams.length === 0 ? (
+                      <span className="text-[11px] text-muted">—</span>
+                    ) : (
+                      <span className="flex flex-wrap gap-1">
+                        {u.teams.map((t) => (
+                          <span
+                            key={t.id}
+                            title={t.isLead ? `${t.name} — team lead` : t.name}
+                            className="rounded-full border px-1.5 py-px text-[10px]"
+                            style={{
+                              borderColor: t.color ?? "rgba(239,241,248,0.09)",
+                              color: t.color ?? undefined,
+                            }}
+                          >
+                            {t.name}
+                            {t.isLead && " ★"}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                  </td>
+
                   <td className="px-2 py-2.5">
                     <span
                       title={STATUS_HINT[u.status]}
@@ -309,6 +593,37 @@ export function SettingsUsers({
                     >
                       {STATUS_LABEL[u.status]}
                     </span>
+                    {/*
+                      The lifecycle STATE, beside the derived status (§1, §3).
+
+                      They answer different questions and both are worth
+                      showing. `status` is derived — locked out, never signed
+                      in, no password yet — and is about whether the account
+                      works. `state` is the membership: invited, active,
+                      suspended. A pending invitation looks identical to a
+                      never-signed-in member under `status` alone, which is
+                      exactly the confusion the state exists to end.
+                    */}
+                    {u.state !== "ACTIVE" &&
+                      MEMBERSHIP_STATE_DEFS[
+                        u.state as keyof typeof MEMBERSHIP_STATE_DEFS
+                      ] && (
+                        <span
+                          title={
+                            MEMBERSHIP_STATE_DEFS[
+                              u.state as keyof typeof MEMBERSHIP_STATE_DEFS
+                            ].hint
+                          }
+                          data-testid={`user-state-${u.userId}`}
+                          className="ml-1 rounded-[5px] bg-[rgba(245,184,65,0.15)] px-1.5 py-px text-[10px] font-semibold text-[#FFD79A]"
+                        >
+                          {
+                            MEMBERSHIP_STATE_DEFS[
+                              u.state as keyof typeof MEMBERSHIP_STATE_DEFS
+                            ].label
+                          }
+                        </span>
+                      )}
                     <span className="mt-1 flex flex-wrap gap-1">
                       {u.totpEnabled ? (
                         <span className="rounded-[5px] bg-panel-2 px-1.5 py-px text-[10px] text-[#8CEFC0]">
@@ -512,6 +827,10 @@ export function SettingsUsers({
           </tbody>
         </table>
       </div>
+
+      {drawerFor && (
+        <MemberDrawer user={drawerFor} onClose={() => setDrawerFor(null)} />
+      )}
 
       {editing && (
         <EditUser

@@ -60,6 +60,15 @@ export interface ManagedUser {
   role: string;
   /** INVITED | ACTIVE | SUSPENDED | REMOVED — the authority (§1). */
   state: string;
+  /** Their own photo, for the table (§3). */
+  avatarUrl: string | null;
+  /** The teams they are on, and whether they lead one (§3, §5). */
+  teams: { id: string; name: string; color: string | null; isLead: boolean }[];
+  /**
+   * What they are carrying, for the impact report and the drawer's summary
+   * (§3, §4). Counted per member in one grouped query rather than N.
+   */
+  activity: { leads: number; openDeals: number; openTasks: number; meetings: number };
   /** Which company a CLIENT may see, and its name for the panel (P6/6.3). */
   clientCompanyId: string | null;
   clientCompanyName: string | null;
@@ -101,6 +110,7 @@ export async function listWorkspaceUsers(): Promise<ManagedUser[]> {
           name: true,
           email: true,
           passwordHash: true,
+          avatarPath: true,
           totpEnabled: true,
           mustEnrollTotp: true,
           mustChangePassword: true,
@@ -136,6 +146,59 @@ export async function listWorkspaceUsers(): Promise<ManagedUser[]> {
    * membership after the company was merged away or deleted resolves to nothing
    * rather than to a stale name — and could never resolve into another tenant.
    */
+  /**
+   * Teams, and what each member is carrying — two grouped queries, not 2N.
+   *
+   * The obvious shape is a count per member inside the map below, which is
+   * five queries per row and forty rows on a real workspace. Grouped once and
+   * looked up in a Map instead.
+   */
+  const [teamRows, leadCounts, dealCounts, taskCounts, meetingCounts] = await Promise.all([
+    prismaUnsafe.teamMember.findMany({
+      where: { workspaceId },
+      include: { team: { select: { id: true, name: true, color: true, archivedAt: true } } },
+    }),
+    getWorkspaceClient(workspaceId).lead.groupBy({ by: ["ownerId"], _count: { _all: true } }),
+    getWorkspaceClient(workspaceId).deal.groupBy({
+      where: { status: "OPEN" },
+      by: ["ownerId"],
+      _count: { _all: true },
+    }),
+    getWorkspaceClient(workspaceId).task.groupBy({
+      where: { doneAt: null },
+      by: ["assigneeId"],
+      _count: { _all: true },
+    }),
+    getWorkspaceClient(workspaceId).meeting.groupBy({
+      where: { scheduledAt: { gte: now } },
+      by: ["hostUserId"],
+      _count: { _all: true },
+    }),
+  ]);
+  const teamsByUser = new Map<string, ManagedUser["teams"]>();
+  for (const row of teamRows) {
+    // An archived team is not a team somebody is on.
+    if (row.team.archivedAt) continue;
+    const list = teamsByUser.get(row.userId) ?? [];
+    list.push({
+      id: row.team.id,
+      name: row.team.name,
+      color: row.team.color,
+      isLead: row.isLead,
+    });
+    teamsByUser.set(row.userId, list);
+  }
+  const countMap = (rows: { _count: { _all: number } }[], key: string) =>
+    new Map(
+      rows
+        .map((r) => [(r as unknown as Record<string, string | null>)[key], r._count._all] as const)
+        .filter((e): e is readonly [string, number] => typeof e[0] === "string"),
+    );
+  const leadsBy = countMap(leadCounts, "ownerId");
+  const dealsBy = countMap(dealCounts, "ownerId");
+  const tasksBy = countMap(taskCounts, "assigneeId");
+  const meetingsBy = countMap(meetingCounts, "hostUserId");
+
   const clientCompanyIds = [
     ...new Set(
       memberships.map((m) => m.clientCompanyId).filter((v): v is string => typeof v === "string"),
@@ -158,6 +221,14 @@ export async function listWorkspaceUsers(): Promise<ManagedUser[]> {
       email: m.user.email,
       role: m.role,
       state: m.state,
+      avatarUrl: m.user.avatarPath ? `/api/files/${m.user.avatarPath}` : null,
+      teams: teamsByUser.get(m.user.id) ?? [],
+      activity: {
+        leads: leadsBy.get(m.user.id) ?? 0,
+        openDeals: dealsBy.get(m.user.id) ?? 0,
+        openTasks: tasksBy.get(m.user.id) ?? 0,
+        meetings: meetingsBy.get(m.user.id) ?? 0,
+      },
       clientCompanyId: m.clientCompanyId,
       clientCompanyName: m.clientCompanyId
         ? (companyName.get(m.clientCompanyId) ?? null)
