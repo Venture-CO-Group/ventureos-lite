@@ -80,7 +80,14 @@ export function normalizeCompanyName(name: string): string {
   return words.join(" ").trim();
 }
 
-function pairKey(a: string, b: string): string {
+/**
+ * The stable key for a pair, order-independent.
+ *
+ * Exported now that dismissals are stored: the scanner may offer (a,b) on one
+ * run and (b,a) on the next depending on row order, so a dismissal keyed on
+ * the pair AS GIVEN would be forgotten half the time.
+ */
+export function pairKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
@@ -287,4 +294,18 @@ export function defaultChoice(
   if (empty(loserValue)) return "survivor";
   if (empty(survivorValue)) return "loser";
   return opts.loserIsNewer ? "loser" : "survivor";
+}
+
+
+/** The same ordering, as the two columns a dismissal row stores. */
+export function sortedPair(aId: string, bId: string): { aId: string; bId: string } {
+  return aId <= bId ? { aId, bId } : { aId: bId, bId: aId };
+}
+
+/** Drop pairs somebody has already said are not duplicates. */
+export function withoutDismissed(
+  candidates: DuplicateCandidate[],
+  dismissed: ReadonlySet<string>,
+): DuplicateCandidate[] {
+  return candidates.filter((c) => !dismissed.has(pairKey(c.aId, c.bId)));
 }

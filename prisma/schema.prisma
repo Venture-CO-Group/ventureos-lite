@@ -1025,6 +1025,37 @@ model TaskSection {
   @@map("task_sections")
 }
 
+/// "These two are not the same thing."
+///
+/// ── WHY THIS TABLE ─────────────────────────────────────────────────────────
+///
+/// The duplicate scanner offers pairs on three signals, and the weakest of the
+/// three — a fuzzy name match — is suggestive rather than certain: "Alfa Bt"
+/// and "Alfa Kft" quite possibly are two different companies. There was no way
+/// to say so. A legitimate false positive therefore sat in the review list for
+/// ever, and after a few of those the whole panel gets ignored — which costs
+/// more than the duplicates it was built to catch.
+///
+/// The pair is stored SORTED, so (a,b) and (b,a) are one row and cannot both
+/// be dismissed independently.
+model DuplicateDismissal {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  /// company | lead
+  entity      String
+  /// The lexicographically smaller id of the pair.
+  aId         String   @map("a_id")
+  bId         String   @map("b_id")
+  dismissedBy String?  @map("dismissed_by")
+  /// Why, when somebody bothered to say. Read by whoever wonders later.
+  reason      String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([workspaceId, entity, aId, bId])
+  @@index([workspaceId, entity])
+  @@map("duplicate_dismissals")
+}
+
 model Task {
   id          String    @id @default(cuid())
   workspaceId String    @map("workspace_id")

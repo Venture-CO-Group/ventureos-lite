@@ -4,8 +4,10 @@ import { attempt } from "@/lib/client/server-action";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  dismissDuplicatePair,
   getMergePreview,
   performMerge,
+  restoreDuplicatePair,
   undoMerge,
   type DataQualityView,
 } from "@/modules/merge/actions";
@@ -26,6 +28,15 @@ import type { RollbackConflict } from "@/modules/import/store";
 
 const BTN =
   "min-h-[36px] rounded-[8px] border border-line px-2.5 py-1.5 text-[11.5px] font-semibold text-ink transition-colors hover:border-accent disabled:opacity-45";
+/**
+ * How many candidate pairs the panel shows at once.
+ *
+ * A cap exists because a workspace with similarly-named companies can produce
+ * hundreds of pairs, and a list nobody scrolls is a list nobody reads. What was
+ * missing was saying so: see the note beside the list.
+ */
+const DUPLICATE_LIMIT = 25;
+
 const LABEL = "text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted";
 
 function confidenceChip(confidence: number): string {
@@ -42,6 +53,26 @@ export function SettingsDataQuality({ view }: { view: DataQualityView }) {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<RollbackConflict[]>([]);
+
+  /**
+   * One runner for the small mutations, so none of them can fail in silence.
+   */
+  function run(
+    fn: () => Promise<{ ok: boolean; error?: string }>,
+    okText: string,
+  ) {
+    setError(null);
+    setNote(null);
+    startTransition(async () => {
+      const res = await fn();
+      if (!res.ok) {
+        setError(res.error ?? "That did not work.");
+        return;
+      }
+      setNote(okText);
+      router.refresh();
+    });
+  }
 
   function open(entity: "company" | "lead", survivorId: string, loserId: string) {
     setError(null);
@@ -153,7 +184,7 @@ export function SettingsDataQuality({ view }: { view: DataQualityView }) {
               <div key={group}>
                 <p className={`${LABEL} mb-1.5`}>{group}</p>
                 <ul className="grid gap-1.5" data-testid={`duplicates-${group}`}>
-                  {rows.slice(0, 25).map((c) => (
+                  {rows.slice(0, DUPLICATE_LIMIT).map((c) => (
                     <li
                       key={`${c.aId}:${c.bId}`}
                       className="flex flex-wrap items-center gap-2 rounded-[10px] border border-line bg-[rgba(0,5,29,0.35)] px-3 py-2 text-[12.5px]"
@@ -169,6 +200,31 @@ export function SettingsDataQuality({ view }: { view: DataQualityView }) {
                           type="button"
                           className={BTN}
                           disabled={pending}
+                          data-testid="duplicate-dismiss"
+                          title="Record that these two are different records, so this pair stops being offered."
+                          onClick={() =>
+                            run(
+                              () =>
+                                dismissDuplicatePair({
+                                  entity,
+                                  aId: c.aId,
+                                  bId: c.bId,
+                                  reason:
+                                    window.prompt("Why are these different? (optional)") ??
+                                    undefined,
+                                }),
+                              "Noted — that pair will not be offered again.",
+                            )
+                          }
+                        >
+                          Not a duplicate
+                        </button>
+                      )}
+                      {view.canMerge && (
+                        <button
+                          type="button"
+                          className={BTN}
+                          disabled={pending}
                           data-testid="merge-open"
                           onClick={() => open(entity, c.aId, c.bId)}
                         >
@@ -178,9 +234,72 @@ export function SettingsDataQuality({ view }: { view: DataQualityView }) {
                     </li>
                   ))}
                 </ul>
+                {/*
+                  The list is capped, and silence about it is the problem: with
+                  thirty near-identical pairs the panel looked complete while
+                  hiding most of them. Candidates are already ordered by
+                  confidence, so the ones on screen are the ones worth looking
+                  at first — but the reader has to know there are more.
+                */}
+                {rows.length > DUPLICATE_LIMIT && (
+                  <p className="mt-1.5 text-[11.5px] text-muted" data-testid={`duplicates-more-${group}`}>
+                    {rows.length - DUPLICATE_LIMIT} more, ordered behind these by
+                    confidence. Merge or dismiss some to see the rest.
+                  </p>
+                )}
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/*
+        What has been dismissed, and a way back.
+
+        A one-way "not a duplicate" button is worse than no button: the pair
+        disappears and nobody can learn it ever existed, so a mis-click quietly
+        hides a real duplicate for ever.
+      */}
+      {view.dismissed.length > 0 && (
+        <div className="mb-4">
+          <p className={`${LABEL} mb-1.5`}>not duplicates</p>
+          <ul className="grid gap-1.5" data-testid="dismissed-pairs">
+            {view.dismissed.map((d) => (
+              <li
+                key={`${d.entity}:${d.aId}:${d.bId}`}
+                className="flex flex-wrap items-center gap-2 rounded-[10px] border border-line bg-[rgba(0,5,29,0.35)] px-3 py-2 text-[12.5px]"
+              >
+                <span className="rounded-full bg-panel-2 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-muted">
+                  {d.entity}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-muted">
+                  {d.label}
+                  {d.reason ? ` — ${d.reason}` : ""}
+                </span>
+                {view.canMerge && (
+                  <button
+                    type="button"
+                    className={BTN}
+                    disabled={pending}
+                    data-testid="duplicate-restore"
+                    onClick={() =>
+                      run(
+                        () =>
+                          restoreDuplicatePair({
+                            entity: d.entity as "company" | "lead",
+                            aId: d.aId,
+                            bId: d.bId,
+                          }),
+                        "Back on the review list.",
+                      )
+                    }
+                  >
+                    Put it back
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

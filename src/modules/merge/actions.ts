@@ -6,11 +6,15 @@ import { getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
 import { requireGrant, GrantError } from "@/lib/authz";
 import {
+  dismissDuplicate,
+  listDismissedPairs,
   listDuplicateCandidates,
   listMergeHistory,
   mergeRecords,
   previewMerge,
+  restoreDuplicate,
   revertMerge,
+  type DismissedPair,
   type MergeEntity,
   type MergeHistoryRow,
   type MergePreview,
@@ -47,14 +51,23 @@ export interface DataQualityView {
   canMerge: boolean;
   /** Owner-only, matching the single-lead delete (P5/3). */
   canRollback: boolean;
+  /**
+   * Pairs somebody has said are not duplicates (P2/2.3).
+   *
+   * Shown so a mis-click is not permanent. A one-way button on a review list
+   * is worse than no button: the pair disappears and there is no way to learn
+   * it ever existed.
+   */
+  dismissed: DismissedPair[];
 }
 
 export async function getDataQuality(): Promise<DataQualityView> {
   const { workspaceId } = await getActiveContext();
-  const [{ companies, leads }, history, batches] = await Promise.all([
+  const [{ companies, leads }, history, batches, dismissed] = await Promise.all([
     listDuplicateCandidates(workspaceId),
     listMergeHistory(workspaceId),
     listImportBatches(workspaceId),
+    listDismissedPairs(workspaceId),
   ]);
   let owner = false;
   try {
@@ -70,7 +83,80 @@ export async function getDataQuality(): Promise<DataQualityView> {
     batches,
     canMerge: (await requireMergeGrant()) === null,
     canRollback: owner,
+    dismissed,
   };
+}
+
+const dismissSchema = z.object({
+  entity: z.enum(["company", "lead"]),
+  aId: z.string().min(1),
+  bId: z.string().min(1),
+  reason: z.string().trim().max(300).optional(),
+});
+
+/**
+ * "These two are not the same thing."
+ *
+ * The scanner's weakest signal is a fuzzy name match, which is suggestive
+ * rather than certain — "Alfa Bt" and "Alfa Kft" quite possibly are two
+ * different companies. Without this, a legitimate false positive sat in the
+ * list for ever, and after a few of those the whole panel gets ignored, which
+ * costs more than the duplicates it was built to catch.
+ *
+ * Same capability as merging: whoever may join two records may certainly say
+ * two records are separate.
+ */
+export async function dismissDuplicatePair(
+  raw: unknown,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const refused = await requireMergeGrant();
+  if (refused) return { ok: false, error: refused };
+  const parsed = dismissSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Unknown pair." };
+
+  const { workspaceId, userId } = await getActiveContext();
+  const { entity, aId, bId, reason } = parsed.data;
+  await dismissDuplicate(workspaceId, userId, entity, aId, bId, reason ?? null);
+
+  const db = getWorkspaceClient(workspaceId);
+  await db.auditLog.create({
+    data: {
+      workspaceId,
+      actorUserId: userId,
+      action: "duplicate.dismissed",
+      entityType: entity,
+      entityId: aId,
+      meta: { aId, bId, reason: reason ?? null },
+    },
+  });
+  revalidatePath("/settings/admin");
+  return { ok: true };
+}
+
+/** Put a dismissed pair back on the review list. */
+export async function restoreDuplicatePair(
+  raw: unknown,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const refused = await requireMergeGrant();
+  if (refused) return { ok: false, error: refused };
+  const parsed = dismissSchema.omit({ reason: true }).safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Unknown pair." };
+
+  const { workspaceId, userId } = await getActiveContext();
+  await restoreDuplicate(workspaceId, parsed.data.entity, parsed.data.aId, parsed.data.bId);
+  const db = getWorkspaceClient(workspaceId);
+  await db.auditLog.create({
+    data: {
+      workspaceId,
+      actorUserId: userId,
+      action: "duplicate.restored",
+      entityType: parsed.data.entity,
+      entityId: parsed.data.aId,
+      meta: { aId: parsed.data.aId, bId: parsed.data.bId },
+    },
+  });
+  revalidatePath("/settings/admin");
+  return { ok: true };
 }
 
 export async function getMergePreview(raw: unknown): Promise<

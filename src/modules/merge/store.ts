@@ -28,6 +28,9 @@ import {
   findLeadDuplicates,
   type DuplicateCandidate,
   type FieldChoice,
+  pairKey,
+  sortedPair,
+  withoutDismissed,
 } from "./detect";
 
 export const REVERT_WINDOW_DAYS = 30;
@@ -94,7 +97,83 @@ export interface MergePreview {
 export async function listDuplicateCandidates(
   workspaceId: string,
 ): Promise<{ companies: DuplicateCandidate[]; leads: DuplicateCandidate[] }> {
-  return cached(`duplicates:${workspaceId}`, () => scanDuplicates(workspaceId));
+  const scanned = await cached(`duplicates:${workspaceId}`, () => scanDuplicates(workspaceId));
+
+  /**
+   * Dismissals are applied OUTSIDE the cache.
+   *
+   * The scan is the expensive half and it only changes when companies or leads
+   * do; a dismissal has to take effect on the very next render, and caching it
+   * alongside the scan would leave the pair on screen until the cache expired
+   * — which reads as the button not working.
+   */
+  const db = getWorkspaceClient(workspaceId);
+  const rows = await db.duplicateDismissal.findMany({
+    select: { entity: true, aId: true, bId: true },
+  });
+  const byEntity = { company: new Set<string>(), lead: new Set<string>() };
+  for (const r of rows) {
+    const set = r.entity === "lead" ? byEntity.lead : byEntity.company;
+    set.add(pairKey(r.aId, r.bId));
+  }
+
+  return {
+    companies: withoutDismissed(scanned.companies, byEntity.company),
+    leads: withoutDismissed(scanned.leads, byEntity.lead),
+  };
+}
+
+export interface DismissedPair {
+  entity: string;
+  aId: string;
+  bId: string;
+  label: string;
+  reason: string | null;
+  at: string;
+}
+
+/**
+ * What has been dismissed, so a mis-click is not permanent.
+ *
+ * A one-way button on a list like this is worse than no button: the pair
+ * disappears and there is no way to learn that it ever existed.
+ */
+export async function listDismissedPairs(workspaceId: string): Promise<DismissedPair[]> {
+  const db = getWorkspaceClient(workspaceId);
+  const rows = await db.duplicateDismissal.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+  if (rows.length === 0) return [];
+
+  const companyIds = rows.filter((r) => r.entity === "company").flatMap((r) => [r.aId, r.bId]);
+  const leadIds = rows.filter((r) => r.entity === "lead").flatMap((r) => [r.aId, r.bId]);
+  const [companies, leads] = await Promise.all([
+    companyIds.length
+      ? db.company.findMany({ where: { id: { in: companyIds } }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+    leadIds.length
+      ? db.lead.findMany({
+          where: { id: { in: leadIds } },
+          select: { id: true, contactName: true, email: true },
+        })
+      : Promise.resolve([]),
+  ]);
+  const name = new Map<string, string>([
+    ...companies.map((c) => [c.id, c.name] as const),
+    ...leads.map((l) => [l.id, l.contactName || l.email || "lead"] as const),
+  ]);
+
+  return rows.map((r) => ({
+    entity: r.entity,
+    aId: r.aId,
+    bId: r.bId,
+    // A row whose record has since been deleted still deserves a label rather
+    // than an empty line.
+    label: `${name.get(r.aId) ?? "(removed)"} ↔ ${name.get(r.bId) ?? "(removed)"}`,
+    reason: r.reason,
+    at: r.createdAt.toISOString(),
+  }));
 }
 
 async function scanDuplicates(
@@ -743,5 +822,52 @@ export async function listMergeHistory(
       revertedAt: r.revertedAt?.toISOString() ?? null,
       canRevert: !r.revertedAt && r.revertUntil >= now,
     };
+  });
+}
+
+
+/**
+ * Record that a pair is not a duplicate.
+ *
+ * Idempotent: dismissing the same pair twice is one row, and the second call
+ * refreshes the reason rather than failing on the unique index.
+ */
+export async function dismissDuplicate(
+  workspaceId: string,
+  userId: string,
+  entity: "company" | "lead",
+  aId: string,
+  bId: string,
+  reason: string | null,
+): Promise<void> {
+  const db = getWorkspaceClient(workspaceId);
+  const pair = sortedPair(aId, bId);
+  const existing = await db.duplicateDismissal.findFirst({
+    where: { entity, aId: pair.aId, bId: pair.bId },
+    select: { id: true },
+  });
+  if (existing) {
+    await db.duplicateDismissal.update({
+      where: { id: existing.id },
+      data: { reason, dismissedBy: userId },
+    });
+    return;
+  }
+  await db.duplicateDismissal.create({
+    data: { workspaceId, entity, ...pair, dismissedBy: userId, reason },
+  });
+}
+
+/** Put a dismissed pair back on the review list. */
+export async function restoreDuplicate(
+  workspaceId: string,
+  entity: "company" | "lead",
+  aId: string,
+  bId: string,
+): Promise<void> {
+  const db = getWorkspaceClient(workspaceId);
+  const pair = sortedPair(aId, bId);
+  await db.duplicateDismissal.deleteMany({
+    where: { entity, aId: pair.aId, bId: pair.bId },
   });
 }

@@ -77,6 +77,7 @@ const BUSINESS_TABLES = [
   "deals",
   "custom_field_defs",
   "merge_records",
+  "duplicate_dismissals",
   "import_templates",
   "import_batches",
   // Added in P6/2 after a coverage audit found them missing. Every one of them
