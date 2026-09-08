@@ -263,4 +263,4 @@ export function overallFromCategories(
  * an older stored audit render wrongly. Reports keep their original version so
  * a cached audit still shows the grouping it was scored under.
  */
-export const AUDIT_SCHEMA_VERSION = 3;
+export const AUDIT_SCHEMA_VERSION = 4;

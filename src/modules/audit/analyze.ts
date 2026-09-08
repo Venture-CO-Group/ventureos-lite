@@ -4,6 +4,12 @@ import {
   type AuditThresholds,
 } from "./config";
 import type { AuditAnalysis, AuditCheck, PageProbe } from "./types";
+import { overallFromCategories, scoreByCategory } from "./categories";
+import {
+  detectFramework,
+  jsDependencyCheck,
+  jsDependencyPercent,
+} from "./framework";
 
 /**
  * Rule-based opportunity scoring (spec §4.4). High score = weak site = strong
@@ -180,15 +186,43 @@ export function analyzeAudit(
     );
   }
 
-  // Deterministic check weights (PSI is scored separately via a penalty).
-  let score = 0;
-  for (const c of checks) {
-    if (!c.pass) score += thresholds.weights[c.key] ?? 0;
+  /**
+   * ---- the JS-dependency finding (P2/9) -------------------------------
+   *
+   * Moved in here from the worker.
+   *
+   * It is derived entirely from the probe — framework markers in the server's
+   * HTML, against how much text only appears after hydration — so there was
+   * never a reason for it to live outside the pure analysis. Appending it in
+   * `processAudit` instead meant it was NOT scored, and meant every stage that
+   * re-ran the analysis had to remember to fold it back in or it silently
+   * vanished from the report. That fragility has its own three-line comment in
+   * jobs.ts; this deletes the need for it.
+   */
+  if (probe.rawHtml !== undefined) {
+    const detection = detectFramework(probe.rawHtml);
+    const jsCheck = jsDependencyCheck(
+      jsDependencyPercent(probe.rawHtml, probe.renderedTextLength ?? 0),
+      detection,
+    );
+    if (jsCheck) checks.push(jsCheck);
   }
-  if (probe.psi?.performance != null) {
-    score += ((100 - probe.psi.performance) / 100) * thresholds.psiPenaltyMax;
-  }
-  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  /**
+   * ---- the score --------------------------------------------------------
+   *
+   * From the CATEGORY system, which maps all thirty-three checks — not from
+   * the thirteen-entry flat table this used to sum, under which twenty checks
+   * were worth nothing at all. See config.ts for the whole story.
+   *
+   * `overallFromCategories` counts only categories that were actually
+   * measured, and shrinks its divisor with them: a site whose DNS would not
+   * resolve is not quietly penalised for what we failed to look at. A crawled
+   * audit stays comparable with an uncrawled one for the same reason — the
+   * structure category is absent here, so it contributes nothing either way.
+   */
+  const categories = scoreByCategory(checks);
+  const score = overallFromCategories(categories, thresholds.categoryWeights);
 
   // Opportunity flags — attach to the lead as trigger signals (spec §4.4).
   const flags: string[] = [];

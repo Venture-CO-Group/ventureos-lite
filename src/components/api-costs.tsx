@@ -82,10 +82,29 @@ export function ApiCosts({ report }: { report: ApiCostReport }) {
                     )}
                   </div>
                   <div className="text-[11px] text-muted">{p.note}</div>
-                  {p.quotaPct !== null && p.dailyQuota !== null && (
-                    <div className="mt-1 text-[11px] text-muted">
-                      {p.quotaPct}% of the {p.dailyQuota.toLocaleString("en-US")}/day free quota
+                  {/*
+                    The quota line is only true with a key. Without one,
+                    PageSpeed runs on Google's shared anonymous project, whose
+                    daily allowance is usually already spent by somebody else —
+                    so "0% of 25,000/day used" was being shown for a provider
+                    refusing every call with a 429.
+                  */}
+                  {p.keyConfigured === false ? (
+                    <div
+                      data-testid={`no-key-${p.provider}`}
+                      className="mt-1 rounded-[6px] border border-[rgba(245,184,65,0.35)] bg-[rgba(245,184,65,0.08)] px-1.5 py-1 text-[11px] leading-relaxed text-[#F5D9A0]"
+                    >
+                      No API key. Calls fall back to Google&apos;s shared
+                      anonymous quota, which is usually exhausted — expect them
+                      to fail. Set a key in Integrations above.
                     </div>
+                  ) : (
+                    p.quotaPct !== null &&
+                    p.dailyQuota !== null && (
+                      <div className="mt-1 text-[11px] text-muted">
+                        {p.quotaPct}% of the {p.dailyQuota.toLocaleString("en-US")}/day free quota
+                      </div>
+                    )
                   )}
                 </td>
                 <td className="py-2 pr-3 text-right tabular-nums text-muted">{p.callsToday}</td>

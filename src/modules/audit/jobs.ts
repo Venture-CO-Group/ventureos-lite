@@ -23,8 +23,8 @@ import { analyzeStructure } from "./structure";
 import {
   detectFramework,
   jsDependencyPercent,
-  jsDependencyCheck,
   crawlModeFor,
+  JS_DEPENDENCY_THRESHOLD,
   RENDERED_CRAWL_CAP,
   RENDERED_PAGE_TIMEOUT_MS,
 } from "./framework";
@@ -272,14 +272,12 @@ export async function processAudit(data: AuditJobData): Promise<void> {
     // Stage 1b — multi-page crawl (P2/1), internal runs only.
     //
     // Its checks are appended to the single-page ones and its two flags join
-    // the lead's trigger signals, but it deliberately does NOT move the score:
+    // the lead's trigger signals, but they deliberately do NOT move the score:
     // a crawled and an uncrawled audit of the same site must stay comparable,
     // or the re-audit delta would report a site "getting worse" when all that
-    // changed was the toggle.
-    // Checks appended beyond the single-page analysis: the JS-dependency
-    // finding (P2/9) and, when the crawl runs, the site-structure ones (P2/1).
-    // They are re-applied wherever the analysis is rebuilt, or a later stage
-    // would erase them.
+    // changed was the toggle. That now happens by construction rather than by
+    // arithmetic — the structure category simply is not present in the
+    // analysis, so `overallFromCategories` leaves it out of the divisor.
     let extraChecks: AuditCheck[] = [];
     let extraFlags: string[] = [];
 
@@ -288,21 +286,14 @@ export async function processAudit(data: AuditJobData): Promise<void> {
     // nothing: framework markers plus how much text is missing from the HTML.
     // Markers alone cannot tell a server-rendered Next page (fine) from a
     // client-rendered SPA (the finding), which is why both are used.
+    //
+    // The FINDING itself is emitted by `analyzeAudit` now, and therefore
+    // scored; what is still decided here is only the crawl MODE, which is a
+    // worker concern.
     const detection = detectFramework(probe.rawHtml ?? "");
     const jsDependency = jsDependencyPercent(probe.rawHtml ?? "", probe.renderedTextLength ?? 0);
     const mode = crawlModeFor(detection, jsDependency);
-    const jsCheck = jsDependencyCheck(jsDependency, detection);
-    if (jsCheck) {
-      extraChecks = [jsCheck];
-      if (!jsCheck.pass) extraFlags = ["JS-only content"];
-      await db.auditResult.update({
-        where: { id: data.auditId },
-        data: {
-          checks: [...analysis.checks, ...extraChecks],
-          flags: [...new Set([...analysis.flags, ...extraFlags])],
-        },
-      });
-    }
+    if (jsDependency >= JS_DEPENDENCY_THRESHOLD) extraFlags = ["JS-only content"];
 
     if (data.crawl) {
       await setStage("crawling");

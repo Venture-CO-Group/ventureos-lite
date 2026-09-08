@@ -159,6 +159,15 @@ export interface CrawlResult {
   linkCheckTruncated: boolean;
   /** True when the crawl stopped on its deadline rather than running out of pages. */
   deadlineHit: boolean;
+  /**
+   * "static" (plain HTTP) or "rendered" (a browser per page).
+   *
+   * Recorded because the two are different depths of inspection with different
+   * caps — 25 pages of fetching versus 10 of rendering — and a client reading
+   * "we crawled your site" deserves to know which one they got. It was decided
+   * in the worker and written only to the log (P2/9).
+   */
+  mode?: "static" | "rendered";
   elapsedMs: number;
 }
 

@@ -446,6 +446,7 @@ export async function crawlSite(
       linkCheckTruncated: false,
       deadlineHit: false,
       elapsedMs: now() - started,
+      mode: options.renderPage ? "rendered" : "static",
     };
   }
   await visit(startUrl);
@@ -522,5 +523,8 @@ export async function crawlSite(
     linkCheckTruncated,
     deadlineHit,
     elapsedMs: now() - started,
+    // Derived rather than passed in: a renderer having been supplied IS the
+    // mode, so the two cannot disagree.
+    mode: options.renderPage ? "rendered" : "static",
   };
 }

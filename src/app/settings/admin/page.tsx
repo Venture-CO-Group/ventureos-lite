@@ -11,6 +11,7 @@ import { SettingsQuoteRules } from "@/components/settings-quote-rules";
 import { AuditLogPanel } from "@/components/audit-log";
 import { SettingsTargets } from "@/components/settings-targets";
 import { SettingsAuditWatches } from "@/components/settings-audit-watches";
+import { SettingsAuditScoring } from "@/components/settings-audit-scoring";
 import { SettingsBranding } from "@/components/settings-branding";
 import { SettingsNavVisibility } from "@/components/settings-nav-visibility";
 import { SettingsFields } from "@/components/settings-fields";
@@ -33,6 +34,7 @@ import { getIntegrations } from "@/modules/integrations/actions";
 import { getHealthRules } from "@/modules/revenue/health-actions";
 import { getWorkspaceBrand } from "@/modules/workspaces/brand-actions";
 import { getHiddenNav } from "@/modules/workspaces/actions";
+import { getAuditScoring } from "@/modules/audit/config-actions";
 import { listFieldDefs } from "@/modules/fields/store";
 import { getDataQuality } from "@/modules/merge/actions";
 import { getWorkflows } from "@/modules/workflow/actions";
@@ -99,6 +101,7 @@ export default async function AdminSettingsPage() {
   const healthRules = await getHealthRules();
   const projectTemplates = await listProjectTemplates();
   const hiddenNav = await getHiddenNav();
+  const auditScoring = await getAuditScoring();
   const quoteRules = await getQuoteRulesView();
   const targets = await listTargets();
   // Workspace-wide letterhead (audit-v2 item 6).
@@ -138,6 +141,7 @@ export default async function AdminSettingsPage() {
         <SettingsProjectTemplates templates={projectTemplates} />
         <SettingsTargets targets={targets} isOwner={owner} />
         <SettingsQuoteRules view={quoteRules} isOwner={owner} />
+        <SettingsAuditScoring view={auditScoring} />
         <SettingsAuditWatches />
         {owner && <AuditLogPanel />}
         {owner && (

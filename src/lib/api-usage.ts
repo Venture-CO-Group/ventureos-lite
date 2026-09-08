@@ -12,6 +12,7 @@
  * can actually run out and break an audit.
  */
 import { prismaUnsafe } from "./db";
+import { resolveIntegrations } from "@/modules/integrations/resolve";
 
 export const API_PROVIDERS = ["dataforseo", "pagespeed", "crux", "places"] as const;
 export type ApiProvider = (typeof API_PROVIDERS)[number];
@@ -29,6 +30,18 @@ export interface ProviderMeta {
   dailyQuota: number | null;
   note: string;
 }
+
+/**
+ * Which integration key makes a provider work.
+ *
+ * Kept beside the metadata rather than in the report builder, so adding a
+ * provider means editing one place.
+ */
+export const PROVIDER_KEY_FIELD: Partial<Record<ApiProvider, string>> = {
+  pagespeed: "google.pagespeedApiKey",
+  crux: "google.cruxApiKey",
+  places: "google.placesApiKey",
+};
 
 export const PROVIDER_META: Record<ApiProvider, ProviderMeta> = {
   dataforseo: {
@@ -116,6 +129,19 @@ export interface ProviderUsage {
   costMonthUsd: number;
   /** Percent of the documented daily quota used, when there is one. */
   quotaPct: number | null;
+  /**
+   * Whether this provider has a credential.
+   *
+   * The quota figure is meaningless without one. PageSpeed with no API key
+   * bills against Google's SHARED ANONYMOUS project, whose daily allowance is
+   * routinely already spent by everyone else on the internet — a live check
+   * while writing this returned `429 Quota exceeded ... for consumer
+   * project_number:583797351490`. So the panel showed "0% of the 25,000/day
+   * free quota" for a provider that was in fact refusing every call.
+   *
+   * Null for providers where a key is not the deciding factor.
+   */
+  keyConfigured: boolean | null;
 }
 
 export interface ApiCostReport {
@@ -140,6 +166,7 @@ export function buildProviderUsage(
   provider: string,
   today: { calls: number; cost: number },
   month: { calls: number; cost: number },
+  keyConfigured: boolean | null = null,
 ): ProviderUsage {
   const meta = PROVIDER_META[provider as ApiProvider] ?? {
     label: provider,
@@ -161,6 +188,7 @@ export function buildProviderUsage(
       meta.dailyQuota && meta.dailyQuota > 0
         ? Math.min(100, Math.round((today.calls / meta.dailyQuota) * 100))
         : null,
+    keyConfigured,
   };
 }
 
@@ -209,6 +237,31 @@ export async function getApiCostReport(
     ]),
   );
 
+  /**
+   * Which providers actually have a credential.
+   *
+   * Resolved once, here, because without it the quota column lies: PageSpeed
+   * with no key runs on Google's shared anonymous project, whose daily
+   * allowance is usually already spent, so the panel reported "0% of
+   * 25,000/day used" for a provider refusing every call with a 429.
+   *
+   * `resolveIntegrations` reads the workspace's own values and falls back to
+   * the environment, which is exactly the question being asked.
+   */
+  const keyState = new Map<string, boolean>();
+  try {
+    const resolved = await resolveIntegrations(workspaceId);
+    for (const [provider, field] of Object.entries(PROVIDER_KEY_FIELD)) {
+      const value = resolved.values[field];
+      keyState.set(provider, !!value);
+    }
+    // CrUX legitimately reuses the PageSpeed key when it has none of its own.
+    if (!keyState.get("crux") && keyState.get("pagespeed")) keyState.set("crux", true);
+  } catch {
+    // A credential store that cannot be read must not take the cost panel with
+    // it; the column simply reports "unknown".
+  }
+
   // Every known provider is listed even at zero: "we have not called this yet"
   // and "this is not wired up" look identical otherwise, and the first is
   // information while the second is a bug.
@@ -218,6 +271,7 @@ export async function getApiCostReport(
       name,
       todayBy.get(name) ?? { calls: 0, cost: 0 },
       monthBy.get(name) ?? { calls: 0, cost: 0 },
+      keyState.get(name) ?? null,
     ),
   );
 

@@ -30,6 +30,11 @@ export function SiteStructure({ crawl }: { crawl: CrawlResult }) {
         <span className="text-[11px] text-muted">
           {crawl.pages.length} of {crawl.discovered} pages · {crawl.brokenLinks.length} broken
           links · {(crawl.elapsedMs / 1000).toFixed(0)}s
+          {crawl.mode
+            ? crawl.mode === "rendered"
+              ? " · rendered in a browser (JS-heavy site)"
+              : " · static crawl"
+            : ""}
           {crawl.deadlineHit ? " · stopped on time budget" : ""}
           {crawl.robotsSkipped > 0 ? ` · ${crawl.robotsSkipped} skipped per robots.txt` : ""}
         </span>

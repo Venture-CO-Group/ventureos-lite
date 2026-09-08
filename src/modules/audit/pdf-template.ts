@@ -338,7 +338,16 @@ function structureSection(view: AuditView): string {
       }</div>`
     : "";
 
-  const scope = `${crawl.pages.length} of ${crawl.discovered} pages crawled${
+  // The mode belongs in the client-facing document too: 10 rendered pages and
+  // 25 fetched ones are different depths of inspection, and "we crawled your
+  // site" without saying which is a claim the reader cannot size.
+  const modeLabel =
+    crawl.mode === "rendered"
+      ? " · rendered in a browser (JS-heavy site)"
+      : crawl.mode === "static"
+        ? " · static crawl"
+        : "";
+  const scope = `${crawl.pages.length} of ${crawl.discovered} pages crawled${modeLabel}${
     crawl.deadlineHit ? " · stopped on time budget" : ""
   }${crawl.robotsSkipped > 0 ? ` · ${crawl.robotsSkipped} skipped per robots.txt` : ""}`;
 

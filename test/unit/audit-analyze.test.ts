@@ -46,12 +46,31 @@ const weakSite: PageProbe = {
 };
 
 describe("verdictFor", () => {
+  /**
+   * The bands moved with the scoring — see config.ts for the fourteen live
+   * sites they were calibrated against. Asserted against the CONFIGURED
+   * numbers rather than against literals, so retuning them in Settings is not
+   * a test failure; what is pinned is that the three bands are ordered,
+   * contiguous and exhaustive.
+   */
+  const { strong, possible } = DEFAULT_AUDIT_THRESHOLDS.verdict;
+
   it("maps score to STRONG / POSSIBLE / SKIP by thresholds", () => {
-    expect(verdictFor(85)).toBe("STRONG");
-    expect(verdictFor(70)).toBe("STRONG");
-    expect(verdictFor(69)).toBe("POSSIBLE");
-    expect(verdictFor(40)).toBe("POSSIBLE");
-    expect(verdictFor(39)).toBe("SKIP");
+    expect(verdictFor(100)).toBe("STRONG");
+    expect(verdictFor(strong)).toBe("STRONG");
+    expect(verdictFor(strong - 1)).toBe("POSSIBLE");
+    expect(verdictFor(possible)).toBe("POSSIBLE");
+    expect(verdictFor(possible - 1)).toBe("SKIP");
+    expect(verdictFor(0)).toBe("SKIP");
+  });
+
+  it("leaves no score without a verdict", () => {
+    // An off-by-one in the bands would leave a gap that renders as SKIP for a
+    // site that should have been a prospect.
+    for (let n = 0; n <= 100; n += 1) {
+      expect(["STRONG", "POSSIBLE", "SKIP"]).toContain(verdictFor(n));
+    }
+    expect(possible).toBeLessThan(strong);
   });
 });
 
