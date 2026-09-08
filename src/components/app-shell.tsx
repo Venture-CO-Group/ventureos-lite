@@ -192,7 +192,17 @@ export async function AppShell({
   // An Owner reset this account's second factor: nothing in the app is
   // reachable until a new authenticator is registered. Every authenticated
   // screen renders through this shell, so gating here covers all of them.
-  if (shell.mustEnrollTotp) redirect("/enroll-2fa");
+  /**
+   * No authenticator, and one is required (P5/5.1).
+   *
+   * Two reasons reach here: an Owner reset this person's second factor, or the
+   * workspace now requires one from everybody. Either way nothing in the app
+   * is reachable until they enrol, and every authenticated screen renders
+   * through this shell — so gating here covers all of them.
+   */
+  if (shell.enrolmentReason) {
+    redirect(`/enroll-2fa?why=${shell.enrolmentReason}`);
+  }
   const active = shell.workspaces.find((w) => w.active);
   const firstName = shell.user.name.split(" ")[0].toLowerCase();
 

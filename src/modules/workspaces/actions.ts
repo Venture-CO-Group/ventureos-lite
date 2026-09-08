@@ -14,6 +14,12 @@ import { unreadCount } from "@/modules/notifications/store";
 import { brandFrom, type WorkspaceBrand } from "@/modules/workspaces/brand";
 import { provisionWorkspace, DEFAULT_ICP_CONFIG } from "./provision";
 import { hiddenFeatures, sanitizeHidden } from "./nav-visibility";
+import {
+  enrolmentRequired,
+  pendingEnrolments,
+  securityPolicyFrom,
+  type EnrolmentReason,
+} from "./security-policy";
 
 // ---- reads (shell + settings) ---------------------------------------------
 
@@ -36,8 +42,13 @@ export interface ShellContext {
   activeWorkspaceId: string;
   workspaces: WorkspaceOption[];
   role: string;
-  /** Owner reset this user's 2FA; the shell redirects to enrollment. */
-  mustEnrollTotp: boolean;
+  /**
+   * Why this person must register an authenticator before working, if they
+   * must. The shell redirects on it; the enrolment page explains which reason
+   * applies, because "your workspace requires this" and "an Owner reset your
+   * authenticator" call for different next actions.
+   */
+  enrolmentReason: EnrolmentReason;
   /** Today's real Claude spend vs this workspace's cap — drives the shell meter. */
   budget: BudgetStatus;
   /** Unread notifications for this user in this workspace — the bell badge. */
@@ -66,7 +77,14 @@ export async function getShellContext(): Promise<ShellContext> {
   const { workspaceId, userId } = await getActiveContext();
   const user = await prismaUnsafe.user.findUnique({
     where: { id: userId },
-    select: { id: true, name: true, email: true, mustEnrollTotp: true, avatarPath: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      mustEnrollTotp: true,
+      totpEnabled: true,
+      avatarPath: true,
+    },
   });
   const memberships = await prismaUnsafe.membership.findMany({
     where: { userId },
@@ -103,7 +121,9 @@ export async function getShellContext(): Promise<ShellContext> {
     activeWorkspaceId: workspaceId,
     workspaces,
     role,
-    mustEnrollTotp: user?.mustEnrollTotp ?? false,
+    enrolmentReason: user
+      ? enrolmentRequired(user, securityPolicyFrom(brandRow?.featureFlags))
+      : null,
     budget,
     unreadNotifications,
     brand: brandFrom(brandRow?.brand),
@@ -112,6 +132,103 @@ export async function getShellContext(): Promise<ShellContext> {
 }
 
 // ---- what this workspace shows (Owner) ------------------------------------
+
+// ---- security policy (Owner) ---------------------------------------------
+
+export interface SecurityPolicyView {
+  require2fa: boolean;
+  members: number;
+  /** How many would meet an enrolment screen if it were turned on now. */
+  pending: number;
+  canEdit: boolean;
+}
+
+export async function getSecurityPolicy(): Promise<SecurityPolicyView> {
+  const { workspaceId } = await getActiveContext();
+  const [ws, memberships] = await Promise.all([
+    prismaUnsafe.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { featureFlags: true },
+    }),
+    prismaUnsafe.membership.findMany({
+      where: { workspaceId, suspendedAt: null },
+      select: { user: { select: { totpEnabled: true } } },
+    }),
+  ]);
+  const policy = securityPolicyFrom(ws?.featureFlags);
+  let canEdit = false;
+  try {
+    await requireOwner();
+    canEdit = true;
+  } catch {
+    canEdit = false;
+  }
+  return {
+    require2fa: policy.require2fa,
+    members: memberships.length,
+    pending: pendingEnrolments(memberships.map((m) => m.user)),
+    canEdit,
+  };
+}
+
+/**
+ * Require an authenticator from everybody in this workspace.
+ *
+ * Owner-only and audit-logged. Nobody is signed out: the shell sends anybody
+ * without one to the enrolment page on their next click, which is enrolment
+ * rather than a lockout — they enrol and carry on. Turning it off does not
+ * remove anybody's authenticator either.
+ */
+export async function setRequire2fa(
+  require2fa: boolean,
+): Promise<{ ok: true; pending: number } | { ok: false; error: string }> {
+  try {
+    await requireOwner();
+  } catch {
+    return { ok: false, error: "Only an Owner can change the security policy." };
+  }
+  const { workspaceId, userId } = await getActiveContext();
+  const ws = await prismaUnsafe.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { featureFlags: true },
+  });
+  const flags =
+    ws?.featureFlags && typeof ws.featureFlags === "object" && !Array.isArray(ws.featureFlags)
+      ? (ws.featureFlags as Record<string, unknown>)
+      : {};
+  const existingSecurity =
+    flags.security && typeof flags.security === "object" && !Array.isArray(flags.security)
+      ? (flags.security as Record<string, unknown>)
+      : {};
+
+  await prismaUnsafe.workspace.update({
+    where: { id: workspaceId },
+    // Merged twice over: `featureFlags` is shared with retention, the
+    // cold-domain config and the nav visibility, and `security` may grow more
+    // than one setting.
+    data: { featureFlags: { ...flags, security: { ...existingSecurity, require2fa } } },
+  });
+
+  const memberships = await prismaUnsafe.membership.findMany({
+    where: { workspaceId, suspendedAt: null },
+    select: { user: { select: { totpEnabled: true } } },
+  });
+  const pending = pendingEnrolments(memberships.map((m) => m.user));
+
+  const db = getWorkspaceClient(workspaceId);
+  await db.auditLog.create({
+    data: {
+      workspaceId,
+      actorUserId: userId,
+      action: require2fa ? "security.2fa_required" : "security.2fa_optional",
+      entityType: "Workspace",
+      entityId: workspaceId,
+      meta: { pendingEnrolments: pending },
+    },
+  });
+  revalidatePath("/", "layout");
+  return { ok: true, pending };
+}
 
 /** The current hidden set, for the settings screen. */
 export async function getHiddenNav(): Promise<string[]> {

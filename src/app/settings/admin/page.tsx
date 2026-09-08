@@ -14,6 +14,7 @@ import { SettingsAuditWatches } from "@/components/settings-audit-watches";
 import { SettingsAuditScoring } from "@/components/settings-audit-scoring";
 import { SettingsBranding } from "@/components/settings-branding";
 import { SettingsNavVisibility } from "@/components/settings-nav-visibility";
+import { SettingsSecurityPolicy } from "@/components/settings-security-policy";
 import { SettingsFields } from "@/components/settings-fields";
 import { SettingsDataQuality } from "@/components/settings-data-quality";
 import { SettingsWorkflows } from "@/components/settings-workflows";
@@ -33,7 +34,7 @@ import { listWorkspaceUsers } from "@/modules/users/actions";
 import { getIntegrations } from "@/modules/integrations/actions";
 import { getHealthRules } from "@/modules/revenue/health-actions";
 import { getWorkspaceBrand } from "@/modules/workspaces/brand-actions";
-import { getHiddenNav } from "@/modules/workspaces/actions";
+import { getHiddenNav, getSecurityPolicy } from "@/modules/workspaces/actions";
 import { getAuditScoring } from "@/modules/audit/config-actions";
 import { listFieldDefs } from "@/modules/fields/store";
 import { getDataQuality } from "@/modules/merge/actions";
@@ -102,6 +103,7 @@ export default async function AdminSettingsPage() {
   const projectTemplates = await listProjectTemplates();
   const hiddenNav = await getHiddenNav();
   const auditScoring = await getAuditScoring();
+  const securityPolicy = await getSecurityPolicy();
   const quoteRules = await getQuoteRulesView();
   const targets = await listTargets();
   // Workspace-wide letterhead (audit-v2 item 6).
@@ -133,6 +135,7 @@ export default async function AdminSettingsPage() {
         </div>
 
         <SettingsBranding initial={brand} isOwner={owner} />
+        <SettingsSecurityPolicy view={securityPolicy} />
         <SettingsNavVisibility hidden={hiddenNav} isOwner={owner} />
         <SettingsFields defs={customFields} canManage={canManageFields} />
         <SettingsDataQuality view={dataQuality} />
