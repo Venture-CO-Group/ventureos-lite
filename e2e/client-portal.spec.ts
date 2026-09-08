@@ -223,6 +223,14 @@ test("every working screen is unreachable, and the sidebar does not offer them",
   // The sidebar shows one entry, and it is not the sales tool's.
   await expect(page.getByRole("link", { name: "Lead Engine" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Pipeline" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Your project" })).toBeVisible();
+
+  // And two pieces of furniture come off for them: what we spend on Claude per
+  // day is our commercial information, and a switcher over one membership is a
+  // control that does nothing while naming an agency's internal structure.
+  await expect(page.getByTestId("budget-meter")).toHaveCount(0);
+  await expect(page.getByTestId("budget-meter-mobile")).toHaveCount(0);
+  await expect(page.getByTestId("active-workspace")).toHaveCount(0);
   await context.close();
 });
 

@@ -243,9 +243,17 @@ export async function AppShell({
    * reachable and every check behind them is untouched.
    */
   const hidden = new Set(shell.hiddenNav);
-  const nav = isClientRole(shell.role)
-    ? CLIENT_NAV
-    : NAV.filter((i) => !isHrefHidden(i.href, hidden));
+  /**
+   * A client account is somebody else's customer looking at our software
+   * (P6/6.3), so two pieces of furniture come off the shell for them:
+   *
+   *   - the Claude budget meter. What we spend on AI per day is our commercial
+   *     information, not theirs;
+   *   - the workspace switcher, which for a client with one membership is a
+   *     control that does nothing and names an agency's internal structure.
+   */
+  const isClient = isClientRole(shell.role);
+  const nav = isClient ? CLIENT_NAV : NAV.filter((i) => !isHrefHidden(i.href, hidden));
   const allItems = [...nav, SETTINGS_ITEM];
   const icons: Record<string, ReactNode> = Object.fromEntries([
     ...allItems.map((i) => [i.label, i.icon] as const),
@@ -280,12 +288,14 @@ export async function AppShell({
           simply off-screen and unreachable. Clamping it lets the nav region
           scroll while the header and footer stay pinned. */}
       <aside className="hidden h-full min-h-0 flex-col overflow-hidden border-r border-line bg-canvas/60 px-3.5 py-5 nav:flex">
-        <div className="flex-none">
-          <WorkspaceSwitcher
-            workspaces={shell.workspaces}
-            canManage={shell.role === "OWNER"}
-          />
-        </div>
+        {!isClient && (
+          <div className="flex-none">
+            <WorkspaceSwitcher
+              workspaces={shell.workspaces}
+              canManage={shell.role === "OWNER"}
+            />
+          </div>
+        )}
 
         <div className="flex-none px-2.5 pb-5 pt-3 font-display text-[22px] tracking-display">
           <b className="font-extrabold">{shell.brand.markBold}</b>
@@ -308,9 +318,11 @@ export async function AppShell({
           <NavRow item={SETTINGS_ITEM} activePath={activePath} />
         </SidebarNav>
 
-        <div className="flex-none">
-          <BudgetMeter budget={shell.budget} />
-        </div>
+        {!isClient && (
+          <div className="flex-none">
+            <BudgetMeter budget={shell.budget} />
+          </div>
+        )}
 
         <div className="flex flex-none items-center gap-2.5 border-t border-line p-2.5">
           {/* Their own photo where they are represented, initials where there is
@@ -350,13 +362,15 @@ export async function AppShell({
             actions are dropped here — at 390px the screen belongs to content. */}
         <header className="flex flex-none items-center gap-2 border-b border-line px-4 py-3 nav:hidden">
           <div className="min-w-0 flex-1">
-            <WorkspaceSwitcher
-              workspaces={shell.workspaces}
-              canManage={shell.role === "OWNER"}
-              testId="active-workspace-mobile"
-            />
+            {!isClient && (
+              <WorkspaceSwitcher
+                workspaces={shell.workspaces}
+                canManage={shell.role === "OWNER"}
+                testId="active-workspace-mobile"
+              />
+            )}
           </div>
-          <BudgetMeter budget={shell.budget} compact />
+          {!isClient && <BudgetMeter budget={shell.budget} compact />}
           {/* Kept on the phone header: the playbook's whole point is triage on
               the move, and the bell is the one control that cannot be dropped
               at 390px without defeating it. */}
