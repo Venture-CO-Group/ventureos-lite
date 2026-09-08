@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import Redis from "ioredis";
 
 /**
  * Sector reports (playbook-v4 P12/2), through the real pages.
@@ -49,6 +50,25 @@ test.beforeAll(async () => {
     },
   });
   reportId = report.id;
+
+  /**
+   * Clear this suite's own rate-limit ledger.
+   *
+   * The download form allows ten per network per DAY, which is the right rule
+   * and made the spec unrunnable more than ten times in one day: the eleventh
+   * run got "Mára elfogyott a letöltési keret erről a hálózatról." and reported
+   * a defect that did not exist. `auth.setup.ts` clears `loginAttempt` for
+   * exactly the same reason; this is the Redis-side equivalent.
+   */
+  const redis = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379", {
+    maxRetriesPerRequest: null,
+  });
+  try {
+    const keys = await redis.keys("rl:sector-download:*");
+    if (keys.length > 0) await redis.del(...keys);
+  } finally {
+    await redis.quit();
+  }
 });
 
 test.afterAll(async () => {

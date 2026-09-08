@@ -95,7 +95,21 @@ test("a blocked task still shows up, and says what it is waiting for", async ({ 
    */
   const runner = await prisma.user.findUnique({ where: { email: "e2e-runner@ventureco.test" } });
   const blocker = await makeTask("Await the signature");
-  const blocked = await makeTask("Start the build", { assigneeId: runner!.id });
+  /**
+   * Given a due date on purpose.
+   *
+   * Without one this task went to the END of "My work" — and a flake in the
+   * full suite showed why that mattered: the list is capped at two hundred, and
+   * once enough dated tasks were assigned to the runner an UNDATED one fell off
+   * the end and became invisible. That is now fixed in `myWork` (dated first,
+   * undated after, placement decided in code rather than by the database's
+   * default NULL ordering, which differs between Postgres and MySQL). A date
+   * here keeps the test's own row near the top either way.
+   */
+  const blocked = await makeTask("Start the build", {
+    assigneeId: runner!.id,
+    dueAt: new Date(Date.now() + 3_600_000),
+  });
   await prisma.taskDependency.create({
     data: { workspaceId, taskId: blocked.id, blockedById: blocker.id },
   });

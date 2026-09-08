@@ -25,6 +25,7 @@ import {
   ALLOWED_ATTACHMENT_TYPES,
   MAX_ATTACHMENTS_PER_TASK,
   MAX_ATTACHMENT_BYTES,
+  MY_WORK_LIMIT,
 } from "./attachment-rules";
 
 const FILES_DIR = process.env.FILES_DIR ?? "/data/files";
@@ -1149,22 +1150,50 @@ export async function myWork(): Promise<MyWorkItem[]> {
   const { workspaceId, userId } = await getActiveContext();
   const db = getWorkspaceClient(workspaceId);
 
-  const rows = await db.task.findMany({
-    where: { doneAt: null, parentId: null, assigneeId: userId },
+  /**
+   * Two queries, not one — and a defect an e2e flake exposed.
+   *
+   * This was `orderBy: [{ dueAt: "asc" }, ...]` with `take: 200`, which leans
+   * on the database's default placement of NULLs. Postgres puts them LAST for
+   * an ascending sort and MySQL puts them FIRST, so the same code would order
+   * "My work" differently on the two flavours the schema is written for — and
+   * on Postgres an UNDATED task fell off the end of the two hundred whenever
+   * enough dated ones existed. Work assigned to somebody, silently invisible.
+   *
+   * Prisma's `nulls` option would say it explicitly but is not supported on
+   * MySQL, so the placement is decided here instead: dated first, ordered by
+   * when they are due; undated after them. That is also the right reading —
+   * something with a date on it is the more urgent thing.
+   */
+  const SELECT = {
+    id: true,
+    title: true,
+    priority: true,
+    dueAt: true,
+    boardId: true,
+    entityType: true,
+    entityId: true,
+    board: { select: { name: true } },
+    section: { select: { name: true } },
+  } as const;
+  const MINE = { doneAt: null, parentId: null, assigneeId: userId } as const;
+
+  const dated = await db.task.findMany({
+    where: { ...MINE, dueAt: { not: null } },
     orderBy: [{ dueAt: "asc" }, { position: "asc" }],
-    take: 200,
-    select: {
-      id: true,
-      title: true,
-      priority: true,
-      dueAt: true,
-      boardId: true,
-      entityType: true,
-      entityId: true,
-      board: { select: { name: true } },
-      section: { select: { name: true } },
-    },
+    take: MY_WORK_LIMIT,
+    select: SELECT,
   });
+  const undated =
+    dated.length < MY_WORK_LIMIT
+      ? await db.task.findMany({
+          where: { ...MINE, dueAt: null },
+          orderBy: [{ priority: "asc" }, { position: "asc" }],
+          take: MY_WORK_LIMIT - dated.length,
+          select: SELECT,
+        })
+      : [];
+  const rows = [...dated, ...undated];
   if (rows.length === 0) return [];
 
   // What is still waiting on something, so the list can say so rather than

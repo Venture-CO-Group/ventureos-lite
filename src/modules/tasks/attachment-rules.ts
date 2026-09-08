@@ -50,3 +50,15 @@ export const ALLOWED_ATTACHMENT_TYPES = new Set([
   "application/vnd.ms-powerpoint",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 ]);
+
+/**
+ * How many rows "My work" shows (P6/3.4).
+ *
+ * Lives here rather than beside the query, because that file is `"use server"`
+ * and may only export async functions — the trap this module exists for.
+ *
+ * Two hundred is a cap on a list a person reads in the morning, not a
+ * pagination scheme. If somebody has two hundred open tasks assigned to them,
+ * the number is the finding.
+ */
+export const MY_WORK_LIMIT = 200;

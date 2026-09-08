@@ -47,6 +47,7 @@ import {
   readRecurrence,
   type TaskPriority,
 } from "@/modules/tasks/board-logic";
+import { MY_WORK_LIMIT } from "@/modules/tasks/attachment-rules";
 import { TYPE_LABEL, type TaskType } from "@/modules/tasks/logic";
 import { MAX_ATTACHMENT_BYTES } from "@/modules/tasks/attachment-rules";
 import { Modal } from "./modal";
@@ -408,6 +409,12 @@ export function TaskBoards({
         <div className="mb-4 rounded-card border border-line bg-panel" data-testid="my-work-list">
           <div className="border-b border-line px-3.5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
             My work · every board · {mine.length}
+            {mine.length >= MY_WORK_LIMIT && (
+              <>
+                {" · "}
+                <b className="text-warn">capped at {MY_WORK_LIMIT}</b>
+              </>
+            )}
           </div>
           {mine.length === 0 && (
             <p className="p-6 text-center text-[12.5px] text-muted">
