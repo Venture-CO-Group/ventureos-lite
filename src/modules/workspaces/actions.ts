@@ -13,6 +13,7 @@ import { getBudgetStatus, type BudgetStatus } from "@/lib/ai/budget-status";
 import { unreadCount } from "@/modules/notifications/store";
 import { brandFrom, type WorkspaceBrand } from "@/modules/workspaces/brand";
 import { provisionWorkspace, DEFAULT_ICP_CONFIG } from "./provision";
+import { hiddenFeatures, sanitizeHidden } from "./nav-visibility";
 
 // ---- reads (shell + settings) ---------------------------------------------
 
@@ -43,6 +44,13 @@ export interface ShellContext {
   unreadNotifications: number;
   /** The workspace's letterhead, for the shell wordmark. */
   brand: WorkspaceBrand;
+  /**
+   * Nav keys this workspace has switched off (see ./nav-visibility).
+   *
+   * Decluttering, not permission: the shell and the palette drop these rows,
+   * and every route behind them keeps exactly the checks it already had.
+   */
+  hiddenNav: string[];
 }
 
 function initials(name: string): string {
@@ -77,7 +85,7 @@ export async function getShellContext(): Promise<ShellContext> {
   // signed in there is a workspace to brand with (audit-v2 item 6).
   const brandRow = await prismaUnsafe.workspace.findUnique({
     where: { id: workspaceId },
-    select: { brand: true },
+    select: { brand: true, featureFlags: true },
   });
   // Server-rendered so the bell badge is right on first paint rather than
   // popping in. A count on an indexed column — cheap enough for every page.
@@ -99,7 +107,70 @@ export async function getShellContext(): Promise<ShellContext> {
     budget,
     unreadNotifications,
     brand: brandFrom(brandRow?.brand),
+    hiddenNav: [...hiddenFeatures(brandRow?.featureFlags)],
   };
+}
+
+// ---- what this workspace shows (Owner) ------------------------------------
+
+/** The current hidden set, for the settings screen. */
+export async function getHiddenNav(): Promise<string[]> {
+  const { workspaceId } = await getActiveContext();
+  const ws = await prismaUnsafe.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { featureFlags: true },
+  });
+  return [...hiddenFeatures(ws?.featureFlags)];
+}
+
+/**
+ * Switch menu items off (or back on).
+ *
+ * Owner-only and audit-logged. It changes what an entire workspace sees, which
+ * is not a preference — a BDR who cannot find Documents any more should be able
+ * to learn from the log who removed it and when.
+ */
+export async function setHiddenNav(
+  keys: unknown,
+): Promise<{ ok: true; hidden: string[] } | { ok: false; error: string }> {
+  try {
+    await requireOwner();
+  } catch {
+    return { ok: false, error: "Only an Owner can change what this workspace shows." };
+  }
+  const { workspaceId, userId } = await getActiveContext();
+  const hidden = sanitizeHidden(keys);
+
+  const ws = await prismaUnsafe.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { featureFlags: true },
+  });
+  // Merged rather than replaced: `featureFlags` is a shared bag that also holds
+  // the retention settings and the cold-domain config.
+  const flags =
+    ws?.featureFlags && typeof ws.featureFlags === "object" && !Array.isArray(ws.featureFlags)
+      ? (ws.featureFlags as Record<string, unknown>)
+      : {};
+
+  await prismaUnsafe.workspace.update({
+    where: { id: workspaceId },
+    data: { featureFlags: { ...flags, hiddenNav: hidden } },
+  });
+
+  const db = getWorkspaceClient(workspaceId);
+  await db.auditLog.create({
+    data: {
+      workspaceId,
+      actorUserId: userId,
+      action: "workspace.nav_visibility",
+      entityType: "Workspace",
+      entityId: workspaceId,
+      meta: { hidden },
+    },
+  });
+
+  revalidatePath("/", "layout");
+  return { ok: true, hidden };
 }
 
 

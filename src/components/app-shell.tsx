@@ -5,6 +5,7 @@ import { getShellContext } from "@/modules/workspaces/actions";
 import type { BudgetStatus } from "@/lib/ai/budget-status";
 import { NotificationBell } from "./notification-bell";
 import { WorkspaceSwitcher } from "./workspace-switcher";
+import { isHrefHidden } from "@/modules/workspaces/nav-visibility";
 import { MobileNav, type MobileNavItem } from "./mobile-nav";
 import { GlobalSearch } from "./global-search";
 import { Greeting } from "./greeting";
@@ -195,12 +196,26 @@ export async function AppShell({
   const active = shell.workspaces.find((w) => w.active);
   const firstName = shell.user.name.split(" ")[0].toLowerCase();
 
-  const allItems = [...NAV, SETTINGS_ITEM];
+  /**
+   * What this workspace has switched off (see modules/workspaces/nav-visibility).
+   *
+   * Filtered here, once, so the sidebar, the mobile tab bar and the "More"
+   * sheet cannot disagree about what exists. Decluttering only: the routes stay
+   * reachable and every check behind them is untouched.
+   */
+  const hidden = new Set(shell.hiddenNav);
+  const nav = NAV.filter((i) => !isHrefHidden(i.href, hidden));
+  const allItems = [...nav, SETTINGS_ITEM];
   const icons: Record<string, ReactNode> = Object.fromEntries([
     ...allItems.map((i) => [i.label, i.icon] as const),
     ["More", <MoreIcon key="more" />] as const,
   ]);
-  const primary: MobileNavItem[] = PRIMARY_MOBILE.map((label) => {
+  // A phone tab whose screen has been hidden would be a tab that leads
+  // somewhere the workspace said it does not want; drop it and let the
+  // remaining tabs take the width.
+  const primary: MobileNavItem[] = PRIMARY_MOBILE.filter((label) =>
+    allItems.some((i) => i.label === label),
+  ).map((label) => {
     const item = allItems.find((i) => i.label === label);
     return { label, href: item?.href, locked: item?.locked };
   });
@@ -243,7 +258,7 @@ export async function AppShell({
         </div>
 
         <SidebarNav>
-          {NAV.map((item) => (
+          {nav.map((item) => (
             <NavRow key={item.label} item={item} activePath={activePath} />
           ))}
           <div className="px-2.5 pb-1.5 pt-3.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
@@ -340,7 +355,7 @@ export async function AppShell({
         icons={icons}
       />
       <AppDialogs />
-      <CommandPalette />
+      <CommandPalette hiddenNav={shell.hiddenNav} />
     </div>
       </UndoProvider>
     </AppActionsProvider>

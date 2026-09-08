@@ -15,6 +15,7 @@ import {
   type RecentItem,
 } from "@/modules/search/palette";
 import { useAppActions } from "./app-actions";
+import { isHrefHidden } from "@/modules/workspaces/nav-visibility";
 
 /**
  * The ⌘K command palette and the keyboard map (playbook-v2 P7/3).
@@ -52,8 +53,20 @@ function isTypingTarget(el: EventTarget | null): boolean {
   );
 }
 
-export function CommandPalette() {
+export function CommandPalette({ hiddenNav = [] }: { hiddenNav?: string[] }) {
   const router = useRouter();
+  /**
+   * Rows for screens this workspace has switched off.
+   *
+   * A palette that still jumps to a menu item somebody deliberately removed is
+   * a menu item that was not removed. Decluttering only — the route itself is
+   * untouched, so a link from a notification still works.
+   */
+  const hidden = useMemo(() => new Set(hiddenNav), [hiddenNav]);
+  const visible = useCallback(
+    <T extends { href?: string }>(a: T) => !isHrefHidden(a.href, hidden),
+    [hidden],
+  );
   const { openDialog } = useAppActions();
   const [open, setOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -189,7 +202,9 @@ export function CommandPalette() {
           router.push(r.href);
         },
       }));
-      const actionRows: Row[] = PALETTE_ACTIONS.filter((a) => a.group === "action").map((a) => ({
+      const actionRows: Row[] = PALETTE_ACTIONS.filter(
+        (a) => a.group === "action" && visible(a),
+      ).map((a) => ({
         key: a.id,
         label: a.label,
         hint: a.hint,
@@ -199,7 +214,7 @@ export function CommandPalette() {
       return [...recentRows, ...actionRows];
     }
 
-    const actionRows: Row[] = matchActions(q).map((a) => ({
+    const actionRows: Row[] = matchActions(q).filter(visible).map((a) => ({
       key: a.id,
       label: a.label,
       hint: a.hint,
@@ -233,7 +248,7 @@ export function CommandPalette() {
   useEffect(() => setActive(0), [q]);
 
   if (showShortcuts) {
-    return <ShortcutOverlay onClose={() => setShowShortcuts(false)} />;
+    return <ShortcutOverlay hidden={hidden} onClose={() => setShowShortcuts(false)} />;
   }
   if (!open) return null;
 
@@ -334,8 +349,17 @@ export function CommandPalette() {
 }
 
 /** The `?` overlay. Generated from the same action list, so it cannot drift. */
-function ShortcutOverlay({ onClose }: { onClose: () => void }) {
-  const bound = PALETTE_ACTIONS.filter((a) => a.hint);
+function ShortcutOverlay({
+  onClose,
+  hidden,
+}: {
+  onClose: () => void;
+  /** Documenting a shortcut to a screen the workspace removed is worse than
+   *  documenting nothing — somebody presses it and lands where they were told
+   *  the feature no longer is. */
+  hidden: Set<string>;
+}) {
+  const bound = PALETTE_ACTIONS.filter((a) => a.hint && !isHrefHidden(a.href, hidden));
   return (
     <div
       className="fixed inset-0 z-[70] grid place-items-center bg-black/55 p-4"
