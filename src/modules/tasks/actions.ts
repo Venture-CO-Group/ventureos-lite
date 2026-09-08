@@ -19,6 +19,19 @@ export interface TaskView extends TaskLike {
   /** Resolved label for whatever the task hangs off, for the list view. */
   entityLabel: string | null;
   entityHref: string | null;
+  /**
+   * The board this task lives on, and a link to it (P8/4).
+   *
+   * The dashboard panel and the task board were built separately and read the
+   * same rows, which meant the dashboard could show you a task with no way to
+   * reach the board it belongs to — the card, its subtasks, its comments, its
+   * dependencies. A task you can tick but not open is half a task.
+   */
+  boardId: string | null;
+  boardName: string | null;
+  boardHref: string | null;
+  /** How many unfinished things it is waiting on. Zero means startable. */
+  blockedBy: number;
 }
 
 const createSchema = z.object({
@@ -134,6 +147,8 @@ async function decorate(
     entityId: string | null;
     assigneeId: string | null;
     source: string | null;
+    boardId?: string | null;
+    board?: { name: string; isTemplate: boolean } | null;
   }>,
 ): Promise<TaskView[]> {
   const leadIds = rows.filter((r) => r.entityType === "lead" && r.entityId).map((r) => r.entityId!);
@@ -161,7 +176,36 @@ async function decorate(
   );
   const companyLabel = new Map(companies.map((c) => [c.id, c.name]));
 
+  /**
+   * What each of these is waiting on (P8/4).
+   *
+   * The board knows about dependencies and the dashboard did not, so a task
+   * blocked on somebody else's work sat at the top of the morning list looking
+   * like the next thing to pick up. One query for the whole page rather than
+   * one per row.
+   */
+  const deps = rows.length
+    ? await db.taskDependency.findMany({
+        where: { taskId: { in: rows.map((r) => r.id) } },
+        select: { taskId: true, blockedById: true },
+      })
+    : [];
+  const blockerIds = [...new Set(deps.map((d) => d.blockedById))];
+  const blockers = blockerIds.length
+    ? await db.task.findMany({
+        where: { id: { in: blockerIds } },
+        select: { id: true, doneAt: true },
+      })
+    : [];
+  const open = new Set(blockers.filter((b) => !b.doneAt).map((b) => b.id));
+  const blockedCount = new Map<string, number>();
+  for (const d of deps) {
+    if (!open.has(d.blockedById)) continue;
+    blockedCount.set(d.taskId, (blockedCount.get(d.taskId) ?? 0) + 1);
+  }
+
   return rows.map((r) => {
+    const boardId = r.boardId ?? null;
     let entityLabel: string | null = null;
     let entityHref: string | null = null;
     if (r.entityType === "lead" && r.entityId) {
@@ -174,7 +218,17 @@ async function decorate(
       entityLabel = "document";
       entityHref = `/documents?doc=${r.entityId}`;
     }
-    return { ...r, entityLabel, entityHref };
+    return {
+      ...r,
+      entityLabel,
+      entityHref,
+      boardId,
+      boardName: r.board?.name ?? null,
+      // Deep link to the card on its board, so the dashboard is a way IN to
+      // the board rather than a parallel list of the same work.
+      boardHref: boardId ? `/tasks?board=${boardId}&task=${r.id}` : null,
+      blockedBy: blockedCount.get(r.id) ?? 0,
+    };
   });
 }
 
@@ -190,9 +244,25 @@ export async function myTasks(): Promise<GroupedTasks<TaskView>> {
       // show the same work twice and let an unassigned step of somebody else's
       // task land on everybody's dashboard (P8/1).
       parentId: null,
-      // Unassigned tasks show up for everyone: an owner nobody set is not a
-      // reason for work to disappear.
-      OR: [{ assigneeId: userId }, { assigneeId: null }],
+      /**
+       * Not a template's tasks (P8/4).
+       *
+       * ── A REAL LEAK, MEASURED ──────────────────────────────────────────
+       *
+       * "Save this board as a template" keeps the board and its tasks and
+       * flips `isTemplate`. Those tasks are open and top-level, so this query
+       * matched them — and because a template's tasks are deliberately
+       * unassigned, the `assigneeId: null` branch put them on EVERYBODY's
+       * dashboard. Probed against the live database before fixing: one
+       * template task, one dashboard leak.
+       *
+       * The board hides templates from its own switcher and always did. The
+       * dashboard was written first and never learned about them, which is
+       * exactly the class of bug that comes from two surfaces reading one
+       * table without one of them knowing the other's rules.
+       */
+      OR: [{ boardId: null }, { board: { isTemplate: false } }],
+      AND: [{ OR: [{ assigneeId: userId }, { assigneeId: null }] }],
     },
     orderBy: { dueAt: "asc" },
     // Bounded: this renders a panel, and nobody reads two hundred tasks in one.
@@ -210,6 +280,8 @@ export async function myTasks(): Promise<GroupedTasks<TaskView>> {
       entityId: true,
       assigneeId: true,
       source: true,
+      boardId: true,
+      board: { select: { name: true, isTemplate: true } },
     },
   });
 

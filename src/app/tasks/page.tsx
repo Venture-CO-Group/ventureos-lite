@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 export default async function TasksPage({
   searchParams,
 }: {
-  searchParams: Promise<{ board?: string }>;
+  searchParams: Promise<{ board?: string; task?: string }>;
 }) {
   const params = await searchParams;
   const { userId } = await getActiveContext();
@@ -53,6 +53,17 @@ export default async function TasksPage({
         initialBoard={initialBoard}
         members={members}
         currentUserId={userId}
+        /**
+         * Open a specific card (P8/4).
+         *
+         * `?task=` was already the link the notification system produced —
+         * `notifyTaskAudience` has been sending `/tasks?board=X&task=Y` since
+         * task assignment shipped — and the page ignored it, so every "somebody
+         * put a task on you" notification landed on a board and left the person
+         * to find the card. The dashboard now produces the same link, and it
+         * works.
+         */
+        openTask={params.task ?? null}
       />
     </AppShell>
   );

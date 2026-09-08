@@ -73,6 +73,37 @@ function TaskRow({
               {task.entityLabel}
             </a>
           )}
+          {/*
+            The board it lives on, and a way to it (P8/4).
+
+            This panel and the task board read the same rows and, until now,
+            never mentioned each other — so the dashboard could show you a task
+            with no route to the card, its subtasks, its comments or its
+            dependencies. A task you can tick but not open is half a task.
+          */}
+          {task.boardName && task.boardHref && (
+            <a
+              href={task.boardHref}
+              data-testid={`task-board-link-${task.id}`}
+              className="truncate rounded-full border border-line px-1.5 hover:border-accent hover:text-ink"
+            >
+              {task.boardName}
+            </a>
+          )}
+          {/*
+            Waiting on something else. The board knew this and the dashboard
+            did not, so a blocked task sat at the top of the morning list
+            looking like the next thing to pick up.
+          */}
+          {task.blockedBy > 0 && (
+            <span
+              data-testid={`task-blocked-${task.id}`}
+              title="Waiting on work that is not finished yet"
+              className="rounded-full bg-[rgba(245,184,65,0.15)] px-1.5 text-[#FFD79A]"
+            >
+              waiting on {task.blockedBy}
+            </span>
+          )}
           {/* Where a task came from, so a person's own list is legible: "why is
               this here" should never need asking. */}
           {task.source && <span className="opacity-70">· auto</span>}
@@ -232,9 +263,11 @@ export function TasksPanel({ initial }: { initial: TaskView[] }) {
   const grouped = groupTasks(tasks);
 
   return (
-    <div className="rounded-card border border-line bg-panel p-[18px]">
+    <div className="rounded-card border border-line bg-panel p-[18px]" data-testid="tasks-panel">
       <div className="mb-2 flex flex-wrap items-baseline gap-2">
-        <h2 className="font-display text-[15px] font-bold lowercase tracking-display">tasks</h2>
+        <h2 className="font-display text-[15px] font-bold lowercase tracking-display">
+          your work
+        </h2>
         {grouped.counts.overdue > 0 && (
           <span className="rounded-full bg-[rgba(255,92,122,0.15)] px-2 py-0.5 text-[11px] font-semibold text-[#FF5C7A]">
             {grouped.counts.overdue} overdue
@@ -243,6 +276,21 @@ export function TasksPanel({ initial }: { initial: TaskView[] }) {
         <span className="ml-auto text-[11px] text-muted">
           {grouped.counts.today} today · {grouped.counts.open} open
         </span>
+        {/*
+          The way through to the boards (P8/4).
+
+          This panel and the task board are the same rows, and the dashboard
+          never said so — there was no route from the morning list to the place
+          the work is organised. It is the one link somebody wants from here
+          after they have read the list.
+        */}
+        <a
+          href="/tasks"
+          data-testid="tasks-panel-boards"
+          className="rounded-[8px] border border-line px-2 py-0.5 text-[11px] font-semibold text-muted hover:border-accent hover:text-ink"
+        >
+          All boards →
+        </a>
       </div>
 
       {error && (

@@ -217,11 +217,14 @@ export function TaskBoards({
   initialBoard,
   members,
   currentUserId,
+  openTask = null,
 }: {
   boards: BoardSummary[];
   initialBoard: BoardView | null;
   members: WorkspaceMemberOption[];
   currentUserId: string;
+  /** A card to open on arrival, from `?task=` (P8/4). */
+  openTask?: string | null;
 }) {
   const router = useRouter();
   const { offerUndo } = useUndo();
@@ -243,7 +246,14 @@ export function TaskBoards({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  /**
+   * The open card.
+   *
+   * Seeded from `?task=` so a deep link works. Only the initial value: after
+   * that the URL is not the authority, or closing the drawer would fight the
+   * query string and re-open it.
+   */
+  const [openTaskId, setOpenTaskId] = useState<string | null>(openTask);
   const [newBoardOpen, setNewBoardOpen] = useState(false);
 
   const dragged = useRef<string | null>(null);
