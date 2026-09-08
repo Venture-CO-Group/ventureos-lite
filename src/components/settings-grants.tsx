@@ -69,12 +69,26 @@ export function SettingsGrants({
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Why, optionally (§6).
+   *
+   * One field for the panel rather than a prompt per toggle: setting a
+   * workspace up means flipping a dozen of these, and a modal on each is a
+   * modal somebody dismisses without reading. Whatever is typed here rides
+   * along with every change until it is cleared, and lands in the audit trail
+   * and on the person's own timeline.
+   *
+   * Optional on purpose. A mandatory field on something done twenty times gets
+   * filled with "x", and a trail of "x" is worse than a trail of blanks —
+   * it looks like a reason.
+   */
+  const [reason, setReason] = useState("");
 
   async function toggle(userId: string, grant: string, enabled: boolean) {
     setBusy(`${userId}:${grant}`);
     setError(null);
     try {
-      await setGrant({ userId, grant, enabled });
+      await setGrant({ userId, grant, enabled, reason: reason.trim() || undefined });
       router.refresh();
     } catch (e) {
       setError(serverActionError(e));
@@ -95,6 +109,25 @@ export function SettingsGrants({
         already carries. Each change is written to the audit log —{" "}
         <span className="text-accent-ink">logged</span>.
       </p>
+      {isOwner && (
+        <label className="mb-4 grid max-w-[520px] gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+            Why (optional) — rides along with every change below
+          </span>
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Covering for Anna while she is on leave"
+            data-testid="grant-reason"
+            className="rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2.5 py-1.5 text-[12.5px] text-ink outline-none focus:border-accent"
+          />
+          <span className="text-[11px] leading-relaxed text-muted">
+            Goes into the audit log and onto that person&apos;s own timeline, so
+            six months later the answer to “why can they do this” is on the
+            screen rather than in somebody&apos;s memory.
+          </span>
+        </label>
+      )}
       {!isOwner && (
         <div className="mb-3 rounded-[10px] border border-line bg-panel px-3.5 py-2.5 text-[12.5px] text-warn">
           Read-only — only the workspace Owner can change grants.

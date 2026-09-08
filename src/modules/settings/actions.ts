@@ -6,6 +6,7 @@ import { prismaUnsafe, getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
 import { requireOwner } from "@/lib/authz";
 import { GRANTS, denyToken, grantIsImplicit } from "@/lib/grants";
+import { recordMemberEvent } from "@/modules/members/timeline";
 
 export interface Member {
   userId: string;
@@ -35,6 +36,16 @@ const setSchema = z.object({
   userId: z.string().min(1),
   grant: z.string().min(1),
   enabled: z.boolean(),
+  /**
+   * Why, optionally (§6).
+   *
+   * Optional on purpose. A mandatory field on an action somebody takes twenty
+   * times while setting up a workspace is a field that gets filled with "x",
+   * and a trail of "x" is worse than a trail of blanks — it looks like a
+   * reason. The three actions where it IS mandatory are listed in
+   * `members/events.ts`, and a capability change is not one of them.
+   */
+  reason: z.string().trim().max(500).optional(),
 });
 
 /** Grant changes are Owner-only and audit-logged (CLAUDE.md hard rules #7, #8). */
@@ -84,10 +95,35 @@ export async function setGrant(raw: unknown): Promise<{ ok: true }> {
       action: "grant.change",
       entityType: "Membership",
       entityId: m.id,
-      meta: { userId: input.userId, grant: input.grant, enabled: input.enabled },
+      meta: {
+        userId: input.userId,
+        grant: input.grant,
+        enabled: input.enabled,
+        ...(input.reason ? { reason: input.reason } : {}),
+      },
     },
   });
 
+  /**
+   * And on the person's own timeline (§1, §6).
+   *
+   * The audit log answers "what happened in this workspace"; the timeline
+   * answers "what happened to me", which is the question asked when somebody
+   * says "I used to be able to do that". Before this, a capability change was
+   * only in the log — filtered, paged, and Owner-gated — so the answer existed
+   * but nobody could find it.
+   */
+  await recordMemberEvent({
+    workspaceId,
+    userId: input.userId,
+    actorUserId: actorId,
+    kind: input.enabled ? "grant_added" : "grant_removed",
+    reason: input.reason ?? null,
+    before: { grants: Array.isArray(m.grants) ? m.grants : [] },
+    after: { grants: next, grant: input.grant },
+  });
+
   revalidatePath("/settings");
+  revalidatePath("/settings/admin/members");
   return { ok: true };
 }
