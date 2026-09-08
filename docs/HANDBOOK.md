@@ -156,6 +156,110 @@ the server — that is not a support process, it is an outage.
 
 Both are audit-logged with who did it, to whom, and when.
 
+### 1.5 The member lifecycle, and how somebody leaves
+
+A membership has four states, and the difference between the last two is
+the one that matters:
+
+| State | Can sign in | Can be assigned | Owns their records |
+|---|---|---|---|
+| **Invited** | no | no | — |
+| **Active** | yes | yes | yes |
+| **Suspended** | no | no | **yes** |
+| **Removed** | no | no | reassigned on the way out |
+
+**Suspend** is almost always the right answer. It signs them out at once,
+takes them out of every assignee picker, and leaves everything they own
+theirs and still attributed. Reinstating gives back **exactly** the role and
+capabilities they had — stored on suspension, not recomputed, so an explicit
+grant is not silently lost.
+
+**Remove** is a four-step flow, not a button:
+
+1. **The impact report** — how many leads, open deals, open tasks, upcoming
+   meetings, booking pages, saved views and unpublished posts they hold. A
+   dialog asking "are you sure" asks a question you cannot answer without
+   this.
+2. **Where it goes** — a person or a team per category, or one target for
+   all. Open deals and open tasks *cannot* be left unassigned: an unowned
+   open deal is money nobody is chasing, and an unassigned open task is work
+   that has quietly become nobody's.
+3. **Their mailbox and calendar** — disconnected. Threads already filed
+   against a lead **stay**: they are correspondence with a client.
+4. **Type their name.** Checked on the server too.
+
+Then it runs in one transaction. If any part fails, nothing changes — a
+half-applied removal is the worst outcome available.
+
+**What removal does not do** is erase their footprint. Their name stays on
+everything they created, `who logged this call` stays, and the membership row
+survives so the audit trail still reads. Removal ends access; it does not
+rewrite what somebody did.
+
+**Deleting an account entirely** is only possible once they are in no
+workspace at all, and waits 30 days before anything is erased — restorable
+until then.
+
+**Transferring ownership** asks for your password and your six-digit code. A
+session is not proof enough for something irreversible; a borrowed laptop is
+a session. The last Owner cannot suspend, remove or demote themselves — a
+workspace with no Owner cannot restore itself, and recovering one needs
+shell access to the server.
+
+### 1.5b Inviting people
+
+*Settings → admin → members & teams → invitations.* One person, or paste a
+spreadsheet column — every row is reported back, sent or skipped with the
+reason.
+
+The invitee sets their own password and **registers an authenticator before
+their first sign-in**. That is not optional: 2FA offered later is 2FA half a
+team never turns on.
+
+Invitations last 7 days, can be resent (a new token each time — the old one
+dies), and can be revoked. The list shows pending, expired and revoked with
+the resend count, because five invitations nobody has accepted is a
+conversation to have rather than a button to keep pressing.
+
+### 1.5c Teams
+
+*Settings → admin → members & teams → teams.* Name, colour, members, a lead.
+
+**Teams carry no permissions.** What somebody may do stays their role and
+their capabilities — so there is only ever one answer to "why can Anna do
+that". What a team gives you is an assignment target, a filter, a grouping
+for analytics, an escalation route, and a page showing who is on it and how
+loaded each of them is.
+
+Deleting a team is refused while anybody is on it; archive it instead.
+
+### 1.5d The access review
+
+*Settings → admin → members & teams → access review.* The three lists an
+auditor asks for: who has not signed in for 60 days, who holds the
+capabilities that bind the company, and which invitations have been out
+longer than their window.
+
+They are findings, not failures — somebody dormant may be on leave.
+
+**Exporting a member's data** gives what the system holds about them *as a
+person*: profile, memberships, sign-in history, their timeline, notification
+settings, teams. It deliberately does **not** include the leads they worked.
+Those are somebody else's personal data, and handing an employee a file of
+four hundred prospects' details because they asked what we hold about them
+would be a breach dressed as a subject-access response. Every export is
+audit-logged.
+
+> **Employee data is not prospect data.** A lead is held for a commercial
+> purpose, under legitimate interest, with a retention window and an erasure
+> right that cascades. An employee is held because they work here — a
+> different basis, a longer retention (employment records outlive an
+> engagement), and a different erasure story: their *authorship* of work
+> records is the company's record of what happened, not their personal data
+> to erase. That is why removal keeps "created by".
+
+---
+
 ### 1.6 Client access (read-only)
 
 A client who can see their own project and their own documents — and nothing

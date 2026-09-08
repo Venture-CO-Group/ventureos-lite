@@ -4,6 +4,7 @@ import { SettingsInvitations } from "@/components/settings-invitations";
 import { SettingsGrants } from "@/components/settings-grants";
 import { SettingsTeams } from "@/components/settings-teams";
 import { SettingsPermissions } from "@/components/settings-permissions";
+import { SettingsAccessReview } from "@/components/settings-access-review";
 import { requireSuperAdminPage } from "../gate";
 import { listWorkspaceUsers, listClientCompanies } from "@/modules/users/actions";
 import { listMembers } from "@/modules/settings/actions";
@@ -70,6 +71,7 @@ export default async function AdminMembersPage() {
             .map((u) => ({ id: u.userId, name: u.name, email: u.email }))}
         />
       )}
+      {owner && <SettingsAccessReview />}
       <SettingsPermissions />
       <SettingsGrants members={members} isOwner={owner} />
     </SettingsShell>
