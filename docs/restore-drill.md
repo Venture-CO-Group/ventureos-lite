@@ -149,4 +149,4 @@ nem tudja bizonyítani, hogy megtörtént.
 
 | Dátum | Ki | A dump | Eredmény | Megjegyzés |
 |---|---|---|---|---|
-| 2026-09-08 | — | *az első futás még hátravan* | — | A szkript elkészült; a szerveren kell elsőként lefuttatni. |
+| 2026-09-08 11:33 UTC | Claude (deploy) | `db-20260908-112927.dump` (540K, 0 nap) | ✅ **átment** | Az első valódi próba ezen a szerveren. 83 tábla, 1 workspace, 3 user, 149 cég, 139 lead, 79 RLS policy, 82 fájl az archívumban. A migrációs történet 55-nél állt (`…_membership_suspension`), mert a mentés a deploy **előtt** készült — pontosan így helyes. Következő: 2026-12-01. |
