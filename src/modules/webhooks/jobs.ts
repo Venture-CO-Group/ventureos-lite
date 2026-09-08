@@ -37,6 +37,29 @@ export const CIRCUIT_BREAKER_FAILURES = 20;
 const TIMEOUT_MS = 10_000;
 const BATCH = 25;
 
+/**
+ * How long one sweep may take, and how many endpoints it talks to at once.
+ *
+ * ── WHY THIS IS NOT LEFT TO RUN AS LONG AS IT LIKES ─────────────────────────
+ *
+ * The sweep rides the shared wake-ups queue, whose BullMQ worker has a
+ * concurrency of one. Twenty-five deliveries at a ten-second timeout each is
+ * over four minutes of wall clock — on a job scheduled every minute. A sweep
+ * that overruns its own cadence does not just fall behind: it holds the queue's
+ * only slot and starves the Monday digest, the anonymisation sweep, the audit
+ * watch and the scheduled exports, which all live on the same queue. The
+ * symptom would be "the digest stopped arriving", days later, with nothing in
+ * the webhook panel to suggest why.
+ *
+ * So two bounds. Endpoints are talked to in PARALLEL, because they are
+ * independent and one slow receiver should not delay another's event — but
+ * grouped by endpoint, so two deliveries to the same webhook stay in order and
+ * cannot race each other's `failureCount`. And the whole sweep stops at a
+ * deadline, leaving whatever is left for the next minute.
+ */
+const SWEEP_DEADLINE_MS = 45_000;
+const PARALLEL_ENDPOINTS = 5;
+
 export function backoffFor(attempts: number): number {
   const idx = Math.min(attempts - 1, BACKOFF_MINUTES.length - 1);
   return BACKOFF_MINUTES[Math.max(0, idx)]!;
@@ -111,8 +134,80 @@ export async function processWebhookDeliveries(
     },
   });
 
-  let delivered = 0;
+  /**
+   * Grouped by endpoint, then the groups run in parallel.
+   *
+   * Within one endpoint the rows stay serial: they share a `failureCount` and a
+   * circuit breaker, and two parallel failures would each read the same stale
+   * count and write the same number back — so the breaker would need forty
+   * failures to trip instead of twenty.
+   */
+  const byHook = new Map<string, typeof due>();
   for (const row of due) {
+    const list = byHook.get(row.webhookId) ?? [];
+    list.push(row);
+    byHook.set(row.webhookId, list);
+  }
+  const groups = [...byHook.values()];
+  const startedAt = Date.now();
+
+  let delivered = 0;
+  const runGroup = async (rows: typeof due) => {
+    /**
+     * The consecutive-failure count is carried through the group, not re-read
+     * from the row.
+     *
+     * Every row in this batch was selected in one query, so they all carry the
+     * SAME `failureCount` — the value as it was before the sweep started. Two
+     * failures to one endpoint in one sweep would each write `count + 1` and
+     * the second would land on the same number as the first, so the breaker
+     * would need forty failures to trip instead of twenty.
+     */
+    let failures = rows[0]!.webhook.failureCount;
+    for (const row of rows) {
+      // Whatever is left is due already and gets picked up next minute.
+      if (Date.now() - startedAt > SWEEP_DEADLINE_MS) return;
+      const res = await deliverOne(row, now, failures);
+      failures = res.failureCount;
+      delivered += res.delivered;
+    }
+  };
+  for (let i = 0; i < groups.length; i += PARALLEL_ENDPOINTS) {
+    if (Date.now() - startedAt > SWEEP_DEADLINE_MS) break;
+    await Promise.all(groups.slice(i, i + PARALLEL_ENDPOINTS).map(runGroup));
+  }
+  return delivered;
+}
+
+/** One queued delivery, with the endpoint it belongs to. */
+interface DueDelivery {
+  id: string;
+  event: string;
+  payload: unknown;
+  attempts: number;
+  webhook: {
+    id: string;
+    url: string;
+    secret: string;
+    enabled: boolean;
+    failureCount: number;
+  };
+}
+
+/**
+ * One attempt at one delivery.
+ *
+ * @param failuresBefore the endpoint's consecutive-failure count as this sweep
+ *   understands it — carried by the caller rather than read off the row, which
+ *   holds a value that may already be several failures out of date.
+ * @returns whether it arrived, and the endpoint's failure count afterwards.
+ */
+async function deliverOne(
+  row: DueDelivery,
+  now: Date,
+  failuresBefore: number,
+): Promise<{ delivered: number; failureCount: number }> {
+  {
     const hook = row.webhook;
     if (!hook.enabled) {
       // Switched off after the row was queued. Dropped rather than failed: the
@@ -121,7 +216,8 @@ export async function processWebhookDeliveries(
         where: { id: row.id },
         data: { status: "dropped", error: "A webhook ki van kapcsolva.", nextAttemptAt: null },
       });
-      continue;
+      // Not a failure of the endpoint: we chose not to send.
+      return { delivered: 0, failureCount: failuresBefore };
     }
 
     const attempts = row.attempts + 1;
@@ -141,8 +237,8 @@ export async function processWebhookDeliveries(
               nextAttemptAt: new Date(now.getTime() + backoffFor(attempts) * 60_000),
             },
       });
-      await noteFailure(hook.id, hook.failureCount + 1, null, now, refusal.reason);
-      continue;
+      await noteFailure(hook.id, failuresBefore + 1, null, now, refusal.reason);
+      return { delivered: 0, failureCount: failuresBefore + 1 };
     }
 
     let status: number | null = null;
@@ -173,7 +269,6 @@ export async function processWebhookDeliveries(
     }
 
     if (!error) {
-      delivered += 1;
       await prismaUnsafe.webhookDelivery.update({
         where: { id: row.id },
         data: {
@@ -196,7 +291,7 @@ export async function processWebhookDeliveries(
           lastSuccessAt: now,
         },
       });
-      continue;
+      return { delivered: 1, failureCount: 0 };
     }
 
     /**
@@ -222,9 +317,9 @@ export async function processWebhookDeliveries(
               nextAttemptAt: new Date(now.getTime() + backoffFor(attempts) * 60_000),
             },
     });
-    await noteFailure(hook.id, hook.failureCount + 1, status, now, error);
+    await noteFailure(hook.id, failuresBefore + 1, status, now, error);
+    return { delivered: 0, failureCount: failuresBefore + 1 };
   }
-  return delivered;
 }
 
 async function noteFailure(

@@ -255,6 +255,58 @@ describe("delivering, and failing to", () => {
   });
 });
 
+describe("bounding the sweep", () => {
+  it("counts consecutive failures across the whole sweep, not per selected row", async () => {
+    /**
+     * Every row in a batch is selected by ONE query, so they all carry the same
+     * `failureCount` — the value as it was before the sweep began. Reading it
+     * off the row meant two failures to one endpoint in one sweep both wrote
+     * the same number, and the circuit breaker would have needed forty
+     * failures to trip instead of twenty.
+     */
+    const id = await makeHook(["lead.created"], {
+      failureCount: CIRCUIT_BREAKER_FAILURES - 2,
+    });
+    await emitWebhookEvent(workspaceId, "lead.created", { n: 1 });
+    await emitWebhookEvent(workspaceId, "lead.created", { n: 2 });
+
+    await processWebhookDeliveries(new Date());
+
+    const hook = await prismaUnsafe.webhook.findUnique({ where: { id } });
+    // Two failures, two increments — and that is exactly the twentieth.
+    expect(hook!.failureCount).toBe(CIRCUIT_BREAKER_FAILURES);
+    expect(hook!.enabled).toBe(false);
+  });
+
+  it("keeps the endpoint's own deliveries in order", async () => {
+    const id = await makeHook(["lead.created"]);
+    await emitWebhookEvent(workspaceId, "lead.created", { n: 1 });
+    await emitWebhookEvent(workspaceId, "lead.created", { n: 2 });
+    await processWebhookDeliveries(new Date());
+    // Both attempted once. Parallelism is BETWEEN endpoints, never within one.
+    const rows = await prismaUnsafe.webhookDelivery.findMany({ where: { webhookId: id } });
+    expect(rows).toHaveLength(2);
+    for (const r of rows) expect(r.attempts).toBe(1);
+  });
+
+  it("talks to several endpoints in one sweep", async () => {
+    // The sweep rides a queue whose worker has a concurrency of one, so a
+    // serial sweep of twenty-five ten-second timeouts would starve every other
+    // scheduled job on it — the Monday digest included.
+    const ids = [
+      await makeHook(["lead.created"]),
+      await makeHook(["lead.created"]),
+      await makeHook(["lead.created"]),
+    ];
+    await emitWebhookEvent(workspaceId, "lead.created", {});
+    await processWebhookDeliveries(new Date());
+    for (const id of ids) {
+      const row = await prismaUnsafe.webhookDelivery.findFirst({ where: { webhookId: id } });
+      expect(row!.attempts, id).toBe(1);
+    }
+  });
+});
+
 describe("the delivery log expires", () => {
   it("removes old delivered rows and keeps failures much longer", async () => {
     const id = await makeHook(["lead.created"]);
