@@ -517,6 +517,33 @@ Mentés: `Ctrl+O`, `Enter`, `Ctrl+X`. Ellenőrzés: `crontab -l`.
 > a részletek a [`docs/backup-erasure-policy.md`](backup-erasure-policy.md)
 > fájlban.
 
+### És negyedévente egy visszaállítási próba
+
+A mentés akkor mentés, ha egyszer már visszaállt belőle valami. Egy
+kipróbálatlan mentés csak egy jó méretű fájl a jó helyen — és a kettő
+pontosan addig érződik ugyanannak, amíg el nem jön az a reggel, amikor
+kiderül.
+
+```bash
+cd /opt/ventureos-lite
+./scripts/restore-drill.sh
+```
+
+A szkript a legfrissebb dumpot betölti egy **külön, eldobható** adatbázisba az
+élő mellé, kérdéseket tesz fel neki (visszajött-e a séma, van-e workspace és
+user, mennyire friss a *tartalom*, megvannak-e az RLS policy-k), majd eldobja.
+Az élő adatbázishoz nem ér hozzá, és mentési fájlt nem töröl. Nyolc-tíz perc.
+
+Negyedévente, cronból:
+
+```
+0 4 1 */3 * cd /opt/ventureos-lite && ./scripts/restore-drill.sh >> /var/log/ventureos-drill.log 2>&1
+```
+
+A hibák jelentése, és a **valódi** visszaállítás rendje — beleértve azt, hogy
+az élő adatbázist átnevezni kell, nem eldobni —
+a [`docs/restore-drill.md`](restore-drill.md) fájlban van.
+
 ---
 
 ## 9. lépés — Frissítés későbbi verzióra
