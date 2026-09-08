@@ -212,3 +212,76 @@ export async function createLeadFromAudit(
   revalidatePath("/leads");
   return { ok: true, leadId: lead.id };
 }
+
+
+/**
+ * The two screenshots either side of a re-audit (P1/1.2).
+ *
+ * ── WHY THIS IS WORTH A SCREEN ──────────────────────────────────────────────
+ *
+ * Every audit already stores a desktop and a mobile capture, and the delta
+ * already knows which audit this one is compared against. The two pictures
+ * side by side — "this was July, this is now" — is the most persuasive thing
+ * the module can produce, and it needs no new data at all: only a view.
+ *
+ * Returns null when there is nothing honest to show: a first audit has no
+ * previous run, and a previous run whose captures failed has no picture. An
+ * empty box beside a real screenshot reads as "your site broke", which is a
+ * claim we would be inventing.
+ */
+export interface ScreenshotComparison {
+  previousAuditId: string;
+  previousAt: string;
+  currentAt: string;
+  scoreFrom: number;
+  scoreTo: number;
+  before: { desktop?: string; mobile?: string };
+  after: { desktop?: string; mobile?: string };
+}
+
+export async function getScreenshotComparison(
+  auditId: string,
+): Promise<ScreenshotComparison | null> {
+  const { workspaceId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+
+  const current = await db.auditResult.findUnique({
+    where: { id: auditId },
+    select: { id: true, createdAt: true, score: true, screenshots: true, delta: true },
+  });
+  if (!current) return null;
+
+  const delta =
+    current.delta && typeof current.delta === "object" && !Array.isArray(current.delta)
+      ? (current.delta as { previousAuditId?: string; scoreFrom?: number })
+      : null;
+  if (!delta?.previousAuditId) return null;
+
+  const previous = await db.auditResult.findUnique({
+    where: { id: delta.previousAuditId },
+    select: { id: true, createdAt: true, score: true, screenshots: true },
+  });
+  if (!previous) return null;
+
+  const shots = (v: unknown): { desktop?: string; mobile?: string } =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? (v as { desktop?: string; mobile?: string })
+      : {};
+
+  const before = shots(previous.screenshots);
+  const after = shots(current.screenshots);
+  // At least one pairing has to exist, or there is nothing to compare.
+  const comparable =
+    (before.desktop && after.desktop) || (before.mobile && after.mobile);
+  if (!comparable) return null;
+
+  return {
+    previousAuditId: previous.id,
+    previousAt: previous.createdAt.toISOString(),
+    currentAt: current.createdAt.toISOString(),
+    scoreFrom: previous.score,
+    scoreTo: current.score,
+    before,
+    after,
+  };
+}

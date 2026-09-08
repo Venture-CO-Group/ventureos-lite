@@ -11,6 +11,7 @@ import { FieldData } from "./field-data";
 import { ComparisonPanel } from "./comparison-panel";
 import { PriorityMatrixPanel } from "./priority-matrix";
 import { TrendStrip } from "./trend-strip";
+import { ScreenshotCompare } from "./screenshot-compare";
 import {
   startAudit,
   getAudit,
@@ -520,6 +521,10 @@ export function AuditRunner({
             )}
 
             <TrendStrip delta={view.delta} />
+
+            {/* Renders itself away when there is no previous run to compare
+                against, so it costs nothing on a first audit. */}
+            {view.status === "done" && <ScreenshotCompare auditId={view.id} />}
 
             {view.status === "done" && <PriorityMatrixPanel auditId={view.id} />}
 
