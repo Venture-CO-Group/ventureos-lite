@@ -93,7 +93,17 @@ test("a board can be created, filled, and worked", async ({ page }) => {
   // ---- a comment ---------------------------------------------------------
   await page.getByTestId("comment-input").fill("Photographer is booked for the 12th.");
   await page.getByTestId("comment-submit").click();
-  await expect(page.getByTestId("comment-row")).toHaveCount(1);
+  /**
+   * A longer budget than the 5s default, on purpose.
+   *
+   * Posting a comment is the heaviest write on this screen: it resolves the
+   * workspace's members to find @mentions, upserts a follower row per person
+   * named, delivers a notification to everybody following the task, and only
+   * then reloads. Under a full-suite dev server that can pass five seconds,
+   * and a timeout there would accuse the feature of losing comments it had
+   * in fact saved.
+   */
+  await expect(page.getByTestId("comment-row")).toHaveCount(1, { timeout: 20_000 });
 
   await page.getByRole("button", { name: "Done" }).last().click();
   await expect(page.getByTestId("detail-title")).toHaveCount(0);
