@@ -124,17 +124,45 @@ test("a board can be created, filled, and worked", async ({ page }) => {
   await expect(page.getByTestId("board-progress")).toContainText("1/2");
 });
 
+const MOVE_BOARD = "E2E Move Board";
+
 test("a task moved between columns stays there", async ({ page }) => {
-  const board = await prisma.taskBoard.findFirst({ where: { name: BOARD } });
+  /**
+   * Builds its own board rather than reusing the one the test above makes.
+   *
+   * Sharing state across tests in a file looks tidy until the first test goes
+   * flaky: this one then fails on a null board and reports a drag-and-drop
+   * defect that does not exist. A test that only passes when another test
+   * passed first is not testing what its name says.
+   */
+  const ws = await prisma.workspace.findFirst({ orderBy: { createdAt: "asc" } });
+  const board = await prisma.taskBoard.create({
+    data: {
+      workspaceId: ws!.id,
+      name: MOVE_BOARD,
+      sections: {
+        create: [
+          { workspaceId: ws!.id, name: "To do", position: 1024 },
+          { workspaceId: ws!.id, name: "In progress", position: 2048 },
+        ],
+      },
+    },
+  });
   const sections = await prisma.taskSection.findMany({
-    where: { boardId: board!.id },
+    where: { boardId: board.id },
     orderBy: { position: "asc" },
   });
-  const task = await prisma.task.findFirst({
-    where: { boardId: board!.id, title: "Book the photographer" },
+  const task = await prisma.task.create({
+    data: {
+      workspaceId: ws!.id,
+      boardId: board.id,
+      sectionId: sections[0]!.id,
+      title: "Book the photographer",
+      position: 1024,
+    },
   });
 
-  await page.goto(`/tasks?board=${board!.id}`);
+  await page.goto(`/tasks?board=${board.id}`);
   const from = page.getByTestId("board-column").nth(0);
   const to = page.getByTestId("board-column").nth(1);
   await expect(from.getByTestId("task-card")).toHaveCount(1);
@@ -143,7 +171,7 @@ test("a task moved between columns stays there", async ({ page }) => {
   await from.getByTestId("task-card").first().dragTo(to);
   await page.waitForTimeout(1500);
 
-  const after = await prisma.task.findUnique({ where: { id: task!.id } });
+  const after = await prisma.task.findUnique({ where: { id: task.id } });
   expect(after?.sectionId).toBe(sections[1]!.id);
   await expect(to.getByTestId("task-card")).toHaveCount(1);
 });
