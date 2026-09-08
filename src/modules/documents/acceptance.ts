@@ -17,6 +17,7 @@ import { computeLineTotal, formatHuf, type QuoteItem } from "./quote-math";
 import { getAcceptanceProvider } from "./acceptance-provider";
 import { notifyQuoteAccepted } from "../notifications/notify";
 import { onQuoteAccepted } from "../workflow/triggers";
+import { emitWebhookEvent } from "../webhooks/emit";
 import { brandFrom, type WorkspaceBrand } from "@/modules/workspaces/brand";
 
 export interface PublicQuote {
@@ -237,6 +238,15 @@ export async function acceptQuote(
   // Workflow rules (P7/5). Best-effort, and after the acceptance is recorded:
   // an automation must never be the reason a client's assent fails to save.
   await onQuoteAccepted(doc.workspaceId, doc.leadId);
+  // Outbound (P5/5.2). Same reasoning as the line above, and the same order:
+  // the assent is saved before anybody else is told about it.
+  await emitWebhookEvent(doc.workspaceId, "document.accepted", {
+    documentId: doc.id,
+    leadId: doc.leadId,
+    acceptedByName: input.name,
+    company: input.company,
+    method: outcome.method,
+  });
 
   revalidatePath("/documents");
   revalidatePath("/pipeline");

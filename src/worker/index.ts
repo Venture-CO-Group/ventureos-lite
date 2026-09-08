@@ -29,6 +29,10 @@ import { processPublicAuditReport } from "../modules/public-audit/report-job";
 import { processLeadsPdf } from "../modules/leads/export-job";
 import { processScheduledExports } from "../modules/leads/schedule-job";
 import { processAuditLogRetention } from "../modules/auditlog/jobs";
+import {
+  processWebhookDeliveries,
+  processWebhookLogRetention,
+} from "../modules/webhooks/jobs";
 import { processMeetingBrief } from "../modules/meetings/jobs";
 import { processQuarterlyWinLoss } from "../modules/analytics/digest";
 import { processWeeklyReports } from "../modules/analytics/report-job";
@@ -296,6 +300,14 @@ async function main(): Promise<void> {
         const n = await processAuditWatchSweep();
         // eslint-disable-next-line no-console
         console.log(`[worker] audit watch queued ${n} re-audit(s)`);
+      } else if (job.name === "webhook-deliveries") {
+        const n = await processWebhookDeliveries();
+        // eslint-disable-next-line no-console
+        console.log(`[worker] delivered ${n} webhook(s)`);
+      } else if (job.name === "webhook-log-retention") {
+        const n = await processWebhookLogRetention();
+        // eslint-disable-next-line no-console
+        console.log(`[worker] purged ${n} webhook delivery record(s)`);
       } else if (job.name === "audit-log-retention") {
         const n = await processAuditLogRetention();
         // eslint-disable-next-line no-console
@@ -379,6 +391,30 @@ async function main(): Promise<void> {
     "audit-log-retention",
     {},
     { repeat: { pattern: "40 3 * * *" }, jobId: "audit-log-retention" },
+  );
+  /**
+   * Outbound webhook delivery, every minute (P5/5.2).
+   *
+   * The finest cadence in this file, because an integration that learns about a
+   * won deal an hour later is not an integration. A minute is close enough to
+   * live for anything a person watches, and the sweep is a single indexed query
+   * that usually finds nothing.
+   *
+   * Retries ride the same sweep: a row carries its own `next_attempt_at`, so
+   * backoff needs no second timer and no per-endpoint repeat key that could be
+   * orphaned by an edit.
+   */
+  await wakeupsQueue().add(
+    "webhook-deliveries",
+    {},
+    { repeat: { pattern: "* * * * *" }, jobId: "webhook-deliveries" },
+  );
+  // The delivery log holds full payload copies — lead names, contract totals —
+  // so it expires like any other tenant data. Nightly.
+  await wakeupsQueue().add(
+    "webhook-log-retention",
+    {},
+    { repeat: { pattern: "50 3 * * *" }, jobId: "webhook-log-retention" },
   );
   // Task-due sweep, hourly. The dedupe key carries the day, so an overdue task
   // notifies once a day rather than once an hour (P6/1).

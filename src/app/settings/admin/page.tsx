@@ -10,6 +10,8 @@ import { SettingsProjectTemplates } from "@/components/settings-project-template
 import { SettingsQuoteRules } from "@/components/settings-quote-rules";
 import { AuditLogPanel } from "@/components/audit-log";
 import { getAuditRetention } from "@/modules/auditlog/actions";
+import { SettingsWebhooks } from "@/components/settings-webhooks";
+import { listWebhooks } from "@/modules/webhooks/actions";
 import { SettingsTargets } from "@/components/settings-targets";
 import { SettingsAuditWatches } from "@/components/settings-audit-watches";
 import { SettingsAuditScoring } from "@/components/settings-audit-scoring";
@@ -35,7 +37,7 @@ import { listWorkspaceUsers } from "@/modules/users/actions";
 import { getIntegrations } from "@/modules/integrations/actions";
 import { getHealthRules } from "@/modules/revenue/health-actions";
 import { getWorkspaceBrand } from "@/modules/workspaces/brand-actions";
-import { getHiddenNav, getSecurityPolicy } from "@/modules/workspaces/actions";
+import { copyableWorkspaces, getHiddenNav, getSecurityPolicy } from "@/modules/workspaces/actions";
 import { getAuditScoring } from "@/modules/audit/config-actions";
 import { listFieldDefs } from "@/modules/fields/store";
 import { getDataQuality } from "@/modules/merge/actions";
@@ -117,6 +119,11 @@ export default async function AdminSettingsPage() {
   // Retention sits inside the log panel: how long the rows are kept belongs
   // beside the rows, not in a separate box halfway down the page (P5/5.3).
   const auditRetention = owner ? await getAuditRetention() : null;
+  // Owner-only inside the action too; the panel renders nothing otherwise.
+  const webhooks = await listWebhooks();
+  // Owner memberships only, so the form cannot offer a source the action would
+  // refuse (P6/6.1).
+  const copySources = owner ? await copyableWorkspaces() : [];
 
   return (
     <AppShell activePath="/settings">
@@ -158,8 +165,9 @@ export default async function AdminSettingsPage() {
           />
         )}
         {integrations && <SettingsIntegrations data={integrations} />}
+        <SettingsWebhooks view={webhooks} />
         {apiCosts && <ApiCosts report={apiCosts} />}
-        <WorkspaceAdmin isOwner={owner} />
+        <WorkspaceAdmin isOwner={owner} copyableWorkspaces={copySources} />
         <ColdSignoff status={coldStatus} isOwner={owner} />
         <SzamlazzKey hasKey={szamlazzKeySet} isOwner={owner} />
         <ProposalQueue proposals={proposals} isOwner={owner} />

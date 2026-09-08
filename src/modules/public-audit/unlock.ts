@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { headers } from "next/headers";
 import { prismaUnsafe, getWorkspaceClient } from "@/lib/db";
+import { emitLeadCreated } from "@/modules/webhooks/emit";
 import { normalizeDomain } from "@/modules/leads/dedupe";
 import { isLocale, DEFAULT_LOCALE, type Locale } from "@/lib/locale";
 import { enqueueReportEmail } from "./enqueue";
@@ -250,6 +251,9 @@ async function createLeadFromConsent(input: {
     },
     select: { id: true },
   });
+  // Outbound (P5/5.2). A warm inbound lead is the event most worth telling
+  // another system about, and it is best-effort: emit never throws.
+  await emitLeadCreated(input.workspaceId, lead.id);
   await db.activity.create({
     data: {
       workspaceId: input.workspaceId,

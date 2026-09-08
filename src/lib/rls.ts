@@ -96,6 +96,11 @@ const BUSINESS_TABLES = [
   "task_followers",
   "task_dependencies",
   "task_attachments",
+  // Outbound webhooks and their delivery log (P5/5.2). Both carry a
+  // workspace_id and both are ordinary tenant data — the delivery payloads in
+  // particular are copies of leads and documents.
+  "webhooks",
+  "webhook_deliveries",
   "mail_accounts",
   "email_threads",
   "email_messages",

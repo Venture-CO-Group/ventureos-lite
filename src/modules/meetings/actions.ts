@@ -4,6 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prismaUnsafe, getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
+import { emitWebhookEvent } from "../webhooks/emit";
 import { moveLeadStage } from "@/modules/leads/actions";
 import { onMeetingOutcome } from "../workflow/triggers";
 import { getCalendarProvider, type CalendarCredentials } from "./calendar";
@@ -99,6 +100,16 @@ export async function bookMeeting(
     leadId: lead.id,
     hostUserId: userId,
     scheduledAt: start,
+  });
+  // Outbound (P5/5.2). Queued before the calendar call below, deliberately: a
+  // calendar that is not connected must not swallow the event.
+  await emitWebhookEvent(workspaceId, "meeting.booked", {
+    meetingId: meeting.id,
+    leadId: lead.id,
+    scheduledAt: start.toISOString(),
+    durationMin: input.durationMin,
+    type: input.type,
+    source: "internal",
   });
 
   // Create the event on the host's calendar with lead context attached.

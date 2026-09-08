@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { headers } from "next/headers";
 import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
+import { emitLeadCreated, emitWebhookEvent } from "@/modules/webhooks/emit";
 import { getMailProvider } from "@/modules/mail/provider";
 import { resolveSendingIdentity } from "@/modules/mail/identity";
 import { brandEmail, brandEmailText } from "@/modules/mail/layout";
@@ -112,6 +113,7 @@ export async function submitPublicBooking(raw: unknown): Promise<BookingResult> 
         notes: "Booked via public booking page.",
       },
     });
+    await emitLeadCreated(host.workspaceId, lead.id);
   }
 
   // --- create the meeting ---
@@ -135,6 +137,16 @@ export async function submitPublicBooking(raw: unknown): Promise<BookingResult> 
     leadId: lead.id,
     hostUserId: host.hostUserId,
     scheduledAt: start,
+  });
+  // Outbound (P5/5.2), for the same reason the notification matters more here:
+  // this is the booking nobody is watching a screen for.
+  await emitWebhookEvent(host.workspaceId, "meeting.booked", {
+    meetingId: meeting.id,
+    leadId: lead.id,
+    scheduledAt: start.toISOString(),
+    durationMin: mt.durationMin,
+    type: mt.label,
+    source: "public_booking_page",
   });
 
   // --- drop the event on the host calendar with the visitor attached ---

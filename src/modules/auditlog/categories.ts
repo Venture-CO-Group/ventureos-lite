@@ -26,6 +26,9 @@ export const AUDIT_LOG_CATEGORIES = [
       // Reading and pruning the log are themselves data events, and the row
       // that explains a gap in the log has to be findable (P5/5.3).
       "audit_log.",
+      // A webhook is a standing instruction to send this workspace's data
+      // somewhere else — an export with no end date (P5/5.2).
+      "webhook.",
     ],
   },
   {

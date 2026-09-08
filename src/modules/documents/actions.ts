@@ -4,6 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
+import { emitWebhookEvent } from "../webhooks/emit";
 import type { DocumentType, DocumentStatus } from "@prisma/client";
 import { requireGrant, requireOwner } from "@/lib/authz";
 import { callClaude } from "@/lib/ai/call-claude";
@@ -230,6 +231,13 @@ export async function markFinal(
       entityId: documentId,
       meta: { removedWatermark: true },
     },
+  });
+  // Outbound (P5/5.2). Finalizing is the moment a draft becomes a document
+  // somebody can act on, which is what an integration is waiting for.
+  await emitWebhookEvent(workspaceId, "document.finalized", {
+    documentId,
+    type: doc.type,
+    leadId: doc.leadId ?? null,
   });
   revalidatePath("/documents");
   return { ok: true };

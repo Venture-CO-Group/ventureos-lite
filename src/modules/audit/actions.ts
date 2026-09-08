@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
+import { emitLeadCreated } from "@/modules/webhooks/emit";
 import { enqueueAudit, enqueuePdfRender } from "./enqueue";
 import { auditRowToView } from "./view";
 import { generateSlug, shareExpiryFrom, shareUrl } from "./share";
@@ -209,6 +210,7 @@ export async function createLeadFromAudit(
       signals: flags,
     },
   });
+  await emitLeadCreated(workspaceId, lead.id);
   revalidatePath("/leads");
   return { ok: true, leadId: lead.id };
 }

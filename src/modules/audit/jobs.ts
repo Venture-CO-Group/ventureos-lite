@@ -6,6 +6,7 @@ import { renderHtmlToPdf } from "../../lib/pdf";
 import { buildAuditPdfHtml, type InlineShots } from "./pdf-template";
 import { auditRowToView } from "./view";
 import { AUDIT_SCHEMA_VERSION } from "./categories";
+import { emitWebhookEvent } from "../webhooks/emit";
 import {
   AUDIT_PITCH_SYSTEM,
   buildAuditPitchMessage,
@@ -475,6 +476,18 @@ export async function processAudit(data: AuditJobData): Promise<void> {
     await recordDelta(db, data, {
       score: analysis.score,
       checks: [...analysis.checks, ...extraChecks],
+    });
+
+    // Outbound (P5/5.2). Last, and only on the path that reached "done": an
+    // integration told about an audit that failed at stage two would be told
+    // about a score nobody should quote.
+    await emitWebhookEvent(data.workspaceId, "audit.completed", {
+      auditId: data.auditId,
+      leadId: data.leadId ?? null,
+      url: data.url,
+      score: analysis.score,
+      verdict: analysis.verdict,
+      flags: [...new Set([...analysis.flags, ...extraFlags])],
     });
   } catch (e) {
     // The reason goes on the row, not only into the worker log. A failed audit

@@ -14,6 +14,8 @@ import { unreadCount } from "@/modules/notifications/store";
 import { brandFrom, type WorkspaceBrand } from "@/modules/workspaces/brand";
 import { provisionWorkspace, DEFAULT_ICP_CONFIG } from "./provision";
 import { hiddenFeatures, sanitizeHidden } from "./nav-visibility";
+import { describeCopy, sanitizeGroups } from "./copy-plan";
+import { copyWorkspaceSettings } from "./copy";
 import {
   enrolmentRequired,
   pendingEnrolments,
@@ -325,11 +327,14 @@ const createSchema = z.object({
   mailgunDomain: z.string().trim().max(160).optional().default(""),
   claudeBudget: z.coerce.number().min(0).max(1000).default(2),
   retentionDays: z.coerce.number().int().min(30).max(3650).default(365),
+  /** Copy settings out of an existing workspace this Owner owns (P6/6.1). */
+  copyFrom: z.string().trim().optional(),
+  copyGroups: z.array(z.string()).optional(),
 });
 
 export async function createWorkspace(
   raw: unknown,
-): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; id: string; copied?: string } | { ok: false; error: string }> {
   try {
     await requireOwner();
   } catch {
@@ -366,13 +371,83 @@ export async function createWorkspace(
    */
   await provisionWorkspace(prismaUnsafe, ws.id);
 
+  /**
+   * And then, optionally, the settings from a workspace that already works
+   * (P6/6.1).
+   *
+   * Order matters: provisioning first, copy second. The defaults are the floor,
+   * and the copy is additive — it never deletes, and it skips anything the
+   * target already has. So a group the Owner did not tick still leaves them a
+   * usable workspace rather than an empty one.
+   *
+   * The Owner must be a member of the SOURCE too. Without that check this
+   * would be an arbitrary cross-tenant read wearing a settings form.
+   */
+  const copyGroups = sanitizeGroups(input.copyGroups);
+  let copyNote = "";
+  if (input.copyFrom && copyGroups.length > 0) {
+    const sourceMember = await prismaUnsafe.membership.findUnique({
+      where: { userId_workspaceId: { userId, workspaceId: input.copyFrom } },
+      select: { role: true, suspendedAt: true },
+    });
+    if (!sourceMember || sourceMember.suspendedAt || sourceMember.role !== "OWNER") {
+      copyNote = "A beállítások nem jöttek át: csak olyan munkaterületről lehet másolni, aminek Ownere vagy.";
+    } else {
+      const res = await copyWorkspaceSettings(input.copyFrom, ws.id, copyGroups);
+      copyNote = describeCopy(res.counts);
+      await prismaUnsafe.auditLog.create({
+        data: {
+          workspaceId: ws.id,
+          actorUserId: userId,
+          action: "workspace.settings_copied",
+          entityType: "Workspace",
+          entityId: ws.id,
+          meta: { from: input.copyFrom, groups: copyGroups, counts: res.counts },
+        },
+      });
+      // The source is told too: a read of its configuration is a thing its own
+      // log should show, not only the destination's.
+      await prismaUnsafe.auditLog.create({
+        data: {
+          workspaceId: input.copyFrom,
+          actorUserId: userId,
+          action: "workspace.settings_copied_from",
+          entityType: "Workspace",
+          entityId: ws.id,
+          meta: { to: ws.id, groups: copyGroups },
+        },
+      });
+      if (res.skipped.length > 0) copyNote += ` — ${res.skipped.join(" ")}`;
+    }
+  }
+
   const db = getWorkspaceClient(ws.id);
   await db.auditLog.create({
     data: { workspaceId: ws.id, actorUserId: userId, action: "workspace.create", entityType: "Workspace", entityId: ws.id, meta: { name: input.name } },
   });
   revalidatePath("/settings");
   revalidatePath("/", "layout");
-  return { ok: true, id: ws.id };
+  return { ok: true, id: ws.id, copied: copyNote || undefined };
+}
+
+/**
+ * The workspaces this Owner could copy settings out of (P6/6.1).
+ *
+ * Owner memberships only — the same rule `createWorkspace` enforces, surfaced
+ * so the form cannot offer a choice the action will refuse.
+ */
+export async function copyableWorkspaces(): Promise<{ id: string; name: string }[]> {
+  const { userId, workspaceId } = await getActiveContext();
+  const rows = await prismaUnsafe.membership.findMany({
+    where: { userId, role: "OWNER", suspendedAt: null },
+    select: { workspace: { select: { id: true, name: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  return rows
+    .map((r) => r.workspace)
+    // The active one first: it is the one whose settings the Owner is looking
+    // at while they fill in the form.
+    .sort((a, b) => (a.id === workspaceId ? -1 : b.id === workspaceId ? 1 : 0));
 }
 
 /**

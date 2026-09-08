@@ -5,6 +5,7 @@ import { normalizePhone } from "@/modules/capture/contact";
 import { revalidatePath } from "next/cache";
 import { getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
+import { emitLeadCreated } from "@/modules/webhooks/emit";
 import { getPlacesClient, PLACES_PAGE_SIZE, PLACES_MAX_RESULTS } from "@/lib/places";
 import { geocodeLocation } from "@/lib/geocode";
 import { parseRadiusMeters } from "@/lib/geo";
@@ -257,6 +258,7 @@ export async function addProspectAsLead(
     await db.company.update({ where: { id: company.id }, data: { phone: sitePhone } });
   }
 
+  await emitLeadCreated(workspaceId, lead.id);
   revalidatePath("/leads");
   return { ok: true, leadId: lead.id };
 }

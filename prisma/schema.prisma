@@ -2785,3 +2785,72 @@ model ReferralRequest {
   @@index([workspaceId, companyId, createdAt])
   @@map("referral_requests")
 }
+
+/// An outbound webhook (P5/5.2).
+///
+/// The software could already RECEIVE (`api/webhooks/mailgun`). It could not
+/// tell anything else that a lead moved or an offer was accepted, which is the
+/// difference between a tool and an island.
+///
+/// The secret is stored in the clear on purpose: unlike a password, it has to
+/// be replayed verbatim to compute the HMAC of every payload, so a hash would
+/// make it useless. It never leaves the server except as a signature.
+model Webhook {
+  id          String  @id @default(cuid())
+  workspaceId String  @map("workspace_id")
+  /// https only, and never a private address — see src/modules/webhooks/url.ts.
+  url         String
+  /// What the receiver checks the X-Venture-Signature header against.
+  secret      String
+  /// The event ids this endpoint wants, as a JSON array of strings. A JSON
+  /// column rather than String[]: the schema has to work on MySQL too.
+  events      Json
+  description String?
+  enabled     Boolean @default(true)
+
+  /// The circuit breaker. An endpoint that has been failing for days is a
+  /// retry queue that never drains, so it gets switched off and says why.
+  failureCount    Int       @default(0) @map("failure_count")
+  disabledReason  String?   @map("disabled_reason")
+  lastStatus      Int?      @map("last_status")
+  lastAttemptAt   DateTime? @map("last_attempt_at")
+  lastSuccessAt   DateTime? @map("last_success_at")
+
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  deliveries WebhookDelivery[]
+
+  @@index([workspaceId, enabled])
+  @@map("webhooks")
+}
+
+/// One attempt to hand one event to one endpoint (P5/5.2).
+///
+/// A row per delivery rather than fire-and-forget, because the first question
+/// anybody asks about an integration is "did it arrive" — and the second is
+/// "what exactly did you send". Both need the payload kept.
+model WebhookDelivery {
+  id          String @id @default(cuid())
+  workspaceId String @map("workspace_id")
+  webhookId   String @map("webhook_id")
+  event       String
+  payload     Json
+
+  /// pending | delivered | failed | dropped
+  status         String    @default("pending")
+  attempts       Int       @default(0)
+  responseStatus Int?      @map("response_status")
+  error          String?
+  /// Exponential backoff; null once the row is finished with.
+  nextAttemptAt  DateTime? @map("next_attempt_at")
+  deliveredAt    DateTime? @map("delivered_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, webhookId, createdAt])
+  @@index([status, nextAttemptAt])
+  @@map("webhook_deliveries")
+}

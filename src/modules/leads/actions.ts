@@ -26,6 +26,7 @@ import {
 } from "../pipeline/transitions";
 import { recordUndo, type UndoToken } from "../undo/store";
 import { onLeadCreated, onLeadStageChanged } from "../workflow/triggers";
+import { emitLeadCreated, emitWebhookEvent } from "../webhooks/emit";
 import { wakeUpDate } from "../pipeline/schedule";
 import { scheduleFollowups, cancelFollowups } from "../pipeline/jobs";
 import { canQualify, type Qualification } from "../inbox/qualification";
@@ -151,6 +152,7 @@ export async function createLeadManual(raw: unknown): Promise<
     },
   });
   await onLeadCreated(workspaceId, lead.id);
+  await emitLeadCreated(workspaceId, lead.id);
   revalidatePath("/leads");
   revalidatePath("/referrers");
   return { ok: true, leadId: lead.id };
@@ -178,6 +180,7 @@ export async function captureLinkedin(raw: unknown): Promise<{ leadId: string }>
     },
   });
   await onLeadCreated(workspaceId, lead.id);
+  await emitLeadCreated(workspaceId, lead.id);
   revalidatePath("/leads");
   return { leadId: lead.id };
 }
@@ -517,6 +520,17 @@ export async function moveLeadStage(
     // Workflow rules last, and best-effort: an automation must never be the
     // reason a stage move fails (P7/5).
     await onLeadStageChanged(workspaceId, leadId);
+    // Outbound webhooks (P5/5.2), inside the same best-effort block and for
+    // the same reason: telling somebody else's CRM is our problem, not the
+    // user's. It only queues rows — the worker does the sending.
+    await emitWebhookEvent(workspaceId, "lead.stage_changed", {
+      leadId,
+      from: lead.stage,
+      to: toStage,
+      reason: opts?.reason ?? null,
+      icpScore: lead.icpScore,
+      companyId: lead.companyId,
+    });
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error("[pipeline] stage automation failed", e);

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
+import { emitWebhookEvent } from "../webhooks/emit";
 import { requireGrant, requireOwner } from "@/lib/authz";
 import { composeFromCertificate } from "./data";
 import { confirmationHash, ConfirmationError, type InvoicePayload } from "./logic";
@@ -91,6 +92,13 @@ export async function submitInvoice(
     if (!res.ok) return { ok: false, error: res.error ?? "Submission failed — see Today Queue." };
     await db.auditLog.create({
       data: { workspaceId, actorUserId: userId, action: "invoice.issued", entityType: "Document", entityId: parsed.data.certificateId, meta: { number: res.invoiceNumber } },
+    });
+    // Outbound (P5/5.2) — after Számlázz.hu confirmed the number, never
+    // before. An accounting system told about an invoice that does not exist
+    // is worse than one told nothing.
+    await emitWebhookEvent(workspaceId, "invoice.issued", {
+      certificateId: parsed.data.certificateId,
+      invoiceNumber: res.invoiceNumber,
     });
     return { ok: true, invoiceNumber: res.invoiceNumber };
   } catch (e) {

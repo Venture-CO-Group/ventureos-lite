@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { headers } from "next/headers";
 import { prismaUnsafe, getWorkspaceClient } from "@/lib/db";
+import { emitLeadCreated } from "@/modules/webhooks/emit";
 import { consentSnapshot } from "@/modules/public-audit/consent-text";
 import { normalizeDomain } from "@/modules/leads/domain";
 import { sectorReportLink } from "@/lib/public-links";
@@ -102,6 +103,7 @@ export async function requestSectorReport(raw: unknown): Promise<DownloadResult>
       select: { id: true },
     });
     leadId = lead.id;
+    await emitLeadCreated(report.workspaceId, lead.id);
   }
 
   await db.sectorReportDownload.create({

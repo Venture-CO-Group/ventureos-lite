@@ -13,6 +13,7 @@
 
 import { z } from "zod";
 import { getWorkspaceClient } from "@/lib/db";
+import { emitWebhookEvent } from "../webhooks/emit";
 import { DEAL_OWNED_LEAD_STAGES, DEFAULT_PIPELINES } from "./pipelines";
 import { defaultPipeline, ensurePipelines, listPipelines } from "./store";
 import { recordUndo, type UndoToken } from "@/modules/undo/store";
@@ -231,6 +232,29 @@ export async function moveStageIn(
         byUserId: actorUserId,
         payload: { dealId, to: stage.name, status },
       },
+    });
+  }
+
+  // Outbound (P5/5.2). Best-effort by construction — emit swallows its own
+  // failures — and queued rather than sent, so nobody's slow endpoint holds a
+  // drag-and-drop open.
+  await emitWebhookEvent(workspaceId, "deal.stage_changed", {
+    dealId,
+    from: deal.stageId,
+    to: stage.id,
+    stageName: stage.name,
+    status,
+    leadId: deal.leadId,
+  });
+  if (status === "WON") {
+    // A separate event, because "a deal was won" is the one an integration
+    // wants to route on its own and picking it out of stage_changed means
+    // knowing our stage names.
+    await emitWebhookEvent(workspaceId, "deal.won", {
+      dealId,
+      stageName: stage.name,
+      leadId: deal.leadId,
+      closedAt: now.toISOString(),
     });
   }
 

@@ -42,6 +42,12 @@ const ACTION_LABEL: Record<string, string> = {
   "audit_log.exported": "napló exportálva",
   "audit_log.retention_changed": "napló megőrzés módosítva",
   "audit_log.pruned": "napló ritkítva",
+  "webhook.created": "webhook létrehozva",
+  "webhook.updated": "webhook módosítva",
+  "webhook.enabled": "webhook bekapcsolva",
+  "webhook.disabled": "webhook kikapcsolva",
+  "webhook.secret_rotated": "webhook titok újragenerálva",
+  "webhook.deleted": "webhook törölve",
 };
 
 function when(iso: string): string {
