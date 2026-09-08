@@ -20,7 +20,7 @@
 import type { Stage } from "@prisma/client";
 import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
 import { listFieldDefsWith } from "@/modules/fields/store";
-import { readValues } from "@/modules/fields/types";
+import { coerce, isBlank, readValues, validateValues } from "@/modules/fields/types";
 import { recordUndo, type UndoToken } from "@/modules/undo/store";
 import { eraseLeadData } from "@/modules/gdpr/erase";
 import { canQualify, type Qualification } from "../inbox/qualification";
@@ -226,6 +226,81 @@ export async function applyOwner(
   const db = getWorkspaceClient(workspaceId);
   const result = await db.lead.updateMany({ where: { id: { in: ids } }, data: { ownerId } });
   return { applied: result.count, skipped: [] };
+}
+
+// ---- custom fields -------------------------------------------------------
+
+/**
+ * Set one Owner-defined field across a selection (P2/2.2).
+ *
+ * ── WHY ROW BY ROW RATHER THAN `updateMany` ─────────────────────────────────
+ *
+ * `Lead.customFields` is a single JSON column holding every custom value, so
+ * writing one field means merging into whatever else is already there. An
+ * `updateMany` would replace the column and silently drop every other custom
+ * value on those leads — the kind of loss nobody notices until a report comes
+ * out wrong months later.
+ *
+ * Batched by the caller, so the cost is bounded per request.
+ */
+export async function applyCustomField(
+  workspaceId: string,
+  ids: string[],
+  fieldKey: string,
+  rawValue: unknown,
+): Promise<BulkResult> {
+  if (ids.length === 0) return { applied: 0, skipped: [] };
+
+  const db = getWorkspaceClient(workspaceId);
+  const defs = await listFieldDefsWith(db, "lead");
+  const def = defs.find((d) => d.key === fieldKey && !d.archived);
+  if (!def) {
+    return {
+      applied: 0,
+      skipped: ids.map((id) => ({ id, reason: "that field does not exist here" })),
+    };
+  }
+
+  // Clearing is a legitimate bulk edit, and a required field cannot be
+  // cleared — the forms would then refuse to save a row the bulk bar created.
+  const clearing = isBlank(rawValue);
+  if (clearing && def.required) {
+    return {
+      applied: 0,
+      skipped: ids.map((id) => ({ id, reason: `${def.label} is required and cannot be cleared` })),
+    };
+  }
+
+  let value: unknown = null;
+  if (!clearing) {
+    const coerced = coerce(def, rawValue);
+    const result = validateValues([def], { [def.key]: coerced as never });
+    if (!result.ok) {
+      const reason = result.problems[0]?.message ?? `${def.label} is not valid`;
+      return { applied: 0, skipped: ids.map((id) => ({ id, reason })) };
+    }
+    value = coerced;
+  }
+
+  const rows = await db.lead.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, customFields: true },
+  });
+
+  let applied = 0;
+  for (const row of rows) {
+    const current = readValues(row.customFields);
+    const next = { ...current };
+    if (clearing) delete next[def.key];
+    else next[def.key] = value as never;
+
+    const { count } = await db.lead.updateMany({
+      where: { id: row.id },
+      data: { customFields: next as never },
+    });
+    applied += count;
+  }
+  return { applied, skipped: [] };
 }
 
 // ---- delete --------------------------------------------------------------

@@ -9,6 +9,7 @@ import {
   bulkDeleteLeads,
   bulkEditSignals,
   bulkExport,
+  bulkSetCustomField,
   exportReady,
   resolveBulkSelection,
 } from "@/modules/leads/bulk-actions";
@@ -24,6 +25,7 @@ import { useUndo } from "./undo-toast";
 import { STAGE_LABELS } from "@/modules/pipeline/transitions";
 import type { FilterSet } from "@/modules/leads/filters";
 import type { LeadFacets } from "@/modules/leads/table";
+import { isBlank, type FieldDef } from "@/modules/fields/types";
 import { Modal } from "./modal";
 
 /**
@@ -38,7 +40,7 @@ import { Modal } from "./modal";
  *     bar means something and a failure loses one batch rather than all of it.
  */
 
-type Action = "stage" | "signals" | "owner" | "delete" | "export" | null;
+type Action = "stage" | "signals" | "owner" | "delete" | "export" | "field" | null;
 
 /** Save a base64 payload the server built, without a round trip through a URL. */
 function saveBase64(base64: string, filename: string, mime: string): void {
@@ -63,6 +65,7 @@ export function LeadBulkBar({
   facets,
   canDelete,
   canExport,
+  customFields = [],
   onSelectAllMatching,
   onClear,
 }: {
@@ -76,6 +79,13 @@ export function LeadBulkBar({
   facets: LeadFacets;
   canDelete: boolean;
   canExport: boolean;
+  /**
+   * The workspace's own field definitions (P5/1).
+   *
+   * Passed in rather than fetched: the table already has them for its columns,
+   * and a second query for the same answer is a second thing to keep in step.
+   */
+  customFields?: FieldDef[];
   onSelectAllMatching: () => void;
   onClear: () => void;
 }) {
@@ -95,6 +105,10 @@ export function LeadBulkBar({
   const [ownerId, setOwnerId] = useState<string>("");
   /** Which format row is highlighted; the click is what actually exports. */
   const [exportFormat, setExportFormat] = useState<ExportFormat>("xlsx");
+  /** Which Owner-defined field to set across the selection, and to what. */
+  const [fieldKey, setFieldKey] = useState<string>("");
+  const [fieldValue, setFieldValue] = useState<string>("");
+  const [fieldMulti, setFieldMulti] = useState<string[]>([]);
 
   const count = allMatching ? matchingTotal : ids.length;
   const everyRowOnPageSelected = pageIds.length > 0 && pageIds.every((id) => ids.includes(id));
@@ -220,6 +234,13 @@ export function LeadBulkBar({
     }
   }
 
+  /**
+   * Archived definitions are excluded: a field the workspace has retired is
+   * still rendered in old rows but must not be settable on new ones.
+   */
+  const editableFields = customFields.filter((f) => !f.archived);
+  const activeField = editableFields.find((f) => f.key === fieldKey);
+
   const buttonClass =
     "rounded-[10px] border border-line bg-panel px-3 py-1.5 text-[12.5px] hover:bg-panel-2 disabled:opacity-50";
 
@@ -289,6 +310,23 @@ export function LeadBulkBar({
           <button type="button" className={buttonClass} onClick={() => setAction("owner")}>
             Assign owner
           </button>
+          {/* Only when the workspace has defined any — a button that opens an
+              empty picker is a button that teaches people not to press it. */}
+          {editableFields.length > 0 && (
+            <button
+              type="button"
+              className={buttonClass}
+              data-testid="bulk-field"
+              onClick={() => {
+                setFieldKey(editableFields[0]!.key);
+                setFieldValue("");
+                setFieldMulti([]);
+                setAction("field");
+              }}
+            >
+              Set a field
+            </button>
+          )}
           <button
             type="button"
             className={buttonClass}
@@ -352,6 +390,7 @@ export function LeadBulkBar({
               {action === "owner" && "assign owner"}
               {action === "delete" && "delete leads"}
               {action === "export" && "export leads"}
+              {action === "field" && "set a field"}
             </h3>
             <button onClick={close} className="ml-auto text-muted hover:text-ink">
               ✕
@@ -455,6 +494,46 @@ export function LeadBulkBar({
             </select>
           )}
 
+          {action === "field" && (
+            <div className="mb-3 grid gap-2.5">
+              <label className="text-[11px] uppercase tracking-[0.1em] text-muted">
+                Field
+                <select
+                  value={fieldKey}
+                  onChange={(e) => {
+                    setFieldKey(e.target.value);
+                    setFieldValue("");
+                    setFieldMulti([]);
+                  }}
+                  data-testid="field-select"
+                  className="mt-1 w-full rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2.5 py-2 text-[13px] text-ink outline-none focus:border-accent"
+                >
+                  {editableFields.map((f) => (
+                    <option key={f.key} value={f.key}>
+                      {f.label}
+                      {f.required ? " *" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {activeField && <FieldValueInput
+                def={activeField}
+                value={fieldValue}
+                multi={fieldMulti}
+                onValue={setFieldValue}
+                onMulti={setFieldMulti}
+              />}
+
+              <p className="text-[11.5px] leading-relaxed text-muted">
+                {activeField?.required
+                  ? "This field is required, so it cannot be cleared in bulk."
+                  : "Leave it empty to clear the field on every selected lead."}{" "}
+                Other custom values on these leads are left alone.
+              </p>
+            </div>
+          )}
+
           {action === "export" && (
             <div className="mb-3 grid gap-2">
               {EXPORT_FORMATS.map((f) => (
@@ -503,7 +582,14 @@ export function LeadBulkBar({
               data-testid="bulk-confirm"
               disabled={
                 !!progress ||
-                (action === "stage" && stage === "DISQUALIFIED" && !reason.trim())
+                (action === "stage" && stage === "DISQUALIFIED" && !reason.trim()) ||
+                // A required field cannot be cleared — the forms would then
+                // refuse to save a row this bar had just emptied.
+                (action === "field" &&
+                  !!activeField?.required &&
+                  (activeField.type === "MULTISELECT"
+                    ? fieldMulti.length === 0
+                    : isBlank(fieldValue)))
               }
               onClick={() => {
                 if (action === "stage") {
@@ -529,6 +615,11 @@ export function LeadBulkBar({
                   void run((batch) =>
                     bulkAssignOwner({ ids: batch, ownerId: ownerId || null }),
                   );
+                } else if (action === "field") {
+                  const value = activeField?.type === "MULTISELECT" ? fieldMulti : fieldValue;
+                  void run((batch) =>
+                    bulkSetCustomField({ ids: batch, fieldKey, value }),
+                  );
                 } else if (action === "delete") {
                   void run(async (batch) => {
                     const res = await bulkDeleteLeads(batch);
@@ -545,5 +636,112 @@ export function LeadBulkBar({
         </Modal>
       )}
     </>
+  );
+}
+
+
+/**
+ * One input, shaped by the field's type.
+ *
+ * A select needs its options, a checkbox needs two states, a date needs a date
+ * picker. Rendering a text box for all of them is how a "Contract type" field
+ * with four defined options ends up holding five different spellings of one
+ * of them.
+ */
+function FieldValueInput({
+  def,
+  value,
+  multi,
+  onValue,
+  onMulti,
+}: {
+  def: FieldDef;
+  value: string;
+  multi: string[];
+  onValue: (v: string) => void;
+  onMulti: (v: string[]) => void;
+}) {
+  const cls =
+    "mt-1 w-full rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2.5 py-2 text-[13px] text-ink outline-none focus:border-accent";
+
+  if (def.type === "SELECT") {
+    return (
+      <label className="text-[11px] uppercase tracking-[0.1em] text-muted">
+        Value
+        <select
+          value={value}
+          onChange={(e) => onValue(e.target.value)}
+          data-testid="field-value"
+          className={cls}
+        >
+          <option value="">— clear —</option>
+          {def.options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
+  if (def.type === "MULTISELECT") {
+    return (
+      <div className="text-[11px] uppercase tracking-[0.1em] text-muted">
+        Values
+        <div className="mt-1 grid gap-1 rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] p-2.5">
+          {def.options.map((o) => (
+            <label
+              key={o.value}
+              className="flex items-center gap-2 text-[12.5px] normal-case tracking-normal text-[#C9CEE3]"
+            >
+              <input
+                type="checkbox"
+                checked={multi.includes(o.value)}
+                onChange={(e) =>
+                  onMulti(
+                    e.target.checked
+                      ? [...multi, o.value]
+                      : multi.filter((v) => v !== o.value),
+                  )
+                }
+                style={{ accentColor: "#7427C6" }}
+              />
+              {o.label}
+            </label>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (def.type === "CHECKBOX") {
+    return (
+      <label className="flex items-center gap-2 text-[12.5px] text-[#C9CEE3]">
+        <input
+          type="checkbox"
+          checked={value === "true"}
+          onChange={(e) => onValue(e.target.checked ? "true" : "false")}
+          data-testid="field-value"
+          style={{ accentColor: "#7427C6" }}
+        />
+        {def.label}
+      </label>
+    );
+  }
+
+  return (
+    <label className="text-[11px] uppercase tracking-[0.1em] text-muted">
+      Value
+      <input
+        value={value}
+        onChange={(e) => onValue(e.target.value)}
+        type={def.type === "DATE" ? "date" : def.type === "NUMBER" ? "number" : "text"}
+        inputMode={def.type === "NUMBER" ? "decimal" : undefined}
+        placeholder={def.type === "URL" ? "https://…" : undefined}
+        data-testid="field-value"
+        className={cls}
+      />
+    </label>
   );
 }

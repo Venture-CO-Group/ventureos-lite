@@ -389,6 +389,7 @@ export function LeadsTable(props: LeadsTableProps) {
         facets={facets}
         canDelete={canDelete}
         canExport={canExport}
+        customFields={customFields}
         onSelectAllMatching={() => setAllMatching(true)}
         onClear={clearSelection}
       />

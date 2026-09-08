@@ -19,6 +19,7 @@ import {
   applySignals,
   applyStageChange,
   deleteLeadsBulk,
+  applyCustomField,
   exportLeadsCsv,
   loadLeadsForExport,
   resolveSelection,
@@ -172,6 +173,48 @@ export async function bulkDeleteLeads(
   const result = await deleteLeadsBulk(workspaceId, userId, parsed.data);
   revalidatePath("/leads");
   revalidatePath("/pipeline");
+  return result;
+}
+
+const customFieldSchema = z.object({
+  ids: idsSchema,
+  fieldKey: z.string().trim().min(1).max(60),
+  /** A string, a boolean, or an array for a multi-select. Coerced server-side. */
+  value: z.union([z.string(), z.boolean(), z.array(z.string()), z.null()]),
+});
+
+/**
+ * Set one Owner-defined field across the selection (P2/2.2).
+ *
+ * The bulk bar could move a stage, edit signals and assign an owner — but not
+ * touch a custom field. An Owner-defined "Contract type" had to be set fifty
+ * times on fifty leads by hand, which is the exact work the bulk bar exists to
+ * remove.
+ */
+export async function bulkSetCustomField(
+  raw: unknown,
+): Promise<BulkResult & { error?: string }> {
+  const parsed = customFieldSchema.safeParse(raw);
+  if (!parsed.success) return { applied: 0, skipped: [] };
+  try {
+    // Same capability as defining the field set: whoever may add a required
+    // field may certainly fill one in.
+    await requireGrant("fields.manage");
+  } catch {
+    return {
+      applied: 0,
+      skipped: [],
+      error: "You need the fields.manage capability to bulk-edit workspace fields.",
+    };
+  }
+  const { workspaceId } = await getActiveContext();
+  const result = await applyCustomField(
+    workspaceId,
+    parsed.data.ids,
+    parsed.data.fieldKey,
+    parsed.data.value,
+  );
+  revalidatePath("/leads");
   return result;
 }
 
