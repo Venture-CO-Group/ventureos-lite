@@ -93,30 +93,42 @@ export function SettingsAuditScoring({ view }: { view: AuditScoringView }) {
         </p>
       )}
 
-      {/* ---- category weights ---- */}
-      <div className="grid gap-1.5 sm:grid-cols-2">
+      {/*
+        ---- category weights ----
+
+        A two-column GRID per row, not a flex row.
+
+        It was `flex items-center` with the label on `flex-1`, and one of the
+        eight categories carries a two-line hint. In a two-up layout that made
+        neighbouring rows different heights, each row centred its own input
+        independently, and the column of inputs came out ragged — the panel
+        looked broken rather than merely uneven. A fixed input track plus
+        `items-start` puts every input on the same line as its own label, and
+        `content-start` stops short rows stretching to match tall ones.
+      */}
+      <div className="grid items-start gap-1.5 sm:grid-cols-2">
         {view.categories.map((c) => (
           <label
             key={c.key}
-            className="flex items-center gap-2.5 rounded-[10px] border border-line bg-panel-2 px-3 py-2"
+            className="grid grid-cols-[1fr_4rem] items-start gap-x-2.5 gap-y-1 rounded-[10px] border border-line bg-panel-2 px-3 py-2.5"
           >
-            <span className="min-w-0 flex-1">
-              <b className="block text-[12.5px]">{c.label}</b>
-              {c.internalOnly && (
-                <span className="text-[10.5px] text-muted">
-                  Only on a crawled internal audit — never moves the score, so a
-                  crawled and an uncrawled run stay comparable.
-                </span>
-              )}
-            </span>
+            <b className="self-center text-[12.5px] leading-snug">{c.label}</b>
             <input
               value={weights[c.key] ?? "0"}
               onChange={(e) => setWeights((w) => ({ ...w, [c.key]: e.target.value }))}
               disabled={!view.canEdit || busy}
               inputMode="numeric"
               data-testid={`weight-${c.key}`}
-              className={`${INPUT} w-16 text-right`}
+              className={`${INPUT} text-right`}
             />
+            {c.internalOnly && (
+              /* Spans both tracks: a hint under the input would squeeze into
+                 four rem and wrap to five lines. */
+              <span className="col-span-2 text-[10.5px] leading-relaxed text-muted">
+                Only on a crawled internal audit — never moves the score, so a
+                crawled and an uncrawled run stay comparable.
+              </span>
+            )}
           </label>
         ))}
       </div>
@@ -125,41 +137,55 @@ export function SettingsAuditScoring({ view }: { view: AuditScoringView }) {
         0 to leave it out of the score entirely.
       </p>
 
-      {/* ---- verdict bands ---- */}
-      <div className="mt-4 grid gap-2.5 sm:grid-cols-3">
-        <label className="text-[11px] uppercase tracking-[0.1em] text-muted">
-          Strong prospect at
-          <input
-            value={strong}
-            onChange={(e) => setStrong(e.target.value)}
-            disabled={!view.canEdit || busy}
-            inputMode="numeric"
-            data-testid="verdict-strong"
-            className={`${INPUT} mt-1`}
-          />
-        </label>
-        <label className="text-[11px] uppercase tracking-[0.1em] text-muted">
-          Possible at
-          <input
-            value={possible}
-            onChange={(e) => setPossible(e.target.value)}
-            disabled={!view.canEdit || busy}
-            inputMode="numeric"
-            data-testid="verdict-possible"
-            className={`${INPUT} mt-1`}
-          />
-        </label>
-        <label className="text-[11px] uppercase tracking-[0.1em] text-muted">
-          Heavy page (MB)
-          <input
-            value={heavyMb}
-            onChange={(e) => setHeavyMb(e.target.value)}
-            disabled={!view.canEdit || busy}
-            inputMode="decimal"
-            data-testid="heavy-page-mb"
-            className={`${INPUT} mt-1`}
-          />
-        </label>
+      {/*
+        ---- verdict bands ----
+
+        The caption gets room for two lines whether it needs them or not, so
+        the three inputs share a baseline. "Strong prospect at" wraps at the
+        width this panel gets on a laptop while "Possible at" does not, and
+        with each input following its own caption directly they sat at two
+        different heights — which is what looked broken.
+      */}
+      <div className="mt-4 grid items-stretch gap-2.5 sm:grid-cols-3">
+        {(
+          [
+            {
+              id: "verdict-strong",
+              label: "Strong prospect at",
+              value: strong,
+              set: setStrong,
+              mode: "numeric" as const,
+            },
+            {
+              id: "verdict-possible",
+              label: "Possible at",
+              value: possible,
+              set: setPossible,
+              mode: "numeric" as const,
+            },
+            {
+              id: "heavy-page-mb",
+              label: "Heavy page (MB)",
+              value: heavyMb,
+              set: setHeavyMb,
+              mode: "decimal" as const,
+            },
+          ]
+        ).map((f) => (
+          <label key={f.id} className="grid">
+            <span className="min-h-[2.4em] text-[11px] uppercase leading-snug tracking-[0.1em] text-muted">
+              {f.label}
+            </span>
+            <input
+              value={f.value}
+              onChange={(e) => f.set(e.target.value)}
+              disabled={!view.canEdit || busy}
+              inputMode={f.mode}
+              data-testid={f.id}
+              className={INPUT}
+            />
+          </label>
+        ))}
       </div>
       <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
         Calibrated against fourteen live Hungarian sites: professional builds

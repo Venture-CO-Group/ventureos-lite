@@ -119,7 +119,13 @@ function Card({
       onDragStart={onDragStart}
       data-testid="task-card"
       data-task-id={task.id}
-      className={`group rounded-[11px] border border-line bg-panel p-3 transition-colors hover:border-accent ${
+      /**
+       * Raised off the tray, not sunk into it. `bg-panel` at four percent is
+       * invisible against a ten-percent tray, so a card carries its own
+       * slightly deeper fill and a shadow — the only two things that say
+       * "this is a movable object on a surface".
+       */
+      className={`group rounded-[11px] border border-line bg-[rgba(0,5,29,0.55)] p-3 shadow-[0_1px_3px_rgba(0,5,29,0.45)] transition-colors hover:border-accent ${
         dragging ? "opacity-40" : ""
       } ${task.doneAt ? "opacity-60" : ""}`}
     >
@@ -267,6 +273,9 @@ export function TaskBoards({
       .then(setTemplates)
       .catch(() => setTemplates([]));
   }, []);
+
+  /** The board-settings dialog (name, description, colour, archive). */
+  const [editingBoard, setEditingBoard] = useState(false);
 
   async function guard(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -525,6 +534,23 @@ export function TaskBoards({
                 archived
               </span>
             )}
+            {/*
+              An explicit way in, next to the in-place name.
+
+              Editing in place is right for the name and wrong as the ONLY
+              route: a border that appears on hover is an affordance nobody
+              finds, and the description and colour had no route at all — a
+              board could be created with them and then never changed. This is
+              the button somebody looks for when they want to rename a board.
+            */}
+            <button
+              onClick={() => setEditingBoard(true)}
+              data-testid="edit-board"
+              title="Board name, description, colour and archiving"
+              className="rounded-[8px] border border-line bg-panel px-2 py-1 text-[11.5px] text-muted hover:border-accent hover:text-ink"
+            >
+              Edit board
+            </button>
           </div>
 
           {/* ---------- toolbar ---------- */}
@@ -585,12 +611,9 @@ export function TaskBoards({
               <span className="text-[11.5px] tabular-nums text-muted" data-testid="board-progress">
                 {board.progress.pct}% · {board.progress.done}/{board.progress.total}
               </span>
-              <button
-                onClick={() => void guard(() => archiveBoard(board.id, !board.archivedAt))}
-                className="text-[11.5px] text-muted underline hover:text-ink"
-              >
-                {board.archivedAt ? "Unarchive" : "Archive"}
-              </button>
+              {/* Archiving moved into Board settings — one screen answers
+                  "how do I change this board", rather than a bare link in the
+                  progress row that reads like part of the metrics. */}
             </div>
           </div>
 
@@ -734,7 +757,162 @@ export function TaskBoards({
           }}
         />
       )}
+
+      {editingBoard && board && (
+        <EditBoardDialog
+          board={board}
+          onClose={() => setEditingBoard(false)}
+          onSave={async (patch) => {
+            await guard(() => updateBoard({ id: board.id, ...patch }));
+            setEditingBoard(false);
+          }}
+          onArchive={async (archived) => {
+            await guard(() => archiveBoard(board.id, archived));
+            setEditingBoard(false);
+            // An archived board leaves the switcher, so stop pointing at it.
+            if (archived) setBoardId(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * Board settings (name, description, colour, archiving).
+ *
+ * ── WHY A DIALOG WHEN THE NAME IS ALREADY EDITABLE IN PLACE ─────────────────
+ *
+ * In-place editing is right for the name and wrong as the only route. The
+ * border only appears on hover, so nobody discovers it; and the description
+ * and colour could be set when the board was CREATED and never changed
+ * afterwards, which made them a decision you had to get right first time.
+ *
+ * Archiving lives here too rather than behind its own button: it is a
+ * board-level setting, and putting it next to the name means the one screen
+ * that answers "how do I change this board" answers all of it.
+ */
+function EditBoardDialog({
+  board,
+  onClose,
+  onSave,
+  onArchive,
+}: {
+  board: {
+    name: string;
+    description: string | null;
+    color: string | null;
+    archivedAt: Date | string | null;
+  };
+  onClose: () => void;
+  onSave: (patch: { name: string; description?: string; color?: string }) => Promise<void>;
+  onArchive: (archived: boolean) => Promise<void>;
+}) {
+  const [name, setName] = useState(board.name);
+  const [description, setDescription] = useState(board.description ?? "");
+  const [color, setColor] = useState(board.color ?? "#7427C6");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const archived = board.archivedAt !== null;
+
+  async function run(fn: () => Promise<void>) {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError(serverActionError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <h3 className="mb-3 font-display text-lg font-bold lowercase">board settings</h3>
+      {error && (
+        <p role="alert" data-testid="edit-board-error" className="mb-2 text-[12px] text-[#FFB3C2]">
+          {error}
+        </p>
+      )}
+
+      <label className="grid gap-1">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+          Name
+        </span>
+        <input
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          data-testid="edit-board-name"
+          className={INPUT}
+        />
+      </label>
+
+      <label className="mt-2.5 grid gap-1">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+          Description
+        </span>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={3}
+          placeholder="What this board is for. Shown in the switcher."
+          data-testid="edit-board-description"
+          className={`${INPUT} resize-y`}
+        />
+      </label>
+
+      <label className="mt-2.5 flex items-center gap-2 text-[12px] text-muted">
+        Colour
+        <input
+          type="color"
+          value={color}
+          onChange={(e) => setColor(e.target.value)}
+          data-testid="edit-board-color"
+          className="h-8 w-12 rounded border border-line bg-transparent"
+        />
+        <span className="text-[11.5px]">The chip beside the board&apos;s name.</span>
+      </label>
+
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+        {/*
+          Archive, not delete. A board holds work that happened, and removing
+          it would take the tasks with it — "we did that in the old board" is a
+          sentence people need to be able to finish.
+        */}
+        <button
+          onClick={() => void run(() => onArchive(!archived))}
+          disabled={busy}
+          data-testid="edit-board-archive"
+          className="mr-auto text-[12px] text-muted underline decoration-dotted hover:text-ink disabled:opacity-60"
+        >
+          {archived ? "Bring it back" : "Archive this board"}
+        </button>
+        <button
+          onClick={onClose}
+          className="rounded-[10px] border border-line bg-panel px-4 py-2 text-[13px] hover:bg-panel-2"
+        >
+          Cancel
+        </button>
+        <button
+          disabled={!name.trim() || busy}
+          data-testid="edit-board-save"
+          onClick={() =>
+            void run(() =>
+              onSave({
+                name: name.trim(),
+                description: description.trim() || undefined,
+                color,
+              }),
+            )
+          }
+          className="rounded-[10px] border-[1.5px] border-transparent bg-canvas px-4 py-2 text-[13px] font-semibold text-ink shadow-glow [background-clip:padding-box,border-box] [background-image:linear-gradient(#00051D,#00051D),linear-gradient(135deg,#310B59,#7427C6)] [background-origin:border-box] disabled:opacity-60"
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -793,8 +971,21 @@ function Column({
         // Dropped on the column background = the end of the column.
         onDrop(sectionId, tasks[tasks.length - 1]?.id ?? null);
       }}
+      /**
+       * The tray is LIGHTER than the cards on it.
+       *
+       * It used to be `bg-panel-2/40` — a white tint knocked down to under
+       * three percent, which on this canvas read as a muddy grey and, worse,
+       * came out DARKER than the `bg-panel` cards sitting on it. That is
+       * backwards from every board anybody has used: the column is a tray and
+       * the cards are raised off it, so the tray has to be the brighter
+       * surface. Same white as every other token here (#EFF1F8), just more of
+       * it.
+       */
       className={`w-[280px] flex-none snap-start rounded-card border p-2.5 transition-colors ${
-        over ? "border-accent bg-accent-soft/30" : "border-line bg-panel-2/40"
+        over
+          ? "border-accent bg-accent-soft/30"
+          : "border-line bg-[rgba(239,241,248,0.10)]"
       }`}
     >
       <div className="mb-2 flex items-center gap-1.5 px-1">
