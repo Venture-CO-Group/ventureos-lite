@@ -37,7 +37,15 @@ async function ensure() {
     });
     await prismaUnsafe.membership.upsert({
       where: { userId_workspaceId: { userId: user.id, workspaceId } },
-      update: { role: "BDR", suspendedAt: null },
+      /**
+       * The state is reset too, not just the timestamp.
+       *
+       * Without it, the first test that suspends somebody leaves them
+       * suspended for every test after it in this file — and the failure lands
+       * on whichever test happens to run next, which is the most expensive
+       * kind of test to debug.
+       */
+      update: { role: "BDR", state: "ACTIVE", suspendedAt: null, clientCompanyId: null },
       create: { userId: user.id, workspaceId, role: "BDR", grants: [] },
     });
     if (email === EMAIL) userId = user.id;
@@ -198,9 +206,19 @@ describe("sending it", () => {
 
   it("skips a suspended member", async () => {
     await makeTask(userId, daysFrom(AT_SEVEN_CET, -1));
+    /**
+     * Suspended by STATE, not by the timestamp.
+     *
+     * This test originally set `suspendedAt` alone, which was how the whole
+     * codebase expressed suspension — and it went green while the digest was
+     * reading the same column. The lifecycle (§1) made `state` the authority
+     * precisely because a timestamp cannot express INVITED or REMOVED, and
+     * this test had to move with it. The timestamp is still written: it is the
+     * when, not the whether.
+     */
     await prismaUnsafe.membership.update({
       where: { userId_workspaceId: { userId, workspaceId } },
-      data: { suspendedAt: new Date() },
+      data: { state: "SUSPENDED", suspendedAt: new Date() },
     });
     // Somebody stood down should not be getting a work list every morning.
     expect(await processTaskDigests(AT_SEVEN_CET)).toBe(0);

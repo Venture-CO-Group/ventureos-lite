@@ -15,6 +15,7 @@ import { brandEmail, brandEmailText } from "../mail/layout";
 import { resolveSendingIdentity } from "../mail/identity";
 import { brandFrom } from "../workspaces/brand";
 import { describeDevice, isLastLiveOwner, statusOf, type UserStatus } from "./status";
+import { LIVE_STATES } from "../members/lifecycle";
 
 /**
  * Owner-side user administration (Settings → Users).
@@ -57,6 +58,8 @@ export interface ManagedUser {
   name: string;
   email: string;
   role: string;
+  /** INVITED | ACTIVE | SUSPENDED | REMOVED — the authority (§1). */
+  state: string;
   /** Which company a CLIENT may see, and its name for the panel (P6/6.3). */
   clientCompanyId: string | null;
   clientCompanyName: string | null;
@@ -86,7 +89,10 @@ export async function listWorkspaceUsers(): Promise<ManagedUser[]> {
   const now = new Date();
 
   const memberships = await prismaUnsafe.membership.findMany({
-    where: { workspaceId },
+    // Ended memberships are excluded by default (§1): a list that grows for
+    // ever with people who left is a list nobody reads. Their rows survive so
+    // that "created by" and the timeline stay readable.
+    where: { workspaceId, state: { in: LIVE_STATES } },
     orderBy: { createdAt: "asc" },
     include: {
       user: {
@@ -118,7 +124,10 @@ export async function listWorkspaceUsers(): Promise<ManagedUser[]> {
 
   // Counted once rather than per row: the answer is the same for everybody, and
   // it decides whether the panel offers to remove or suspend an Owner at all.
-  const liveOwners = memberships.filter((m) => m.role === "OWNER" && !m.suspendedAt).length;
+  // The state, not `suspendedAt` (§1): an Owner whose membership is INVITED
+  // or REMOVED cannot administer anything, and counting them would let the
+  // last real Owner suspend themselves.
+  const liveOwners = memberships.filter((m) => m.role === "OWNER" && m.state === "ACTIVE").length;
 
   /**
    * The names of the companies client accounts are pointed at (P6/6.3).
@@ -148,6 +157,7 @@ export async function listWorkspaceUsers(): Promise<ManagedUser[]> {
       name: m.user.name,
       email: m.user.email,
       role: m.role,
+      state: m.state,
       clientCompanyId: m.clientCompanyId,
       clientCompanyName: m.clientCompanyId
         ? (companyName.get(m.clientCompanyId) ?? null)
@@ -652,6 +662,7 @@ export async function setUserSuspended(
   await prismaUnsafe.membership.update({
     where: { userId_workspaceId: { userId: target.id, workspaceId } },
     data: {
+      state: parsed.data.suspended ? "SUSPENDED" : "ACTIVE",
       suspendedAt: parsed.data.suspended ? new Date() : null,
       suspendedBy: parsed.data.suspended ? actorId : null,
     },
@@ -785,7 +796,7 @@ export async function inviteUser(
 
   const already = await prismaUnsafe.membership.findUnique({
     where: { userId_workspaceId: { userId: user.id, workspaceId } },
-    select: { id: true, suspendedAt: true },
+    select: { id: true, state: true },
   });
   if (already) {
     // Re-inviting somebody who is already here restores them rather than
@@ -794,6 +805,7 @@ export async function inviteUser(
       where: { id: already.id },
       data: {
         role,
+        state: "ACTIVE",
         suspendedAt: null,
         suspendedBy: null,
         clientCompanyId: role === "CLIENT" ? (clientCompanyId ?? null) : null,

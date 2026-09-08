@@ -53,8 +53,8 @@ export async function getAdminOverview(): Promise<AdminOverview> {
     auditLogCount,
     pendingProposals,
   ] = await Promise.all([
-    prismaUnsafe.membership.count({ where: { workspaceId, suspendedAt: null } }),
-    prismaUnsafe.membership.count({ where: { workspaceId, suspendedAt: { not: null } } }),
+    prismaUnsafe.membership.count({ where: { workspaceId, state: "ACTIVE" } }),
+    prismaUnsafe.membership.count({ where: { workspaceId, state: "SUSPENDED" } }),
     db.customFieldDef.count({ where: { archived: false } }),
     db.workflowRule.count(),
     db.workflowRule.count({ where: { enabled: true } }),

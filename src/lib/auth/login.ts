@@ -124,7 +124,9 @@ export async function attemptLogin(input: LoginInput): Promise<LoginOutcome> {
   // `tryGetActiveContext` would then refuse to resolve — which would have
   // looked, from the login form, like a successful sign-in that bounced.
   const membership = await prismaUnsafe.membership.findFirst({
-    where: { userId: user.id, suspendedAt: null },
+    // The state, not `suspendedAt`: an INVITED membership has a null
+    // suspension and is not access, and a REMOVED one is history (§1).
+    where: { userId: user.id, state: "ACTIVE" },
     orderBy: { createdAt: "asc" },
     select: { workspaceId: true },
   });

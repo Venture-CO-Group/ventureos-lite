@@ -13,6 +13,7 @@ import { gateThresholdFromConfig } from "./scoring";
 import { cached } from "@/lib/ttl-cache";
 import { listFieldDefsWith } from "@/modules/fields/store";
 import { readValues, type FieldDef } from "@/modules/fields/types";
+import { assignableMembers } from "@/modules/members/directory";
 import {
   applyFilters,
   applySort,
@@ -161,19 +162,19 @@ function toRow(l: LoadedLead, ownerNames: Map<string, string>): LeadTableRow {
   };
 }
 
-/** Everyone who could own a lead here — the workspace's own members, only. */
+/**
+ * Everyone who could own a lead here (§1).
+ *
+ * Through the directory rather than a bare `findMany`: this used to include
+ * suspended people, read-only client accounts and — since the lifecycle
+ * landed — pending invitations and ended memberships. Assigning a lead to
+ * somebody who cannot sign in is a lead nobody works.
+ */
 export async function workspaceMembers(workspaceId: string): Promise<WorkspaceMember[]> {
-  const memberships = await prismaUnsafe.membership.findMany({
-    where: { workspaceId },
-    select: { userId: true },
-  });
-  if (memberships.length === 0) return [];
-  const users = await prismaUnsafe.user.findMany({
-    where: { id: { in: memberships.map((m) => m.userId) } },
-    select: { id: true, name: true },
-    orderBy: { name: "asc" },
-  });
-  return users;
+  const members = await assignableMembers(workspaceId);
+  return members
+    .map((m) => ({ id: m.id, name: m.name }))
+    .sort((a, b) => a.name.localeCompare(b.name, "hu"));
 }
 
 /**

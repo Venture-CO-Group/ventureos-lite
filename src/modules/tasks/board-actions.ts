@@ -21,6 +21,7 @@ import {
   type DependencyEdge,
 } from "./board-logic";
 import { nextRunAt } from "@/modules/leads/schedule-logic";
+import { assignableMembers } from "@/modules/members/directory";
 import {
   ALLOWED_ATTACHMENT_TYPES,
   MAX_ATTACHMENTS_PER_TASK,
@@ -75,16 +76,17 @@ export interface WorkspaceMemberOption {
 /** Who a task can be assigned to: the seated members of this workspace. */
 export async function getAssignableMembers(): Promise<WorkspaceMemberOption[]> {
   const { workspaceId } = await getActiveContext();
-  const memberships = await prismaUnsafe.membership.findMany({
-    where: { workspaceId },
-    include: { user: { select: { id: true, name: true, email: true } } },
-    orderBy: { createdAt: "asc" },
-  });
-  return memberships.map((m) => ({
-    id: m.user.id,
-    name: m.user.name,
-    email: m.user.email,
-  }));
+  /**
+   * Through the directory, not a bare `findMany` (§1).
+   *
+   * This used to return every membership row it could find — which since the
+   * lifecycle landed includes suspended people, pending invitations, ended
+   * memberships and read-only client accounts. Handing work to somebody who
+   * cannot sign in is a task that never gets done and that nobody notices for
+   * a week.
+   */
+  const members = await assignableMembers(workspaceId);
+  return members.map((m) => ({ id: m.id, name: m.name, email: m.email }));
 }
 
 // ---------------------------------------------------------------------------

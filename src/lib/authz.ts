@@ -1,6 +1,7 @@
 import { prismaUnsafe } from "./db";
 import { tryGetActiveContext } from "./session";
 import { GrantError, grantAllowed } from "./grants";
+import { canSignIn } from "@/modules/members/lifecycle";
 
 // Re-exported so existing callers keep importing them from here.
 export { GrantError, grantAllowed };
@@ -22,12 +23,12 @@ async function membershipOf() {
   if (!ctx) return null;
   const membership = await prismaUnsafe.membership.findUnique({
     where: { userId_workspaceId: { userId: ctx.userId, workspaceId: ctx.workspaceId } },
-    select: { role: true, grants: true, suspendedAt: true },
+    select: { role: true, grants: true, state: true },
   });
   // Belt and braces. `tryGetActiveContext` already refuses to resolve a
-  // suspended membership, so this should be unreachable — but authorization is
-  // the wrong place to rely on somebody else having checked.
-  if (!membership || membership.suspendedAt) return null;
+  // membership that may not sign in, so this should be unreachable — but
+  // authorization is the wrong place to rely on somebody else having checked.
+  if (!membership || !canSignIn(membership.state)) return null;
   return membership;
 }
 

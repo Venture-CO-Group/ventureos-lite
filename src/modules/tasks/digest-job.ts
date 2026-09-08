@@ -102,7 +102,7 @@ export async function processTaskDigests(now: Date = new Date()): Promise<number
     const members = await prismaUnsafe.membership.findMany({
       where: {
         workspaceId: ws.id,
-        suspendedAt: null,
+        state: "ACTIVE",
         // A read-only client account has no tasks and no business receiving
         // an internal work digest.
         role: { not: "CLIENT" },

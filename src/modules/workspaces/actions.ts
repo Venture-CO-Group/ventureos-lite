@@ -153,7 +153,7 @@ export async function getSecurityPolicy(): Promise<SecurityPolicyView> {
       select: { featureFlags: true },
     }),
     prismaUnsafe.membership.findMany({
-      where: { workspaceId, suspendedAt: null },
+      where: { workspaceId, state: "ACTIVE" },
       select: { user: { select: { totpEnabled: true } } },
     }),
   ]);

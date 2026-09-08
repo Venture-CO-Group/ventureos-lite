@@ -101,6 +101,22 @@ const BUSINESS_TABLES = [
   // particular are copies of leads and documents.
   "webhooks",
   "webhook_deliveries",
+  /**
+   * The member lifecycle (§1).
+   *
+   * All four are tenant data of the most sensitive kind: an invitation carries
+   * an email address and a token hash, and a membership event carries the
+   * before/after of somebody's access. `teams` and `team_members` are the
+   * workspace's own structure.
+   *
+   * `memberships` itself is deliberately NOT here — it is one of the global
+   * identity tables the tenant guard passes through, because resolving a
+   * session has to read it before any workspace is known.
+   */
+  "invitations",
+  "membership_events",
+  "teams",
+  "team_members",
   "mail_accounts",
   "email_threads",
   "email_messages",

@@ -25,6 +25,36 @@ datasource db {
 // Enums (portable across postgres + mysql)
 // ============================================================================
 
+/// Where a membership is in its life (§1 of the member lifecycle).
+///
+/// ── WHY A STATE AND NOT TWO NULLABLE TIMESTAMPS ─────────────────────────────
+///
+/// Membership used to be binary: a row existed, and `suspendedAt` was either
+/// null or not. That could not express the two states a real team needs.
+///
+/// INVITED   an invitation is out and nobody has accepted it. The row exists so
+///           the members screen can show a pending person, and so re-inviting
+///           somebody is an update rather than a second row fighting the
+///           `[userId, workspaceId]` unique index.
+/// ACTIVE    can sign in, can be assigned work.
+/// SUSPENDED cannot sign in, cannot be assigned, and every record they own
+///           stays theirs and stays attributed. The honest middle ground: an
+///           account that is removed takes the authorship of its history with
+///           it, and "who wrote this note" is a question people ask months
+///           later.
+/// REMOVED   the membership has ended. The ROW SURVIVES on purpose — it is
+///           what keeps `created by` and the audit trail readable, and what
+///           lets `MembershipEvent` say when somebody left. It grants nothing.
+///
+/// A user with no ACTIVE membership anywhere is dormant, and is never
+/// hard-deleted by default.
+enum MembershipState {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  REMOVED
+}
+
 enum Role {
   OWNER
   ADMIN
@@ -280,6 +310,14 @@ model User {
   /// out could hand it to themselves. It is set by
   /// `scripts/set-super-admin.ts`, on the server, by whoever has the shell.
   isSuperAdmin        Boolean              @default(false) @map("is_super_admin")
+  /// Soft-deleted, with a grace period (§4).
+  ///
+  /// A user account is only deletable when it has no membership anywhere, and
+  /// even then it is not erased on the spot: `purgeAfter` is thirty days out,
+  /// and until then an Owner can restore it. Deleting a person is the one
+  /// action in this product with no undo, so it gets one.
+  deletedAt           DateTime?            @map("deleted_at")
+  purgeAfter          DateTime?            @map("purge_after")
   createdAt           DateTime             @default(now()) @map("created_at")
   updatedAt           DateTime             @updatedAt @map("updated_at")
   memberships         Membership[]
@@ -386,16 +424,31 @@ model Membership {
   /// schema crossing that line. The portal resolves it through the guarded
   /// client, which re-checks the workspace anyway.
   clientCompanyId String? @map("client_company_id")
+  /// Where this membership is in its life (§1). The authority.
+  ///
+  /// `suspendedAt` below is kept as the TIMESTAMP of the current suspension,
+  /// not as the fact of it: two sources of truth for "is this person
+  /// suspended" is one more than a login check can afford.
+  state       MembershipState @default(ACTIVE)
   /// Access to THIS workspace is paused.
   ///
   /// Per membership rather than per user, because a person can belong to
   /// several workspaces and being stood down from one says nothing about the
-  /// others. Suspension is the honest middle ground between doing nothing and
-  /// deleting somebody: an account that is removed takes its history's author
-  /// with it, and "who wrote this note" is a question people ask months later.
+  /// others.
   suspendedAt DateTime? @map("suspended_at")
   /// Who suspended them, for the audit trail the log also carries.
   suspendedBy String?   @map("suspended_by")
+  /// The role and grants as they were the moment of suspension (§4).
+  ///
+  /// Stored rather than remembered, because reinstating somebody has to give
+  /// back EXACTLY what they had. Recomputing it from the role would silently
+  /// drop every explicit grant and every explicit withdrawal, and the person
+  /// coming back would not know what they had lost.
+  suspendedRole   Role?    @map("suspended_role")
+  suspendedGrants Json?    @map("suspended_grants")
+  /// When the membership ended, and who ended it (§4).
+  removedAt   DateTime? @map("removed_at")
+  removedBy   String?   @map("removed_by")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -403,7 +456,139 @@ model Membership {
 
   @@unique([userId, workspaceId])
   @@index([workspaceId])
+  @@index([workspaceId, state])
   @@map("memberships")
+}
+
+/// An invitation to join a workspace (§2 of the member lifecycle).
+///
+/// ── WHY A TABLE AND NOT A FLAG ON MEMBERSHIP ────────────────────────────────
+///
+/// An invitation has a life of its own: it is sent, it expires, it can be
+/// resent, it can be revoked, and it may never be accepted at all. It also
+/// carries things the membership does not have yet — the token, who sent it,
+/// how many times it has been resent — and an invitation to somebody who has
+/// no user account yet has no membership to hang a flag on.
+///
+/// Only a HASH of the token is stored. The token is the credential: a database
+/// leak must not yield a working invitation, which is the same rule
+/// `PasswordResetToken` follows.
+model Invitation {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  /// Lower-cased at write time. The unique index below is what stops two
+  /// people racing an invitation to the same address.
+  email       String
+  role        Role     @default(BDR)
+  /// The grant preset the invitation carries, as a JSON array of strings.
+  grants      Json     @default("[]")
+  /// Which company a CLIENT invitation may see (P6/6.3).
+  clientCompanyId String? @map("client_company_id")
+  /// sha256 of the opaque token, never the token itself.
+  tokenHash   String   @unique @map("token_hash")
+  expiresAt   DateTime @map("expires_at")
+  invitedBy   String?  @map("invited_by")
+  acceptedAt  DateTime? @map("accepted_at")
+  revokedAt   DateTime? @map("revoked_at")
+  revokedBy   String?   @map("revoked_by")
+  /// How many times it has been sent again. Rate-limited, and shown on the
+  /// members screen — five resends to one address is a conversation to have,
+  /// not a button to keep pressing.
+  resendCount Int      @default(0) @map("resend_count")
+  lastSentAt  DateTime @default(now()) @map("last_sent_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  /// One LIVE invitation per address per workspace. Enforced in code rather
+  /// than here, because a partial unique index over "accepted_at IS NULL AND
+  /// revoked_at IS NULL" is Postgres-only and this schema runs on MySQL too.
+  @@index([workspaceId, email])
+  @@index([workspaceId, acceptedAt, revokedAt])
+  @@map("invitations")
+}
+
+/// Append-only history of what happened to one person's membership (§1).
+///
+/// ── WHY THIS EXISTS ALONGSIDE THE AUDIT LOG ─────────────────────────────────
+///
+/// The audit log answers "what happened in this workspace" and is filtered,
+/// paged and Owner-gated. This answers "what happened to THIS person", in
+/// order, on their own detail drawer — the question asked when somebody says
+/// "I used to be able to do that".
+///
+/// Both are written. The audit log is the compliance record; this is the
+/// timeline, and it carries before/after so a role change can be read rather
+/// than reconstructed. Append-only: nothing here is ever updated or deleted,
+/// which is the whole point of a history.
+model MembershipEvent {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  /// The person this happened TO.
+  userId      String   @map("user_id")
+  /// The person who did it. Null for the system — an invitation expiring.
+  actorUserId String?  @map("actor_user_id")
+  /// One of MEMBERSHIP_EVENT_KINDS in src/modules/members/events.ts.
+  kind        String
+  /// Why. Mandatory for a 2FA reset; optional elsewhere (§4, §6).
+  reason      String?  @db.Text
+  before      Json?
+  after       Json?
+  at          DateTime @default(now())
+
+  @@index([workspaceId, userId, at])
+  @@index([workspaceId, at])
+  @@map("membership_events")
+}
+
+/// A grouping of people inside a workspace (§5 of the member lifecycle).
+///
+/// ── TEAMS GRANT NOTHING ─────────────────────────────────────────────────────
+///
+/// Deliberately, and this is the most important line in the model. Permission
+/// stays role + grant, resolved by `src/lib/grants.ts` and nothing else. A
+/// team that could carry capabilities would be a SECOND authorization system
+/// running beside the first, and the two would answer differently the first
+/// time somebody was in two teams — at which point "why can Anna do that"
+/// stops having an answer anybody can give.
+///
+/// What a team gives instead: an assignment target, a filter, a grouping for
+/// analytics, a notification route for escalations, and a page showing who is
+/// on it and how much is on their plates.
+model Team {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  name        String
+  description String?   @db.Text
+  /// Hex, validated before it reaches CSS — same rule as the letterhead.
+  color       String?
+  /// Archived rather than deleted where assignments still point at it.
+  archivedAt  DateTime? @map("archived_at")
+  createdBy   String?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  members TeamMember[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId, archivedAt])
+  @@map("teams")
+}
+
+/// One person on one team (§5).
+model TeamMember {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  teamId      String   @map("team_id")
+  userId      String   @map("user_id")
+  /// The team lead. Escalations routed to a team reach them first.
+  isLead      Boolean  @default(false) @map("is_lead")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([workspaceId, userId])
+  @@map("team_members")
 }
 
 model Workspace {

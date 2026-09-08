@@ -3,6 +3,7 @@ import { currentSessionToken } from "./auth";
 import { resolveSession, setSessionWorkspace } from "./auth/sessions";
 import { prismaUnsafe } from "./db";
 import { setRequestUser } from "./request-user";
+import { canSignIn } from "@/modules/members/lifecycle";
 
 export interface ActiveContext {
   workspaceId: string;
@@ -34,7 +35,7 @@ export async function tryGetActiveContext(): Promise<ActiveContext | null> {
   if (!session) return null;
 
   /**
-   * Suspended memberships are not memberships.
+   * Only a membership that may sign in is a membership.
    *
    * Enforced HERE rather than only at sign-in, because a suspension has to bite
    * a session that already exists — somebody stood down at 14:00 with a browser
@@ -42,14 +43,24 @@ export async function tryGetActiveContext(): Promise<ActiveContext | null> {
    * authenticated path in the product passes through this function, so this is
    * the one place that makes it true everywhere.
    *
-   * A user suspended from their ONLY workspace resolves to no context at all,
+   * ── WHY THE STATE AND NOT `suspendedAt: null` ─────────────────────────────
+   *
+   * That condition was right while membership was binary and became incomplete
+   * the moment INVITED and REMOVED existed (§1): both have a null
+   * `suspendedAt`, and both would have resolved a session. An invitation is
+   * not access, and a membership that ended is not access — the row survives
+   * only so that "created by" and the timeline stay readable.
+   *
+   * A user with no signable membership anywhere resolves to no context at all,
    * which the caller turns into a redirect to /login.
    */
-  const memberships = await prismaUnsafe.membership.findMany({
-    where: { userId: session.userId, suspendedAt: null },
-    orderBy: { createdAt: "asc" },
-    select: { workspaceId: true, role: true },
-  });
+  const memberships = (
+    await prismaUnsafe.membership.findMany({
+      where: { userId: session.userId },
+      orderBy: { createdAt: "asc" },
+      select: { workspaceId: true, role: true, state: true },
+    })
+  ).filter((m) => canSignIn(m.state));
   if (memberships.length === 0) return null;
 
   const memberWsIds = new Map(memberships.map((m) => [m.workspaceId, m.role as string]));
