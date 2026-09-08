@@ -113,7 +113,7 @@ const BUSINESS_TABLES = [
    * identity tables the tenant guard passes through, because resolving a
    * session has to read it before any workspace is known.
    */
-  "invitations",
+  // `invitations` is NOT here — it is a public-intake table. See below.
   "membership_events",
   "teams",
   "team_members",
@@ -149,6 +149,28 @@ const PUBLIC_INTAKE_TABLES = [
   // user context exists — same shape as the two above (playbook-v3 P8/a).
   "page_visits",
   "sector_report_downloads",
+  /**
+   * Invitations (§2), and this one was a production-only bug caught before it
+   * shipped.
+   *
+   * The accept page runs UNAUTHENTICATED — that is the whole point, it is
+   * somebody's first contact with the product — so there is no session and no
+   * workspace variable to scope by. The invitation is what decides the
+   * workspace.
+   *
+   * With `invitations` as an ordinary business table the lookup was invisible:
+   * every business table has FORCE ROW LEVEL SECURITY, and production's
+   * `DATABASE_URL` connects as `app_user`, which is not a superuser. Locally
+   * `DATABASE_URL` is the owner role, which IS a superuser and bypasses RLS
+   * entirely — so the whole invitation flow worked perfectly in development and
+   * every link would have read "This invitation link is not valid" in
+   * production. Proved by `SET ROLE app_user` before changing it: zero rows.
+   *
+   * The same shape as the three above: a 256-bit token, hashed at rest, is the
+   * capability. Once a workspace IS declared the row must belong to it, which
+   * is what the shared predicate enforces.
+   */
+  "invitations",
 ];
 
 const CURRENT_WS = "current_setting('app.current_workspace', true)";
@@ -183,8 +205,38 @@ function businessTablePolicy(table: string): string[] {
   return [
     `ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`,
     `ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`,
-    `DROP POLICY IF EXISTS ws_isolation ON ${table}`,
+    // BOTH names, always. See the note on `dropBothPolicies` below.
+    ...dropBothPolicies(table),
     `CREATE POLICY ws_isolation ON ${table} USING (${predicate}) WITH CHECK (${predicate})`,
+  ];
+}
+
+/**
+ * Drop both policy names before creating either (a latent flaw, found while
+ * moving `invitations` between the two lists).
+ *
+ * ── WHY THIS IS NOT MERELY TIDINESS ─────────────────────────────────────────
+ *
+ * Business tables get `ws_isolation`; public-intake tables get
+ * `ws_public_intake`. Each block used to drop only the name it was about to
+ * create — so a table MOVED from one list to the other kept its old policy for
+ * ever, and Postgres policies are PERMISSIVE: two policies are OR'd together.
+ *
+ * In the harmless direction that is a puzzling test result. In the other
+ * direction it is a security hole that cannot be seen from the code: move a
+ * table from public-intake to business because it should no longer be
+ * anonymously readable, re-run this, and the old `ws_public_intake` policy
+ * survives and keeps granting exactly the anonymous access you just removed.
+ * Nothing in the source would say so.
+ *
+ * I found it because the regression test I wrote for the invitations fix passed
+ * when it should have failed. Dropping both names makes the setup genuinely
+ * idempotent and makes a move take effect.
+ */
+function dropBothPolicies(table: string): string[] {
+  return [
+    `DROP POLICY IF EXISTS ws_isolation ON ${table}`,
+    `DROP POLICY IF EXISTS ws_public_intake ON ${table}`,
   ];
 }
 
@@ -230,7 +282,7 @@ function statements(): string[] {
     out.push(
       `ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`,
       `ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`,
-      `DROP POLICY IF EXISTS ws_public_intake ON ${table}`,
+      ...dropBothPolicies(table),
       `CREATE POLICY ws_public_intake ON ${table} USING (${predicate}) WITH CHECK (${predicate})`,
     );
   }

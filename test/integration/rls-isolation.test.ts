@@ -152,3 +152,99 @@ describe.skipIf(!isPostgres)("row-level security", () => {
     expect(await prismaUnsafe.lead.count({ where: { workspaceId: { in: [wsA, wsB] } } })).toBe(2);
   });
 });
+
+/**
+ * ── THE PUBLIC-INTAKE TABLES, AND A PRODUCTION-ONLY BUG THIS PINS DOWN ──────
+ *
+ * Some tables have to be reachable with NO workspace declared, because the
+ * request that reaches them has no session: an anonymous visitor submitting an
+ * audit, reading a shared quote, booking a slot — or accepting an invitation.
+ *
+ * `invitations` was written as an ordinary business table, and the whole
+ * invitation flow passed every test. It would have failed on the server and
+ * only on the server:
+ *
+ *   - every business table has FORCE ROW LEVEL SECURITY, so even the table
+ *     owner is subject to its policy;
+ *   - production's `DATABASE_URL` connects as `app_user`, which is not a
+ *     superuser;
+ *   - a developer's `DATABASE_URL` is the owner role, which IS a superuser and
+ *     bypasses RLS entirely.
+ *
+ * So the accept page read the invitation perfectly in development and would
+ * have said "This invitation link is not valid" for every link in production.
+ * Caught by asking what role production connects as, proved with `SET ROLE
+ * app_user`, and this is the test that stops it coming back.
+ */
+describe.skipIf(!isPostgres)("tables an unauthenticated request must reach", () => {
+  it("lets an invitation be found by its token with no workspace declared", async () => {
+    const token = `rls-suite-${Date.now()}`;
+    await prismaUnsafe.invitation.create({
+      data: {
+        workspaceId: wsA,
+        email: "rls-suite@example.hu",
+        tokenHash: token,
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+    try {
+      // No `set_config` at all — exactly the public accept path.
+      const found = await bare.invitation.findUnique({ where: { tokenHash: token } });
+      expect(found, "app_user cannot see the invitation it was handed").not.toBeNull();
+      expect(found!.email).toBe("rls-suite@example.hu");
+    } finally {
+      await prismaUnsafe.invitation.deleteMany({ where: { tokenHash: token } });
+    }
+  });
+
+  it("still refuses it to a connection that declares the wrong workspace", async () => {
+    /**
+     * The other half. "Reachable anonymously" must not mean "reachable by
+     * anybody who names a workspace" — once a workspace IS declared, the row
+     * has to belong to it.
+     */
+    const token = `rls-suite-b-${Date.now()}`;
+    await prismaUnsafe.invitation.create({
+      data: {
+        workspaceId: wsA,
+        email: "rls-suite-b@example.hu",
+        tokenHash: token,
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+    try {
+      const fromB = await asWorkspace(wsB, () =>
+        bare.invitation.findMany({ where: { tokenHash: token } }),
+      );
+      expect(fromB).toHaveLength(0);
+      const fromA = await asWorkspace(wsA, () =>
+        bare.invitation.findMany({ where: { tokenHash: token } }),
+      );
+      expect(fromA).toHaveLength(1);
+    } finally {
+      await prismaUnsafe.invitation.deleteMany({ where: { tokenHash: token } });
+    }
+  });
+
+  it("keeps the member lifecycle's other tables workspace-scoped", async () => {
+    // These are only ever read with a workspace in hand, so they stay ordinary
+    // business tables — and an anonymous read of them must see nothing.
+    await prismaUnsafe.membershipEvent.create({
+      data: { workspaceId: wsA, userId: "rls-suite-user", kind: "invited" },
+    });
+    const team = await prismaUnsafe.team.create({
+      data: { workspaceId: wsA, name: `RLS Suite Team ${Date.now()}` },
+    });
+    try {
+      expect(await bare.membershipEvent.findMany({ where: { workspaceId: wsA } })).toHaveLength(0);
+      expect(await bare.team.findMany({ where: { workspaceId: wsA } })).toHaveLength(0);
+      // And visible once the workspace is declared.
+      expect(
+        await asWorkspace(wsA, () => bare.team.findMany({ where: { id: team.id } })),
+      ).toHaveLength(1);
+    } finally {
+      await prismaUnsafe.membershipEvent.deleteMany({ where: { workspaceId: wsA } });
+      await prismaUnsafe.team.deleteMany({ where: { id: team.id } });
+    }
+  });
+});
