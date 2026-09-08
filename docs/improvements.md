@@ -191,13 +191,26 @@ Az új munkaterület ma megkapja az alap pipeline-okat és sablonokat (ez a mai
 javítás). A következő szint: egy meglévő munkaterület beállításait — márka,
 egyedi mezők, workflow szabályok, quote szabályok — **átmásolni** az újba.
 
-### 6.2 Kliens-hozzáférés (read-only szerep) **[B]**
+### 6.2 `PUBLIC_INTAKE_WORKSPACE_ID` a második workspace-nél kötelezővé válik **[K]** — *figyelmeztetés kirakva*
+
+A `getPublicIntakeWorkspaceId()` nem tippel: egy workspace-nél azt használja,
+többnél `PUBLIC_INTAKE_WORKSPACE_ID` nélkül **megtagadja**. Ilyenkor a
+self-serve audit (`audit.`), a publikus riport-index és a `meet.` foglalólapok
+üres állapotot mutatnak.
+
+Ez elméleti probléma volt, amíg a második workspace használhatatlan héj volt.
+Most, hogy működő, ez élő csapda — ezért a `/settings/workspaces` kiírja, ha
+egynél több workspace van és a változó nincs beállítva, a beírandó sorral
+együtt. **Amikor ezen a szerveren létrejön a második workspace, ezt be kell
+állítani, különben három ügyfél felé néző felület elhallgat.**
+
+### 6.3 Kliens-hozzáférés (read-only szerep) **[B]**
 
 Az `isTrustedMember` kommentje maga jelzi, hogy egy read-only szerep egy
 szerkesztéssel bevezethető. Egy ügyfél, aki látja a saját projektjét és a
 dokumentumait, de semmi mást — ez az, ami a szállítási oldalt eladhatóvá teszi.
 
-### 6.3 A meghívó levélben is menjen ki **[B]**
+### 6.4 A meghívó levélben is menjen ki **[B]**
 
 A mai meghívó linket ad, amit az Owner elküld. Egy „küldd el nekem emailben"
 gomb (tranzakciós domain, kifejezett gombnyomásra) kényelmesebb lenne — a

@@ -37,17 +37,23 @@ test("a board can be created, filled, and worked", async ({ page }) => {
   await expect(columns.nth(0)).toContainText("To do");
   await expect(columns.nth(2)).toContainText("Done");
 
-  // ---- add tasks ---------------------------------------------------------
+  /**
+   * ---- add tasks --------------------------------------------------------
+   *
+   * Every step below waits on an ASSERTION rather than on a clock. The first
+   * version of this test slept 900ms after each write and went flaky the
+   * moment the dev server had a slow moment — which is the worst kind of test
+   * failure, because it accuses the feature of a defect the feature does not
+   * have.
+   */
   await columns.nth(0).getByTestId("add-task").click();
   const input = columns.nth(0).getByTestId("new-task-input");
   await input.fill("Write the launch email");
   await input.press("Enter");
-  await page.waitForTimeout(900);
+  await expect(columns.nth(0).getByTestId("task-card")).toHaveCount(1);
   // The input stays open — adding tasks is something people do in runs.
   await input.fill("Book the photographer");
   await input.press("Enter");
-  await page.waitForTimeout(900);
-
   await expect(columns.nth(0).getByTestId("task-card")).toHaveCount(2);
   await expect(page.getByTestId("board-progress")).toContainText("0/2");
 
@@ -55,7 +61,6 @@ test("a board can be created, filled, and worked", async ({ page }) => {
   await page.getByTestId("add-section").click();
   await page.getByTestId("new-section-input").fill("Blocked");
   await page.getByTestId("new-section-input").press("Enter");
-  await page.waitForTimeout(900);
   await expect(page.getByTestId("board-column")).toHaveCount(4);
 
   // ---- detail: assignee, priority, due, description ----------------------
@@ -63,35 +68,35 @@ test("a board can be created, filled, and worked", async ({ page }) => {
   await expect(page.getByTestId("detail-title")).toBeVisible();
 
   await page.getByTestId("detail-priority").selectOption("urgent");
-  await page.waitForTimeout(700);
+  // The reload after a save re-renders the select from the server's answer, so
+  // seeing the new value IS the confirmation that the write landed.
+  await expect(page.getByTestId("detail-priority")).toHaveValue("urgent");
   await page.getByTestId("detail-due").fill("2026-09-01");
-  await page.waitForTimeout(700);
+  await expect(page.getByTestId("detail-due")).toHaveValue("2026-09-01");
   await page.getByTestId("detail-note").fill("Three paragraphs, no more.");
   await page.getByTestId("detail-note").blur();
-  await page.waitForTimeout(700);
+  await expect(page.getByTestId("detail-note")).toHaveValue("Three paragraphs, no more.");
 
   // ---- subtasks ----------------------------------------------------------
   await page.getByTestId("subtask-input").fill("Draft it");
   await page.getByTestId("subtask-input").press("Enter");
-  await page.waitForTimeout(900);
+  await expect(page.getByTestId("subtask-row")).toHaveCount(1);
   await page.getByTestId("subtask-input").fill("Get it checked");
   await page.getByTestId("subtask-input").press("Enter");
-  await page.waitForTimeout(900);
   await expect(page.getByTestId("subtask-row")).toHaveCount(2);
 
   // Completing one subtask must NOT complete the parent — the decision to
   // close a task belongs to the person who can see the last step was real.
   await page.getByTestId("subtask-row").first().locator("input").check();
-  await page.waitForTimeout(900);
+  await expect(page.getByText("Subtasks · 1/2")).toBeVisible();
 
   // ---- a comment ---------------------------------------------------------
   await page.getByTestId("comment-input").fill("Photographer is booked for the 12th.");
   await page.getByTestId("comment-submit").click();
-  await page.waitForTimeout(900);
   await expect(page.getByTestId("comment-row")).toHaveCount(1);
 
   await page.getByRole("button", { name: "Done" }).last().click();
-  await page.waitForTimeout(700);
+  await expect(page.getByTestId("detail-title")).toHaveCount(0);
 
   // ---- what the card now shows ------------------------------------------
   const card = page.getByTestId("task-card").first();
@@ -115,11 +120,9 @@ test("a board can be created, filled, and worked", async ({ page }) => {
   // ---- complete one ------------------------------------------------------
   await page.getByTestId("view-board").click();
   await page.getByTestId("task-card").first().getByTestId("task-toggle").click();
-  await page.waitForTimeout(1200);
   // Completed tasks leave the board unless you ask for them.
   await expect(page.getByTestId("task-card")).toHaveCount(1);
   await page.getByTestId("filter-done").check();
-  await page.waitForTimeout(1200);
   await expect(page.getByTestId("task-card")).toHaveCount(2);
   await expect(page.getByTestId("board-progress")).toContainText("1/2");
 });
@@ -169,9 +172,11 @@ test("a task moved between columns stays there", async ({ page }) => {
 
   // Playwright's dragTo drives the real HTML5 drag events the board listens for.
   await from.getByTestId("task-card").first().dragTo(to);
-  await page.waitForTimeout(1500);
+  // The card arriving in the other column is the signal the move committed;
+  // only then is it worth asking the database what it recorded.
+  await expect(to.getByTestId("task-card")).toHaveCount(1);
+  await expect(from.getByTestId("task-card")).toHaveCount(0);
 
   const after = await prisma.task.findUnique({ where: { id: task.id } });
   expect(after?.sectionId).toBe(sections[1]!.id);
-  await expect(to.getByTestId("task-card")).toHaveCount(1);
 });
