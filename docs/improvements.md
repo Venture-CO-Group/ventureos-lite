@@ -247,6 +247,27 @@ CLAUDE.md szabálya ezt megengedi, mert explicit felhasználói művelet.
 
 ---
 
+## Az ezt követő kör (2026-09-08, este)
+
+A fenti listán túl a megbízó további hét tételt kért, mind elkészült:
+
+| Tétel | Állapot |
+|---|---|
+| Task-oszlopok háttere ne szürke legyen | ✅ a tálca most világosabb, mint a rajta lévő kártyák — eddig fordítva volt |
+| Board utólagos szerkesztése (név, leírás, szín, archiválás) | ✅ „Edit board" gomb, egy dialógus |
+| Értesítés a taskhoz rendelt személynek | ✅ azonnali e-mail (`emailNow` csatorna), csak erre a típusra |
+| Napi lista a közeli határidőkről | ✅ 07:00-kor, a saját időzónája szerint; késésben / ma / 3 napon belül / új |
+| Settings és admin settings menüre bontása | ✅ 5 + 8 aloldal, egy közös menüből |
+| Teljes tag- és csapatkezelés (§1–§8) | ✅ lásd `docs/member-lifecycle.md` |
+| Audit scoring panel elcsúszása | ✅ két külön layout-hiba, mindkettő javítva |
+| Dashboard tasks ↔ task board összekötése | ✅ és egy valódi szivárgás javítva: a sablon-boardok taskjai mindenki dashboardján megjelentek |
+
+Amit a §8 alapján **szándékosan nem** építettem meg (SCIM, SSO, egyedi
+szerepkörök, guest-fiókok, rekord-szintű ACL, seat-alapú számlázás), és hogy
+hol csatlakozna, az a `docs/member-lifecycle.md` végén van megnevezve.
+
+---
+
 ## Amit én a helyedben ebben a sorrendben csinálnék
 
 | # | Tétel | Miért ez |
