@@ -829,7 +829,19 @@ export function SettingsUsers({
       </div>
 
       {drawerFor && (
-        <MemberDrawer user={drawerFor} onClose={() => setDrawerFor(null)} />
+        <MemberDrawer
+          user={drawerFor}
+          /* Active staff only: work cannot be handed to somebody who cannot
+             sign in, and a read-only client account cannot own anything. */
+          candidates={users
+            .filter(
+              (u) =>
+                u.userId !== drawerFor.userId && u.state === "ACTIVE" && u.role !== "CLIENT",
+            )
+            .map((u) => ({ id: u.userId, name: u.name }))}
+          teams={allTeams}
+          onClose={() => setDrawerFor(null)}
+        />
       )}
 
       {editing && (

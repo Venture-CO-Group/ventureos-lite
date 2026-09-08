@@ -540,6 +540,39 @@ model MembershipEvent {
   @@map("membership_events")
 }
 
+/// A pending change of somebody's sign-in address (§4).
+///
+/// ── WHY THE OLD ADDRESS STAYS LIVE ──────────────────────────────────────────
+///
+/// An email change changes the sign-in identity, so getting it wrong locks
+/// somebody out of their own account — and the classic way to get it wrong is
+/// a typo in the new address, which nobody discovers until they try to sign
+/// in. So the change is staged here, a verification link goes to the NEW
+/// address, and `users.email` is not touched until somebody clicks it. Until
+/// then the old address still works.
+///
+/// Both addresses are notified: the new one gets the link, the old one gets a
+/// "somebody is moving your account" warning, which is the only thing that
+/// catches an attacker who has a session and changes the address to their own.
+model EmailChange {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  /// Where it is moving to. Lower-cased; unique against `users.email` at write
+  /// time rather than here, because the collision is with another table.
+  newEmail    String   @map("new_email")
+  /// sha256 of the opaque token. The token is the credential.
+  tokenHash   String   @unique @map("token_hash")
+  expiresAt   DateTime @map("expires_at")
+  /// The Owner who initiated it, or the user themselves.
+  requestedBy String?  @map("requested_by")
+  confirmedAt DateTime? @map("confirmed_at")
+  cancelledAt DateTime? @map("cancelled_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([userId, confirmedAt])
+  @@map("email_changes")
+}
+
 /// A grouping of people inside a workspace (§5 of the member lifecycle).
 ///
 /// ── TEAMS GRANT NOTHING ─────────────────────────────────────────────────────

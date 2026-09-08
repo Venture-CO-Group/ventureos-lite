@@ -47,6 +47,14 @@ const PUBLIC_PREFIXES = [
    * would not also be told.
    */
   "/invite",
+  /**
+   * Confirming a changed sign-in address (§4).
+   *
+   * Public for the same reason `/invite` and `/reset` are: the token is the
+   * credential, and the person clicking it may not be able to sign in yet —
+   * the address they would sign in with is the thing being confirmed.
+   */
+  "/verify-email",
   "/api/auth", // Auth.js endpoints
   "/api/health", // container + proxy probes
   "/api/cold/unsubscribe", // one-click unsubscribe in cold mail

@@ -5,6 +5,7 @@ import { getMemberDetail, type MemberDetail } from "@/modules/members/detail-act
 import { eventLabel } from "@/modules/members/events";
 import { MEMBERSHIP_STATE_DEFS } from "@/modules/members/lifecycle";
 import type { ManagedUser } from "@/modules/users/actions";
+import { MemberActions } from "./member-actions";
 
 /**
  * One member, everything about them (§3).
@@ -38,9 +39,14 @@ const SOURCE_LABEL: Record<string, string> = {
 
 export function MemberDrawer({
   user,
+  candidates = [],
+  teams = [],
   onClose,
 }: {
   user: ManagedUser;
+  /** Active staff who could take work or take ownership (§4). */
+  candidates?: { id: string; name: string }[];
+  teams?: { id: string; name: string }[];
   onClose: () => void;
 }) {
   const [detail, setDetail] = useState<MemberDetail | null>(null);
@@ -178,6 +184,17 @@ export function MemberDrawer({
               ))}
             </ul>
           )}
+        </section>
+
+        {/*
+          ---- what an Owner can do to them (§4) ----
+
+          In the drawer rather than in the row, because every one of these
+          needs context to decide: you do not suspend somebody without knowing
+          what is on their plate, and the plate is three inches above.
+        */}
+        <section className="mb-4">
+          <MemberActions user={user} candidates={candidates} teams={teams} />
         </section>
 
         {/* ---- the timeline ---- */}
