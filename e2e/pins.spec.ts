@@ -38,6 +38,9 @@ test.afterAll(async () => {
  * which is the whole point of it being a row rather than browser state.
  */
 test("opening a lead records it, and starring it survives a reload", async ({ page }) => {
+  // First visit to /leads in a run compiles the route; the star then waits on
+  // two more round trips.
+  test.setTimeout(90_000);
   await page.goto("/leads");
   await expect(page.getByTestId("skeleton")).toHaveCount(0, { timeout: 30_000 });
 

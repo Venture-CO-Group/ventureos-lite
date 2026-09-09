@@ -41,7 +41,7 @@ export async function openLeadDetail(page: Page, name: string): Promise<void> {
     if (await dialog.first().isVisible().catch(() => false)) {
       // Something is open. Give it a moment to finish loading and say which
       // lead it is.
-      await expect(title).toBeVisible({ timeout: 5_000 });
+      await expect(title).toBeVisible({ timeout: 8_000 });
       const heading = (await title.textContent()) ?? "";
       if (heading.includes(name)) return;
       // A different lead. Close it and let the next attempt click.
@@ -54,6 +54,9 @@ export async function openLeadDetail(page: Page, name: string): Promise<void> {
       .locator("tr", { hasText: name })
       .getByTestId("lead-open-detail")
       .click({ timeout: 5_000 });
-    await expect(title).toBeVisible({ timeout: 5_000 });
-  }).toPass({ timeout: 30_000 });
+    await expect(title).toBeVisible({ timeout: 8_000 });
+    // Generous, because the first visit to /leads in a `next dev` run compiles
+    // the route: the wait is for the bundle, not for anything the product does
+    // slowly.
+  }).toPass({ timeout: 40_000 });
 }

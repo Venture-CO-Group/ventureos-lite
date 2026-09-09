@@ -66,6 +66,21 @@ export default defineConfig({
    * intermittent bug gets ignored.
    */
   timeout: 45_000,
+  /**
+   * And the per-ASSERTION budget, which was left at Playwright's 5s default.
+   *
+   * That default assumes an assertion is waiting for the browser, and here it
+   * is usually waiting for a Server Action to come back from a dev server that
+   * has compiled four hundred tests' worth of routes into one process. The
+   * mismatch is the whole story of the remaining flakes: the test had 45
+   * seconds and the assertion inside it gave up after five. Every one of them
+   * passed alone and passed on retry, and each failure was a timeout rather
+   * than a wrong value.
+   *
+   * Ten seconds does not hide a broken assertion — it fails five seconds
+   * later. It stops a slow round trip being reported as a wrong answer.
+   */
+  expect: { timeout: 10_000 },
   retries: 1,
   use: {
     baseURL: process.env.APP_URL ?? "http://localhost:3000",

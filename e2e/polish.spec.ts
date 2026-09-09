@@ -216,6 +216,10 @@ test("empty screens say what the module is for", async ({ page }) => {
 test("a workflow rule creates a draft a human must send, and it appears in the log", async ({
   page,
 }) => {
+  // The longest journey in this file: settings, a lead, an override, a stage
+  // move, the run log and the draft. Against a dev server that is more than
+  // 45 seconds of compiling and round trips.
+  test.setTimeout(120_000);
   const name = `E2E rule ${tag()}`;
   await page.goto("/settings/admin/workspace");
 
