@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { reorderFavourite, toggleFavouriteAction } from "@/modules/pins/actions";
 import { positionBetween } from "@/modules/pins/logic";
+import { attempt } from "@/lib/client/server-action";
 
 export interface FavouriteRow {
   entityType: string;
@@ -35,6 +36,7 @@ export function SidebarFavourites({ favourites }: { favourites: FavouriteRow[] }
   const router = useRouter();
   const [open, setOpen] = useState(true);
   const [dragId, setDragId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   if (favourites.length === 0) return null;
 
@@ -49,11 +51,16 @@ export function SidebarFavourites({ favourites }: { favourites: FavouriteRow[] }
     const after = without[targetIndex]?.position ?? null;
     const position = positionBetween(before, after);
     if (position === null) return;
-    await reorderFavourite({
-      entityType: moving.entityType,
-      entityId: moving.entityId,
-      position,
-    });
+    // Through `attempt`: Next redacts anything thrown out of an action, so a
+    // bare await would leave a failed reorder looking like a successful one.
+    const res = await attempt(
+      reorderFavourite({
+        entityType: moving.entityType,
+        entityId: moving.entityId,
+        position,
+      }),
+    );
+    if (!res.ok) setError(res.error);
     router.refresh();
   }
 
@@ -70,6 +77,12 @@ export function SidebarFavourites({ favourites }: { favourites: FavouriteRow[] }
         Favourites
         <span className="ml-auto tabular-nums opacity-60">{favourites.length}</span>
       </button>
+
+      {error && (
+        <p className="px-2.5 pb-1 text-[11px] text-[#FFB3C2]" role="status">
+          {error}
+        </p>
+      )}
 
       {open && (
         <div className="grid gap-px">
@@ -97,12 +110,15 @@ export function SidebarFavourites({ favourites }: { favourites: FavouriteRow[] }
                 aria-label={`Remove ${f.label} from favourites`}
                 data-testid="favourite-remove"
                 onClick={async () => {
-                  await toggleFavouriteAction({
-                    entityType: f.entityType,
-                    entityId: f.entityId,
-                    label: f.label,
-                    href: f.href,
-                  });
+                  const res = await attempt(
+                    toggleFavouriteAction({
+                      entityType: f.entityType,
+                      entityId: f.entityId,
+                      label: f.label,
+                      href: f.href,
+                    }),
+                  );
+                  if (!res.ok) setError(res.error);
                   router.refresh();
                 }}
                 className="flex-none text-[12px] text-warn opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"

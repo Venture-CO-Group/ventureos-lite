@@ -28,6 +28,7 @@ import { editLeadField } from "@/modules/leads/inline-actions";
 import { InlineCell, type InlineKind } from "./inline-edit";
 import { PIPELINE_STAGES, SIDE_STAGES, STAGE_LABELS } from "@/modules/pipeline/transitions";
 import { EmptyState } from "./empty-state";
+import { ZeroResults } from "./state-card";
 
 /**
  * The leads table (playbook-v2 P3/2): selectable columns, sorting, pagination
@@ -457,17 +458,18 @@ export function LeadsTable(props: LeadsTableProps) {
                   colSpan={visible.length + 2}
                 >
                   {filtered ? (
-                    <>
-                      No lead matches this filter.{" "}
-                      <button
-                        type="button"
-                        onClick={() => applyFilters({ match: "all", conditions: [] })}
-                        className="underline hover:text-ink"
-                      >
-                        Clear the filter
-                      </button>{" "}
-                      to see all {totalUnfiltered}.
-                    </>
+                    /**
+                     * The two cases were already told apart here — this is the
+                     * precedent P17/3 generalizes. It now goes through the
+                     * shared primitive so every surface says it the same way,
+                     * and so the sentence and the action cannot drift apart.
+                     */
+                    <ZeroResults
+                      noun="leads"
+                      inset
+                      testId="leads-zero-results"
+                      onClear={() => applyFilters({ match: "all", conditions: [] })}
+                    />
                   ) : (
                     <EmptyState
                       title="no leads yet"

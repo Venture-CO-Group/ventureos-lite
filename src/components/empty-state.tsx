@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
+import { StateCard } from "./state-card";
 
 /**
  * The empty state, once, everywhere (playbook-v2 P7/4).
@@ -9,8 +9,13 @@ import Link from "next/link";
  * action that makes it non-empty, because the person looking at it is usually
  * seeing that screen for the first time and has no other source for either.
  *
- * The headline is lowercase Bricolage, matching the prototype's voice
- * throughout; the sentence is one sentence, because two is a manual.
+ * ── NOW A BINDING RATHER THAN A CARD ────────────────────────────────────────
+ *
+ * `StateCard` (playbook-v5 P17/3) owns the three modes a list can be empty
+ * FOR — nothing yet, a filter that matched nothing, and a failure — because
+ * those need three different next actions and collapsing them is how a screen
+ * stops being useful. This is the first of the three, kept under its own name
+ * so its eleven call sites did not have to change.
  */
 export function EmptyState({
   title,
@@ -28,43 +33,18 @@ export function EmptyState({
   /** A quieter second option, when there genuinely is one. */
   secondary?: ReactNode;
   testId?: string;
-  /**
-   * Drop the card of its own, for an empty state that sits INSIDE a panel.
-   *
-   * The default is a dashed-bordered card, which is right when the empty state
-   * IS the panel. Nested inside one — the referrer ledger, the meetings list —
-   * it drew a second border a few pixels inside the first, and a doubled border
-   * around a mostly-empty box is what "the design is falling apart" looks like.
-   */
   inset?: boolean;
 }) {
   return (
-    <div
-      data-testid={testId ?? "empty-state"}
-      className={
-        inset
-          ? "px-4 py-8 text-center"
-          : "rounded-card border border-dashed border-line bg-[rgba(239,241,248,0.02)] px-6 py-10 text-center"
-      }
+    <StateCard
+      mode="empty"
+      title={title}
+      action={action ?? null}
+      secondary={secondary}
+      testId={testId ?? "empty-state"}
+      inset={inset}
     >
-      <h2 className="font-display text-[22px] lowercase tracking-display">{title}</h2>
-      <p className="mx-auto mt-2 max-w-[440px] text-[13px] leading-relaxed text-muted">
-        {children}
-      </p>
-      {(action || secondary) && (
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          {action?.href && (
-            <Link
-              href={action.href}
-              data-testid="empty-state-action"
-              className="rounded-[10px] border-[1.5px] border-transparent bg-canvas px-4 py-2 text-[13px] font-semibold text-ink shadow-glow [background-clip:padding-box,border-box] [background-image:linear-gradient(#00051D,#00051D),linear-gradient(135deg,#310B59,#7427C6)] [background-origin:border-box]"
-            >
-              {action.label}
-            </Link>
-          )}
-          {secondary}
-        </div>
-      )}
-    </div>
+      {children}
+    </StateCard>
   );
 }

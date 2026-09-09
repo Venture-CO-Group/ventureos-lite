@@ -30,7 +30,7 @@ export async function getOnboarding(): Promise<OnboardingView> {
   const { workspaceId, userId } = await getActiveContext();
   const db = getWorkspaceClient(workspaceId);
 
-  const [user, mailAccounts, leads, audits, meetings] = await Promise.all([
+  const [user, mailAccounts, leads, audits, meetings, posts, tokens] = await Promise.all([
     prismaUnsafe.user.findUnique({
       where: { id: userId },
       select: { tourSeenAt: true, checklistHiddenAt: true },
@@ -39,13 +39,23 @@ export async function getOnboarding(): Promise<OnboardingView> {
     db.lead.count({ where: { mergedIntoId: null } }),
     db.auditResult.count(),
     db.meeting.count(),
+    db.contentPost.count(),
+    /**
+     * "Installed the extension" is not directly observable, so the closest
+     * honest proxy is used: a capture token exists. A token is issued in order
+     * to pair the extension, and nothing else issues one — so it means
+     * somebody got as far as setting it up, which is what the step is for.
+     */
+    db.captureToken.count(),
   ]);
 
   const checklist: ChecklistState = {
+    install_extension: tokens > 0,
     connect_email: mailAccounts > 0,
     first_lead: leads > 0,
     first_audit: audits > 0,
     first_meeting: meetings > 0,
+    first_post: posts > 0,
   };
 
   return {

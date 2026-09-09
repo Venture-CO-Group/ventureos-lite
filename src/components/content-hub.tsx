@@ -24,6 +24,7 @@ import {
 import { Modal } from "./modal";
 import { useViewState } from "./use-view-state";
 import { BulkBar, type BulkAction } from "./bulk-bar";
+import { StateCard } from "./state-card";
 import { useBulkSelection } from "./use-bulk-selection";
 import { bulkContentStatus } from "@/modules/content/bulk-actions";
 import { idField } from "@/lib/client/view-state";
@@ -105,6 +106,19 @@ export function ContentHub({ board }: { board: ContentBoardView }) {
     [],
   );
 
+  /** Shared by the header button and the empty Draft column. */
+  const newPost = useCallback(() => {
+    startTransition(async () => {
+      const res = await createPost({ channel: "linkedin" });
+      if (res.ok) {
+        setOpenId(res.id);
+        router.refresh();
+      } else {
+        setMsg({ kind: "err", text: res.error });
+      }
+    });
+  }, [router, setOpenId]);
+
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<ContentStatus | null>(null);
   /**
@@ -185,17 +199,7 @@ export function ContentHub({ board }: { board: ContentBoardView }) {
           className={BTN_PRIMARY}
           data-testid="content-new"
           disabled={pending}
-          onClick={() =>
-            startTransition(async () => {
-              const res = await createPost({ channel: "linkedin" });
-              if (res.ok) {
-                setOpenId(res.id);
-                router.refresh();
-              } else {
-                setMsg({ kind: "err", text: res.error });
-              }
-            })
-          }
+          onClick={newPost}
         >
           + New post
         </button>
@@ -264,7 +268,26 @@ export function ContentHub({ board }: { board: ContentBoardView }) {
               </p>
 
               {posts.length === 0 && (
-                <p className="px-1 py-3 text-[12px] text-muted">Nothing here.</p>
+                /**
+                 * "Nothing here." was a status line, not a state. A column of
+                 * a kanban board is the one place a bare line is nearly
+                 * defensible — but it still has to say what would put
+                 * something in it, and the first column is where the action
+                 * belongs.
+                 */
+                <StateCard
+                  mode="empty"
+                  inset
+                  title={status === "DRAFT" ? "nothing drafted" : "nothing here"}
+                  testId={`content-empty-${status}`}
+                  action={
+                    status === "DRAFT" ? { label: "Write a post", onClick: newPost } : null
+                  }
+                >
+                  {status === "DRAFT"
+                    ? "A topic starts here and moves right as it is written, reviewed and approved."
+                    : `Posts arrive here from ${COLUMN_HINT[status] || "the column to the left"}.`}
+                </StateCard>
               )}
 
               {posts.map((p) => (

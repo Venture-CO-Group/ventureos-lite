@@ -117,6 +117,13 @@ const BUSINESS_TABLES = [
   "membership_events",
   "teams",
   "team_members",
+  /**
+   * Recents and favourites (playbook-v5 P17/2). Workspace-scoped like
+   * everything else — somebody's shortcuts in one workspace have no business
+   * being readable from another, and the RLS coverage test is what caught
+   * this table being added without a policy.
+   */
+  "user_pins",
   "mail_accounts",
   "email_threads",
   "email_messages",

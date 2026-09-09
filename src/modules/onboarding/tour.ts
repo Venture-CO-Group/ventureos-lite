@@ -49,6 +49,32 @@ export const TOUR_STEPS: TourStep[] = [
     body: "Leads move Researched to Replied on the Pipeline board. From Qualified onward the money lives on a Deal, with its own board and forecast.",
     href: "/pipeline",
   },
+  /**
+   * Added after the tour was first written (playbook-v5 P17/3). A guided tour
+   * that stops at the features of six months ago teaches a smaller product
+   * than the one somebody just signed into.
+   */
+  {
+    id: "tasks",
+    title: "work that has steps",
+    body:
+      "Boards for delivery work — columns, subtasks, dependencies, recurrence. Follow-ups raised from a lead stay on the dashboard and need no board.",
+    href: "/tasks",
+  },
+  {
+    id: "deals",
+    title: "money you can forecast",
+    body:
+      "A qualified lead becomes a deal with a value and a close date, on its own pipeline, so the forecast is a sum of real numbers.",
+    href: "/deals",
+  },
+  {
+    id: "content",
+    title: "the content hub",
+    body:
+      "One topic, written for several channels, moving from draft to approved. Claude drafts; a person approves and posts.",
+    href: "/content",
+  },
   {
     id: "settings",
     title: "make it yours",
@@ -57,7 +83,13 @@ export const TOUR_STEPS: TourStep[] = [
   },
 ];
 
-export type ChecklistId = "connect_email" | "first_lead" | "first_audit" | "first_meeting";
+export type ChecklistId =
+  | "install_extension"
+  | "connect_email"
+  | "first_lead"
+  | "first_audit"
+  | "first_meeting"
+  | "first_post";
 
 export interface ChecklistItem {
   id: ChecklistId;
@@ -66,7 +98,27 @@ export interface ChecklistItem {
   href: string;
 }
 
+/**
+ * The first run, in the order somebody actually does it (playbook-v5 P17/3).
+ *
+ * ── WHAT CHANGED, AND WHY ───────────────────────────────────────────────────
+ *
+ * The playbook asks for the extension and the first post, which were missing:
+ * the extension is how leads get captured from LinkedIn at all, so a checklist
+ * that never mentions it leaves the main capture route undiscovered, and the
+ * content hub shipped after this list was written.
+ *
+ * `connect_email` stays. It is not in the playbook's five, but connecting a
+ * mailbox is what makes replies thread onto the lead they belong to, and
+ * dropping a real step to match a count would be the wrong kind of tidy.
+ */
 export const CHECKLIST: ChecklistItem[] = [
+  {
+    id: "install_extension",
+    label: "Install the capture extension",
+    hint: "It is how a LinkedIn profile becomes a lead in one click.",
+    href: "/settings/extension",
+  },
   {
     id: "connect_email",
     label: "Connect your mailbox",
@@ -90,6 +142,12 @@ export const CHECKLIST: ChecklistItem[] = [
     label: "Book your first meeting",
     hint: "From the app, or from your public booking page.",
     href: "/meetings",
+  },
+  {
+    id: "first_post",
+    label: "Write your first post",
+    hint: "Claude drafts in your brand voice; a human approves and posts.",
+    href: "/content",
   },
 ];
 

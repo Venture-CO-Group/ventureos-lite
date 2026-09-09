@@ -4,6 +4,7 @@ import { serverActionError } from "@/lib/client/server-action";
 import { useMemo, useState, useTransition } from "react";
 import { estimateProspectCostUsd } from "@/modules/prospector/cost";
 import { BulkBar, type BulkAction } from "./bulk-bar";
+import { StateCard } from "./state-card";
 import { useBulkSelection } from "./use-bulk-selection";
 import { bulkAddProspects, bulkAuditProspects } from "@/modules/prospector/bulk-actions";
 import type {
@@ -138,7 +139,20 @@ export function Prospector({ saved }: { saved: SavedSearch[] }) {
               rating: r!.rating ?? null,
               reviews: r!.reviews ?? null,
             }));
-          return bulkAddProspects(payloads);
+          /**
+           * try/catch rather than `attempt`, because a BulkResult has no `ok`
+           * field for that helper to key on. A throw out of a Server Action
+           * arrives redacted, so it becomes a per-row skip: the batch reports
+           * a reason instead of the bar reporting nothing at all.
+           */
+          try {
+            return await bulkAddProspects(payloads);
+          } catch {
+            return {
+              applied: 0,
+              skipped: ids.map((id) => ({ id, reason: "The server refused this batch." })),
+            };
+          }
         },
       },
       {
@@ -155,7 +169,14 @@ export function Prospector({ saved }: { saved: SavedSearch[] }) {
               name: r!.name,
               websiteUri: r!.websiteUri ?? null,
             }));
-          return bulkAuditProspects(payloads);
+          try {
+            return await bulkAuditProspects(payloads);
+          } catch {
+            return {
+              applied: 0,
+              skipped: ids.map((id) => ({ id, reason: "The audits could not be queued." })),
+            };
+          }
         },
       },
       {
@@ -350,8 +371,24 @@ export function Prospector({ saved }: { saved: SavedSearch[] }) {
               <tbody>
                 {result.results.length === 0 && (
                   <tr>
-                    <td className="px-3 py-6 text-center text-[13px] text-muted" colSpan={5}>
-                      No results.
+                    <td colSpan={5}>
+                      {/**
+                       * "No results." was a status line. A search that came
+                       * back empty is a ZERO-RESULTS state — there are
+                       * businesses out there, this query did not match them —
+                       * and the useful next action is to widen it, not to
+                       * explain what the prospector is for.
+                       */}
+                      <StateCard
+                        mode="zero-results"
+                        inset
+                        illustration="⌕"
+                        title="nothing matched that search"
+                        testId="prospector-zero-results"
+                      >
+                        Try a broader keyword, a bigger radius, or a nearby town — Places
+                        returns what it has for the exact phrase.
+                      </StateCard>
                     </td>
                   </tr>
                 )}

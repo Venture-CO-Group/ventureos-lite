@@ -121,7 +121,18 @@ describe("combining batch results", () => {
   });
 
   it("handles no batches at all", () => {
-    expect(mergeBulkResults([])).toEqual({ applied: 0, skipped: [] });
+    /**
+     * The undo keys are explicitly null rather than absent since the merge
+     * moved to lib/bulk (playbook-v5 P17/1): the bar reads `undoId` to decide
+     * whether to offer an Undo, and `undefined` vs `null` is a distinction
+     * nothing downstream should have to care about.
+     */
+    expect(mergeBulkResults([])).toEqual({
+      applied: 0,
+      skipped: [],
+      undoId: null,
+      undoLabel: null,
+    });
   });
 });
 

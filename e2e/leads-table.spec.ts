@@ -121,11 +121,17 @@ test("a filter matching nothing says so, and offers the way back", async ({ page
   await page.goto("/leads");
   await filterByText(page, "zzzz-no-such-lead-zzzz");
 
-  const empty = page.locator("tbody tr");
-  await expect(empty).toHaveCount(1);
-  await expect(empty).toContainText("No lead matches this filter");
+  /**
+   * The copy comes from the shared ZeroResults primitive now (playbook-v5
+   * P17/3) rather than being prose in the table. Same two guarantees: it says
+   * the leads are THERE and the filter is what matched nothing, and it offers
+   * the one useful action.
+   */
+  const zero = page.getByTestId("leads-zero-results");
+  await expect(zero).toBeVisible();
+  await expect(zero).toContainText(/none of them match/i);
 
-  await empty.getByRole("button", { name: "Clear the filter" }).click();
+  await zero.getByTestId("state-action").click();
   await expect(page.getByTestId("filter-chip")).toHaveCount(0);
 });
 
