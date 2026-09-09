@@ -1,0 +1,15 @@
+-- Saved views, extended to task boards (playbook-v5 P18/2).
+--
+-- ── EXTENDED, NOT FORKED ────────────────────────────────────────────────────
+--
+-- The playbook is explicit: reuse the SavedView infrastructure built for leads
+-- rather than adding a second one, and if its shape does not fit, extend it and
+-- migrate. It nearly fits — name, entity, owner, shared, filters, sort,
+-- columns and tab position are all exactly what a board view needs too.
+--
+-- What it has nowhere to put is the ENTITY-SPECIFIC view configuration: which
+-- board this view is over, and what its columns are grouped by. Those could
+-- have been smuggled into the `filters` blob, but a filter and a grouping are
+-- different things and conflating them would make the filter parser the wrong
+-- shape for both.
+ALTER TABLE "saved_views" ADD COLUMN "config" JSONB;

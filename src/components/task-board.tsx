@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { serverActionError } from "@/lib/client/server-action";
+import { attempt as attemptAction, serverActionError } from "@/lib/client/server-action";
 import {
   addAttachment,
   addComment,
@@ -60,6 +60,21 @@ import { editTaskField } from "@/modules/tasks/inline-actions";
 import { BulkBar, type BulkAction } from "./bulk-bar";
 import { StarToggle } from "./star-toggle";
 import { MyWork } from "./my-work";
+import { BoardViewTabs } from "./board-view-tabs";
+import {
+  EMPTY_TASK_FILTER,
+  GROUP_BYS,
+  GROUP_BY_LABEL,
+  groupTasksBy,
+  matchesTaskFilter,
+  type GroupBy,
+  type TaskFilter,
+} from "@/modules/tasks/grouping";
+import {
+  getTaskViews,
+  regroupTask,
+} from "@/modules/tasks/board-view-actions";
+import type { TaskBoardView } from "@/modules/tasks/board-views";
 import { useBulkSelection, type BulkSelection } from "./use-bulk-selection";
 import {
   bulkTasksAssign,
@@ -130,6 +145,9 @@ const TASK_VIEW = {
   board: idField("board"),
   task: idField("task"),
   view: enumField("v", ["board", "list", "mine"] as const, "board"),
+  /** Grouping is a view concern, so it belongs in the URL like the rest. */
+  group: enumField("g", GROUP_BYS, "section"),
+  savedView: idField("sv"),
   mine: boolField("mine"),
   done: boolField("done"),
 };
@@ -646,6 +664,99 @@ export function TaskBoards({
    * an action runs — see `resolveBoardTaskIds` — because a count taken in the
    * browser is already stale if a colleague added a card.
    */
+  /**
+   * Grouping, filters and saved views (playbook-v5 P18/2).
+   *
+   * `groupBy` lives in the URL because it is a view concern like the rest.
+   * When it is "section" the board renders its real columns and dragging means
+   * exactly what it always did; anything else renders DERIVED groups and a
+   * drop writes the grouped attribute instead — see modules/tasks/grouping.ts
+   * for why sectionId must never be in that answer.
+   */
+  const groupBy = viewState.group as GroupBy;
+  const setGroupBy = useCallback(
+    (next: GroupBy) => setViewState({ group: next }),
+    [setViewState],
+  );
+  const [taskFilter, setTaskFilter] = useState<TaskFilter>(EMPTY_TASK_FILTER);
+  const [savedViews, setSavedViews] = useState<TaskBoardView[]>([]);
+
+  const loadViews = useCallback(async () => {
+    setSavedViews(await getTaskViews().catch(() => []));
+  }, []);
+
+  useEffect(() => {
+    void loadViews();
+  }, [loadViews]);
+
+  /** Opening a tab applies everything it captured, in one navigation. */
+  const openSavedView = useCallback(
+    (v: TaskBoardView | null) => {
+      if (!v) {
+        setTaskFilter(EMPTY_TASK_FILTER);
+        setViewState({ savedView: null, group: "section" });
+        return;
+      }
+      setTaskFilter(v.filter);
+      setViewState({
+        savedView: v.id,
+        group: v.groupBy,
+        ...(v.boardId ? { board: v.boardId } : {}),
+      });
+    },
+    [setViewState],
+  );
+
+  /** Every task on the board, filtered — the input to any grouping. */
+  const filteredTasks = useMemo(() => {
+    const all = columns.flatMap((c) => c.tasks);
+    return all.filter((t) =>
+      matchesTaskFilter(
+        {
+          ...t,
+          tags: Array.isArray(t.tags) ? t.tags : [],
+          sectionId: t.sectionId,
+          assigneeId: t.assigneeId,
+          assigneeName: t.assigneeName,
+        },
+        taskFilter,
+      ),
+    );
+  }, [columns, taskFilter]);
+
+  const groupedColumns = useMemo(() => {
+    if (groupBy === "section") return [];
+    return groupTasksBy(
+      filteredTasks.map((t) => ({
+        ...t,
+        tags: Array.isArray(t.tags) ? t.tags : [],
+      })),
+      groupBy,
+      members,
+    );
+  }, [filteredTasks, groupBy, members]);
+
+  /**
+   * A drop into a derived group.
+   *
+   * Writes the grouped ATTRIBUTE and nothing else — the action asserts that
+   * `sectionId` came out unchanged, because a mistake here would silently
+   * shred a board's columns.
+   */
+  const onRegroup = useCallback(
+    async (taskId: string, groupKey: string) => {
+      if (!taskId) return;
+      const res = await attemptAction(regroupTask(taskId, groupBy, groupKey));
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      offerUndo(res.undo);
+      await refresh();
+    },
+    [groupBy, offerUndo, refresh],
+  );
+
   const boardTaskCount = useMemo(
     () => columns.reduce((n, c) => n + c.tasks.length, 0),
     [columns],
@@ -1050,7 +1161,120 @@ export function TaskBoards({
           </div>
 
           {/* ---------- board view ---------- */}
+          {/**
+           * The grouping picker and the saved-view tabs.
+           *
+           * Both above the board rather than in a menu: which arrangement you
+           * are looking at is the first thing to know about a board, and a
+           * saved view you cannot see is one nobody uses.
+           */}
           {view === "board" && (
+            <>
+              <BoardViewTabs
+                views={savedViews}
+                activeId={viewState.savedView}
+                currentUserId={currentUserId}
+                current={{ boardId: board.id, groupBy, filter: taskFilter }}
+                onOpen={openSavedView}
+                onChanged={() => void loadViews()}
+              />
+              <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] uppercase tracking-[0.1em] text-muted">Group by</span>
+                {GROUP_BYS.map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    data-testid={`group-by-${g}`}
+                    aria-pressed={groupBy === g}
+                    onClick={() => setGroupBy(g)}
+                    className={`rounded-[8px] px-2.5 py-1 text-[12px] ${
+                      groupBy === g ? "bg-panel-2 text-ink" : "text-muted hover:text-ink"
+                    }`}
+                  >
+                    {GROUP_BY_LABEL[g]}
+                  </button>
+                ))}
+                {groupBy !== "section" && (
+                  <span
+                    data-testid="grouping-note"
+                    className="ml-auto text-[10.5px] text-muted"
+                  >
+                    Dragging sets {GROUP_BY_LABEL[groupBy].toLowerCase()} — the columns are
+                    unchanged.
+                  </span>
+                )}
+              </div>
+            </>
+          )}
+
+          {view === "board" && groupBy !== "section" && (
+            <div className="flex snap-x gap-3 overflow-x-auto pb-3" data-testid="grouped-board">
+              {groupedColumns.map((group) => (
+                <div
+                  key={group.key}
+                  data-testid="board-group"
+                  data-group-key={group.key}
+                  data-droppable={group.droppable}
+                  onDragOver={(e) => {
+                    if (!group.droppable) return;
+                    e.preventDefault();
+                  }}
+                  onDrop={(e) => {
+                    if (!group.droppable) return;
+                    e.preventDefault();
+                    void onRegroup(e.dataTransfer.getData("text/plain"), group.key);
+                  }}
+                  className="min-w-[248px] flex-1 snap-start rounded-card border border-line bg-panel-2 p-2.5"
+                >
+                  <div className="mb-2.5 flex items-center justify-between px-1.5">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+                      {group.label}
+                    </span>
+                    <span className="text-[11px] tabular-nums text-muted">
+                      {group.tasks.length}
+                    </span>
+                  </div>
+                  <div className="grid gap-2.5">
+                    {group.tasks.map((t) => (
+                      <div
+                        key={t.id}
+                        draggable
+                        onDragStart={(e) => {
+                          // In dataTransfer, not state: a re-render during the
+                          // drag can otherwise lose it (see my-work.tsx).
+                          e.dataTransfer.setData("text/plain", t.id);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                      >
+                        <Card
+                          task={t}
+                          dragging={false}
+                          onOpen={() => setOpenTaskId(t.id)}
+                          onToggle={async () => {
+                            const res = await setTaskDone(t.id, !t.doneAt);
+                            offerUndo(res.undo ?? null);
+                            await refresh();
+                          }}
+                          onDragStart={() => {}}
+                          onEdit={(field, value) => editField(t.id, field, value)}
+                          onMove={() => {}}
+                          selected={selection.isSelected(t.id)}
+                          onSelect={() => selection.toggle(t.id)}
+                        />
+                      </div>
+                    ))}
+                    {group.tasks.length === 0 && (
+                      <p className="px-1 py-2 text-[11.5px] text-muted">
+                        {group.droppable ? "Drop a card here." : "Nothing."}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {view === "board" && groupBy === "section" && (
             <div className="flex snap-x gap-3 overflow-x-auto pb-3">
               {columns.map((col) => (
                 <Column

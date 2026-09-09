@@ -2721,6 +2721,12 @@ model SavedView {
   columns     Json     @default("[]")
   /// { field, direction } — null means the default sort.
   sort        Json?
+  /// Entity-specific view configuration (playbook-v5 P18/2).
+  ///
+  /// For a task board: `{ boardId, groupBy }`. A lead view leaves it null.
+  /// Separate from `filters` because a grouping is not a filter, and putting
+  /// it there would make one parser responsible for two unrelated shapes.
+  config      Json?
   /// Tab order within the workspace, lowest first.
   position    Int      @default(0)
   createdAt   DateTime @default(now()) @map("created_at")

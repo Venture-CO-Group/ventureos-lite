@@ -25,7 +25,21 @@ export interface LeadView {
 }
 
 /** A tab a person may not see is a tab that must not reach their browser. */
-export function canSeeView(view: LeadView, userId: string): boolean {
+/**
+ * Ownership, not lead-ness.
+ *
+ * These two took a `LeadView` and read only `ownerId` and `shared`. Task board
+ * views (playbook-v5 P18/2) live in the same table under the same rules, and
+ * the alternative to widening the parameter was a second copy of the rule —
+ * which is exactly how the second copy ends up subtly wrong. The `shared`
+ * test below in particular was hard-won.
+ */
+export interface ViewOwnership {
+  ownerId: string;
+  shared: boolean;
+}
+
+export function canSeeView(view: ViewOwnership, userId: string): boolean {
   return view.shared || view.ownerId === userId;
 }
 
@@ -41,7 +55,7 @@ export function canSeeView(view: LeadView, userId: string): boolean {
  * curation to every seated member removed that accident — without this line, one
  * BDR could rewrite another's private tab out from under them.
  */
-export function canEditView(view: LeadView, userId: string, role: string): boolean {
+export function canEditView(view: ViewOwnership, userId: string, role: string): boolean {
   if (view.ownerId === userId) return true;
   if (!view.shared) return false;
   return isTrustedMember(role);
