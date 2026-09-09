@@ -64,6 +64,7 @@ import { TaskTimeline } from "./task-timeline";
 import { TaskCalendar } from "./task-calendar";
 import { TaskTimePanel } from "./task-time";
 import { TimeReport } from "./time-report";
+import { TaskWorkload } from "./task-workload";
 import { BoardViewTabs } from "./board-view-tabs";
 import {
   EMPTY_TASK_FILTER,
@@ -148,7 +149,11 @@ function initials(name: string): string {
 const TASK_VIEW = {
   board: idField("board"),
   task: idField("task"),
-  view: enumField("v", ["board", "list", "mine", "timeline", "calendar"] as const, "board"),
+  view: enumField(
+    "v",
+    ["board", "list", "mine", "timeline", "calendar", "workload"] as const,
+    "board",
+  ),
   /** Grouping is a view concern, so it belongs in the URL like the rest. */
   group: enumField("g", GROUP_BYS, "section"),
   savedView: idField("sv"),
@@ -416,7 +421,7 @@ export function TaskBoards({
   );
   const view = viewState.view;
   const setView = useCallback(
-    (next: "board" | "list" | "mine" | "timeline" | "calendar") =>
+    (next: "board" | "list" | "mine" | "timeline" | "calendar" | "workload") =>
       setViewState({ view: next }),
     [setViewState],
   );
@@ -1075,7 +1080,9 @@ export function TaskBoards({
                 * detail modal and its URL state, and "what is on me" belongs
                 * beside "where is everything" rather than a click away from it.
                 */}
-              {(["board", "list", "mine", "timeline", "calendar"] as const).map((v) => (
+              {(
+                ["board", "list", "mine", "timeline", "calendar", "workload"] as const
+              ).map((v) => (
                 <button
                   key={v}
                   onClick={() => setView(v)}
@@ -1327,6 +1334,14 @@ export function TaskBoards({
           )}
 
           {/* ---------- list view ---------- */}
+          {view === "workload" && (
+            <TaskWorkload
+              boardId={board.id}
+              onOpen={setOpenTaskId}
+              onChanged={() => void refresh()}
+            />
+          )}
+
           {view === "calendar" && (
             <TaskCalendar
               boardId={board.id}
