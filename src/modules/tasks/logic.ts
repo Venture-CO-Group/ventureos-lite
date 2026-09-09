@@ -145,3 +145,109 @@ export function dueInDays(days: number, now: Date = new Date()): Date {
   due.setHours(17, 0, 0, 0);
   return due;
 }
+
+// ---------------------------------------------------------------------------
+// My Work buckets (playbook-v5 P18/1)
+// ---------------------------------------------------------------------------
+
+/**
+ * The five sections My Work is arranged into.
+ *
+ * ── WHY THIS IS DERIVED FROM bucketOf AND NOT A SECOND OPINION ──────────────
+ *
+ * The playbook asks that "Today Queue and My Work agree on what is due", and
+ * the only way to guarantee that is one function. `bucketOf` already decides
+ * overdue / today / upcoming / someday for the dashboard panel; My Work needs
+ * upcoming split into "this week" and "later", which is a finer READING of the
+ * same answer rather than a new one. So this calls `bucketOf` first and only
+ * subdivides what it returns — and a test asserts the two can never disagree.
+ */
+export const WORK_BUCKETS = ["overdue", "today", "week", "later", "undated"] as const;
+export type WorkBucket = (typeof WORK_BUCKETS)[number];
+
+export const WORK_BUCKET_LABEL: Record<WorkBucket, string> = {
+  overdue: "Overdue",
+  today: "Today",
+  week: "This week",
+  later: "Later",
+  undated: "No date",
+};
+
+/**
+ * What dragging INTO a bucket means, said out loud in the UI.
+ *
+ * The playbook asks for the rule to be explicit, because "drop it in Later"
+ * has no obvious date. Today is today; this week is the coming Sunday; later
+ * is a week out; no date clears it. Overdue is not a destination — nobody
+ * means "make this late", so it is the one bucket you cannot drop into.
+ */
+export const WORK_BUCKET_RULE: Record<WorkBucket, string> = {
+  overdue: "What has already passed. You cannot move work into it — nobody means “make this late”.",
+  today: "Sets the due date to the end of today.",
+  week: "Sets the due date to the end of this week, which is the coming Sunday.",
+  later: "Sets the due date to a week from today.",
+  undated: "Clears the due date, so it stops counting towards anything.",
+};
+
+/** Sunday of the week `now` falls in, at end of day. */
+export function endOfWeek(now: Date = new Date()): Date {
+  const out = new Date(now);
+  // Monday-first weeks: getDay() is 0 for Sunday, so Sunday IS the end.
+  const daysToSunday = (7 - out.getDay()) % 7;
+  out.setDate(out.getDate() + daysToSunday);
+  out.setHours(23, 59, 59, 999);
+  return out;
+}
+
+export function workBucketOf(task: TaskLike, now: Date = new Date()): WorkBucket | "done" {
+  const coarse = bucketOf(task, now);
+  if (coarse === "done") return "done";
+  if (coarse === "overdue") return "overdue";
+  if (coarse === "today") return "today";
+  if (coarse === "someday") return "undated";
+  // `upcoming`, split by whether it lands inside this week.
+  return task.dueAt && task.dueAt.getTime() <= endOfWeek(now).getTime() ? "week" : "later";
+}
+
+/**
+ * The date a drop into a bucket produces, or `undefined` for a bucket that is
+ * not a destination.
+ *
+ * End of day, like every other due date this system writes: "due Friday" means
+ * that day, not 14:37 on it.
+ */
+export function dueDateForBucket(bucket: WorkBucket, now: Date = new Date()): Date | null | undefined {
+  if (bucket === "overdue") return undefined;
+  if (bucket === "undated") return null;
+  if (bucket === "today") {
+    const out = new Date(now);
+    out.setHours(23, 59, 59, 999);
+    return out;
+  }
+  if (bucket === "week") return endOfWeek(now);
+  const out = new Date(now);
+  out.setDate(out.getDate() + 7);
+  out.setHours(23, 59, 59, 999);
+  return out;
+}
+
+export interface WorkBuckets<T extends TaskLike> {
+  overdue: T[];
+  today: T[];
+  week: T[];
+  later: T[];
+  undated: T[];
+}
+
+export function bucketWork<T extends TaskLike>(
+  tasks: T[],
+  now: Date = new Date(),
+): WorkBuckets<T> {
+  const out: WorkBuckets<T> = { overdue: [], today: [], week: [], later: [], undated: [] };
+  for (const task of orderTasks(tasks.filter((t) => !t.doneAt), now)) {
+    const bucket = workBucketOf(task, now);
+    if (bucket === "done") continue;
+    out[bucket].push(task);
+  }
+  return out;
+}

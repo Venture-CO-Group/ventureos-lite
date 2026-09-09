@@ -47,7 +47,6 @@ import {
   readRecurrence,
   type TaskPriority,
 } from "@/modules/tasks/board-logic";
-import { MY_WORK_LIMIT } from "@/modules/tasks/attachment-rules";
 import { TYPE_LABEL, type TaskType } from "@/modules/tasks/logic";
 import { MAX_ATTACHMENT_BYTES } from "@/modules/tasks/attachment-rules";
 import { Modal } from "./modal";
@@ -60,6 +59,7 @@ import {
 import { editTaskField } from "@/modules/tasks/inline-actions";
 import { BulkBar, type BulkAction } from "./bulk-bar";
 import { StarToggle } from "./star-toggle";
+import { MyWork } from "./my-work";
 import { useBulkSelection, type BulkSelection } from "./use-bulk-selection";
 import {
   bulkTasksAssign,
@@ -129,7 +129,7 @@ function initials(name: string): string {
 const TASK_VIEW = {
   board: idField("board"),
   task: idField("task"),
-  view: enumField("v", ["board", "list"] as const, "board"),
+  view: enumField("v", ["board", "list", "mine"] as const, "board"),
   mine: boolField("mine"),
   done: boolField("done"),
 };
@@ -394,7 +394,7 @@ export function TaskBoards({
   );
   const view = viewState.view;
   const setView = useCallback(
-    (next: "board" | "list") => setViewState({ view: next }),
+    (next: "board" | "list" | "mine") => setViewState({ view: next }),
     [setViewState],
   );
   /**
@@ -405,6 +405,16 @@ export function TaskBoards({
    * came from.
    */
   const [mine, setMine] = useState<MyWorkItem[] | null>(null);
+
+  /**
+   * Loaded when the view is chosen, not on mount.
+   *
+   * My Work reads across every board, so it is the most expensive query on
+   * this screen — and most visits never open it.
+   */
+  const loadMine = useCallback(async () => {
+    setMine(await myWork().catch(() => []));
+  }, []);
   const [templates, setTemplates] = useState<BoardTemplateSummary[]>([]);
   const [fromTemplate, setFromTemplate] = useState(false);
   const mineOnly = viewState.mine;
@@ -469,6 +479,13 @@ export function TaskBoards({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (view === "mine" && mine === null) void loadMine();
+    // `mine` is the guard, not a trigger: re-running on every change to it
+    // would refetch after each row edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, loadMine]);
 
   useEffect(() => {
     listBoardTemplates()
@@ -841,21 +858,7 @@ export function TaskBoards({
             + From template
           </button>
         )}
-        <button
-          onClick={async () => {
-            if (mine) {
-              setMine(null);
-              return;
-            }
-            setMine(await myWork().catch(() => []));
-          }}
-          data-testid="my-work"
-          className={`ml-auto rounded-[10px] border px-3 py-2 text-[12.5px] ${
-            mine ? "border-accent bg-accent-soft text-ink" : "border-line bg-panel text-muted hover:text-ink"
-          }`}
-        >
-          My work
-        </button>
+
       </div>
 
       {error && (
@@ -868,74 +871,13 @@ export function TaskBoards({
       )}
 
       {/* ---------- my work, across boards (P3/3.4) ---------- */}
-      {mine && (
-        <div className="mb-4 rounded-card border border-line bg-panel" data-testid="my-work-list">
-          <div className="border-b border-line px-3.5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-            My work · every board · {mine.length}
-            {mine.length >= MY_WORK_LIMIT && (
-              <>
-                {" · "}
-                <b className="text-warn">capped at {MY_WORK_LIMIT}</b>
-              </>
-            )}
-          </div>
-          {mine.length === 0 && (
-            <p className="p-6 text-center text-[12.5px] text-muted">
-              Nothing is assigned to you right now.
-            </p>
-          )}
-          {mine.map((t) => {
-            const due = dueLabel(t.dueAt);
-            const priority = (t.priority as TaskPriority) ?? "none";
-            return (
-              <button
-                key={t.id}
-                onClick={() => {
-                  if (t.boardId) setBoardId(t.boardId);
-                  setOpenTaskId(t.id);
-                }}
-                data-testid="my-work-row"
-                className="flex w-full items-center gap-2.5 border-b border-line px-3.5 py-2.5 text-left last:border-b-0 hover:bg-panel-2"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12.5px] text-ink">{t.title}</span>
-                  <span className="block truncate text-[10.5px] text-muted">
-                    {t.boardName ?? "no board"}
-                    {t.sectionName ? ` · ${t.sectionName}` : ""}
-                    {t.entityLabel ? ` · ${t.entityLabel}` : ""}
-                  </span>
-                </span>
-                {/* A blocked task is not the next thing to pick up, and saying
-                    so is the point of having dependencies at all. */}
-                {t.blockedCount > 0 && (
-                  <span
-                    data-testid="my-work-blocked"
-                    className="flex-none rounded-full bg-[rgba(245,184,65,0.15)] px-2 py-0.5 text-[10px] font-semibold text-warn"
-                  >
-                    waiting on {t.blockedCount}
-                  </span>
-                )}
-                {priority !== "none" && (
-                  <span
-                    className={`flex-none rounded-full px-2 py-0.5 text-[10px] font-semibold ${PRIORITY_CLASS[priority]}`}
-                  >
-                    {PRIORITY_LABEL[priority]}
-                  </span>
-                )}
-                {due.text && (
-                  <span
-                    className={`w-[92px] flex-none text-right text-[11px] ${
-                      due.overdue ? "text-[#FF5C7A]" : "text-muted"
-                    }`}
-                  >
-                    {due.text}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {/**
+       * The old My Work panel — a toggle above the board, flat and unbucketed —
+       * is gone. It is the `mine` VIEW now (playbook-v5 P18/1): five date
+       * buckets from the same function the dashboard uses, drag to reschedule,
+       * and a grouping toggle. A panel that duplicated the view would be two
+       * answers to one question.
+       */}
 
       {!board && (
         <div className="rounded-card border border-line bg-panel p-8 text-center">
@@ -1011,7 +953,13 @@ export function TaskBoards({
           {/* ---------- toolbar ---------- */}
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <div className="flex rounded-[10px] border border-line bg-panel p-0.5">
-              {(["board", "list"] as const).map((v) => (
+              {/**
+                * "mine" is a THIRD view rather than a page of its own
+                * (playbook-v5 P18/1): it shares the board's data loading, its
+                * detail modal and its URL state, and "what is on me" belongs
+                * beside "where is everything" rather than a click away from it.
+                */}
+              {(["board", "list", "mine"] as const).map((v) => (
                 <button
                   key={v}
                   onClick={() => setView(v)}
@@ -1147,6 +1095,17 @@ export function TaskBoards({
           )}
 
           {/* ---------- list view ---------- */}
+          {view === "mine" && (
+            <MyWork
+              items={mine ?? []}
+              onChanged={() => {
+                void loadMine();
+                void refresh();
+              }}
+              onOpen={setOpenTaskId}
+            />
+          )}
+
           {view === "list" && (
             <div className="rounded-card border border-line bg-panel">
               {listTasks.length === 0 && (

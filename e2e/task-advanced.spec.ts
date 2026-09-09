@@ -114,9 +114,12 @@ test("a blocked task still shows up, and says what it is waiting for", async ({ 
     data: { workspaceId, taskId: blocked.id, blockedById: blocker.id },
   });
 
-  await page.goto(`/tasks?board=${boardId}`);
-  await page.getByTestId("my-work").click();
-  await expect(page.getByTestId("my-work-list")).toBeVisible();
+  /**
+   * `?v=mine` — My Work is a VIEW now (playbook-v5 P18/1) rather than a toggle
+   * panel above the board, so it is a place with a URL like the other two.
+   */
+  await page.goto(`/tasks?board=${boardId}&v=mine`);
+  await expect(page.getByTestId("my-work")).toBeVisible({ timeout: 20_000 });
 
   /**
    * The row for THIS task, not `.first()`.
@@ -130,9 +133,15 @@ test("a blocked task still shows up, and says what it is waiting for", async ({ 
   await expect(row).toHaveCount(1);
   // A blocked task is not the next thing to pick up, and saying so is the
   // point of having dependencies at all.
-  await expect(row.getByTestId("my-work-blocked")).toContainText("waiting on 1");
+  // The chip says "blocked" and its title carries the count; the row is not
+  // hidden, because a dependency is reported and never enforced.
+  await expect(row.getByTestId("my-work-blocked")).toBeVisible();
+  await expect(row.getByTestId("my-work-blocked")).toHaveAttribute(
+    "title",
+    /waiting on 1 unfinished task/i,
+  );
   // It names the board it came from, which the dashboard panel cannot.
-  await expect(row).toContainText(BOARD);
+  await expect(row.getByTestId("my-work-board")).toContainText(BOARD);
 });
 
 /**

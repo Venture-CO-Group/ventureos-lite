@@ -9,7 +9,14 @@ import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
 import { isSafeColor } from "@/modules/workspaces/brand";
 import { recordUndo, type UndoToken } from "../undo/store";
-import { TASK_TYPES } from "./logic";
+import {
+  TASK_TYPES,
+  WORK_BUCKETS,
+  WORK_BUCKET_LABEL,
+  WORK_BUCKET_RULE,
+  dueDateForBucket,
+  type WorkBucket,
+} from "./logic";
 import { buildPriorityMatrix, priorityMapFrom, QUADRANTS } from "@/modules/audit/priority";
 import type { AuditCheck } from "@/modules/audit/types";
 import {
@@ -1152,6 +1159,9 @@ export async function createBoardFromTemplate(
 
 export interface MyWorkItem {
   id: string;
+  /** call | email | todo | follow_up. Needed to satisfy TaskLike, which the
+   *  shared bucketing works over — one shape, one set of due-ness rules. */
+  type: string;
   title: string;
   priority: string;
   dueAt: Date | null;
@@ -1161,6 +1171,16 @@ export interface MyWorkItem {
   entityLabel: string | null;
   entityHref: string | null;
   blockedCount: number;
+  /**
+   * Added for the My Work screen (playbook-v5 P18/1). Each answers a question
+   * the flat list could not: what kind of work this is, how far through it is,
+   * and — the one that matters — whether WE raised it or the person did.
+   */
+  tags: string[];
+  subtasks: { done: number; total: number } | null;
+  /** Set when the system created it. "raised from a signal", not their idea. */
+  source: string | null;
+  doneAt: Date | null;
 }
 
 /**
@@ -1194,12 +1214,16 @@ export async function myWork(): Promise<MyWorkItem[]> {
    */
   const SELECT = {
     id: true,
+    type: true,
     title: true,
     priority: true,
     dueAt: true,
+    doneAt: true,
     boardId: true,
     entityType: true,
     entityId: true,
+    tags: true,
+    source: true,
     board: { select: { name: true } },
     section: { select: { name: true } },
   } as const;
@@ -1243,6 +1267,32 @@ export async function myWork(): Promise<MyWorkItem[]> {
     blockedCount.set(d.taskId, (blockedCount.get(d.taskId) ?? 0) + 1);
   }
 
+  /**
+   * Subtask progress, in one grouped query rather than one per row.
+   *
+   * "3/7" is the difference between a list of titles and a list you can judge
+   * how much is left in.
+   */
+  const children = await db.task.groupBy({
+    by: ["parentId"],
+    where: { parentId: { in: rows.map((r) => r.id) } },
+    _count: { _all: true },
+  });
+  const childrenDone = await db.task.groupBy({
+    by: ["parentId"],
+    where: { parentId: { in: rows.map((r) => r.id) }, doneAt: { not: null } },
+    _count: { _all: true },
+  });
+  const doneByParent = new Map(childrenDone.map((c) => [c.parentId, c._count._all]));
+  const subtaskProgress = new Map<string, { done: number; total: number }>();
+  for (const group of children) {
+    if (!group.parentId) continue;
+    subtaskProgress.set(group.parentId, {
+      done: doneByParent.get(group.parentId) ?? 0,
+      total: group._count._all,
+    });
+  }
+
   const leadIds = rows.filter((r) => r.entityType === "lead" && r.entityId).map((r) => r.entityId!);
   const companyIds = rows
     .filter((r) => r.entityType === "company" && r.entityId)
@@ -1273,6 +1323,7 @@ export async function myWork(): Promise<MyWorkItem[]> {
     }
     return {
       id: r.id,
+      type: r.type,
       title: r.title,
       priority: r.priority,
       dueAt: r.dueAt,
@@ -1282,6 +1333,10 @@ export async function myWork(): Promise<MyWorkItem[]> {
       entityLabel,
       entityHref,
       blockedCount: blockedCount.get(r.id) ?? 0,
+      tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],
+      subtasks: subtaskProgress.get(r.id) ?? null,
+      source: r.source ?? null,
+      doneAt: r.doneAt,
     };
   });
 }
@@ -1400,4 +1455,53 @@ export async function deleteAttachment(
   await unlink(join(FILES_DIR, row.path)).catch(() => {});
   revalidatePath("/tasks");
   return { ok: true };
+}
+
+/**
+ * Reschedule by dropping into a bucket (playbook-v5 P18/1).
+ *
+ * The rule each bucket applies is stated in the UI (WORK_BUCKET_RULE) rather
+ * than left for somebody to infer, and `overdue` is refused because nobody
+ * means "make this late".
+ *
+ * Undoable, because a drag is the easiest thing in the product to do by
+ * accident.
+ */
+export async function rescheduleToBucket(
+  taskId: string,
+  bucket: string,
+): Promise<{ ok: true; undo: UndoToken | null } | { ok: false; error: string }> {
+  if (!(WORK_BUCKETS as readonly string[]).includes(bucket)) {
+    return { ok: false, error: "That is not a bucket." };
+  }
+  const target = dueDateForBucket(bucket as WorkBucket);
+  if (target === undefined) {
+    return { ok: false, error: WORK_BUCKET_RULE.overdue };
+  }
+
+  const { workspaceId, userId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+  const before = await db.task.findUnique({
+    where: { id: taskId },
+    select: { id: true, title: true, dueAt: true, startAt: true },
+  });
+  if (!before) return { ok: false, error: "Task not found." };
+
+  // The same rule the inline edit and the bulk action enforce.
+  if (target && before.startAt && before.startAt.getTime() > target.getTime()) {
+    return { ok: false, error: "A task cannot be due before it starts." };
+  }
+
+  await db.task.update({ where: { id: taskId }, data: { dueAt: target } });
+
+  const undo = await recordUndo(workspaceId, userId, {
+    kind: "bulk_signals",
+    label: `Moved “${before.title}” to ${WORK_BUCKET_LABEL[bucket as WorkBucket]}`,
+    inverse: { entity: "task", targets: [{ id: taskId, set: { dueAt: before.dueAt } }] },
+    expected: { [taskId]: { dueAt: target ? target.toISOString() : null } },
+  });
+
+  revalidatePath("/tasks");
+  revalidatePath("/");
+  return { ok: true, undo };
 }
