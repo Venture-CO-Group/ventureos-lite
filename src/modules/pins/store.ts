@@ -18,6 +18,7 @@
  */
 
 import { getWorkspaceClient } from "@/lib/db";
+import { isInternalPath } from "@/lib/paths";
 import {
   capFor,
   isPinEntity,
@@ -28,10 +29,7 @@ import {
   type PinRow,
 } from "./logic";
 
-/** A relative path on this app: one leading slash, and no scheme sneaking in. */
-export function isInternalPath(href: string): boolean {
-  return /^\/(?![/\\])/.test(href);
-}
+export { isInternalPath };
 
 export async function recordRecent(
   workspaceId: string,

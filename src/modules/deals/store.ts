@@ -7,6 +7,7 @@
 
 import type { WorkspaceClient } from "@/lib/db";
 import { getWorkspaceClient } from "@/lib/db";
+import { openTaskCounts } from "@/modules/tasks/entity-tasks";
 import {
   DEFAULT_PIPELINES,
   DEFAULT_PIPELINE_KEY,
@@ -142,6 +143,13 @@ export interface DealCardView {
    * towards a certificate nobody issues.
    */
   projectId: string | null;
+  /**
+   * Open tasks on this deal (playbook-v5 P20/4) — the badge on the card.
+   *
+   * A deal nobody has anything to do next on is the one that quietly rots, so
+   * the number belongs where the board is read rather than one click inside.
+   */
+  openTaskCount: number;
 }
 
 /**
@@ -210,6 +218,16 @@ export async function loadPipelineBoard(
     }
   }
 
+  /**
+   * One query for every card's open-task count, from both the fast path and
+   * the link table (playbook-v5 P20/4).
+   */
+  const taskCounts = await openTaskCounts(
+    workspaceId,
+    "deal",
+    deals.map((d) => d.id),
+  );
+
   return deals.map((d) => {
     const chainTypes = [...new Set(d.documents.map((doc) => doc.type as string))];
     const invoiceStatus =
@@ -245,6 +263,7 @@ export async function loadPipelineBoard(
       chainTypes,
       invoiceStatus,
       projectId: projectByDeal.get(d.id) ?? null,
+      openTaskCount: taskCounts.get(d.id) ?? 0,
     };
   });
 }

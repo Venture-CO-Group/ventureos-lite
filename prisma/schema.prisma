@@ -1441,6 +1441,9 @@ model Task {
 
   timeEntries TimeEntry[]
   checklist   TaskChecklistItem[]
+  /// Links to entities BEYOND the one in `entityType`/`entityId` — a task that
+  /// genuinely spans a deal and its company (playbook-v5 P20/4).
+  links       TaskLink[]
 
   board       TaskBoard?       @relation(fields: [boardId], references: [id], onDelete: SetNull)
   section     TaskSection?     @relation(fields: [sectionId], references: [id], onDelete: SetNull)
@@ -3229,6 +3232,30 @@ model TimeEntry {
 /// it matches the existing rule that a parent's completion never cascades from
 /// its subtasks: deciding the work is finished belongs to the person who can
 /// see whether the last step was real.
+/// An extra entity a task belongs to (playbook-v5 P20/4).
+///
+/// `tasks.entity_type` / `tasks.entity_id` remain the single-entity fast path
+/// that twenty writers already use; this table carries the additional links,
+/// and reads union the two. Nothing was migrated in, so there is no mirror to
+/// drift — see the migration for the argument.
+model TaskLink {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  taskId      String   @map("task_id")
+  /// lead | company | deal | project | document — the same vocabulary as
+  /// `Task.entityType`, so one function resolves labels and hrefs for both.
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, entityType, entityId])
+  @@index([workspaceId, entityType, entityId])
+  @@map("task_links")
+}
+
 model TaskChecklistItem {
   id          String    @id @default(cuid())
   workspaceId String    @map("workspace_id")

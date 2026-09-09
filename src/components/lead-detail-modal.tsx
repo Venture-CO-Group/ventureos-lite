@@ -39,6 +39,7 @@ import { Modal } from "./modal";
 import { InlineField, type InlineSaveResult, type InlineValue } from "./inline-edit";
 import { StarToggle } from "./star-toggle";
 import { editLeadDetailField } from "@/modules/leads/detail-inline-actions";
+import { EntityTasks } from "./entity-tasks";
 
 const INLINE_HINT =
   "Corrected in place — each change saves as you leave the field.";
@@ -59,6 +60,8 @@ const BTN_PRIMARY =
 export function LeadDetailModal({ leadId, onClose }: { leadId: string; onClose: () => void }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  /** Open tasks on this lead, for the header badge (playbook-v5 P20/4). */
+  const [openTasks, setOpenTasks] = useState(0);
   const [detail, setDetail] = useState<LeadDetail | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
@@ -422,6 +425,16 @@ export function LeadDetailModal({ leadId, onClose }: { leadId: string; onClose: 
         <h3 id="lead-modal-title" className="font-display text-lg font-bold lowercase">
           {form.contactName || form.companyName || "lead"}
         </h3>
+        {/* Open work, on the header, where it is seen before anything else. */}
+        {openTasks > 0 && (
+          <span
+            data-testid="entity-header-task-badge"
+            title={`${openTasks} open task${openTasks === 1 ? "" : "s"}`}
+            className="rounded-full border border-accent-soft px-2 py-0.5 text-[11px] tabular-nums text-accent-ink"
+          >
+            ☑ {openTasks}
+          </span>
+        )}
         {/**
          * The star also records the visit (playbook-v5 P17/2) — mounting it
          * means somebody is looking at this lead, which is exactly when a
@@ -1099,6 +1112,14 @@ export function LeadDetailModal({ leadId, onClose }: { leadId: string; onClose: 
               </ul>
             )}
           </section>
+
+          {/**
+           * What is open on this lead (playbook-v5 P20/4). Tasks always knew
+           * which lead they were about; the lead did not know what was open on
+           * it, which meant the follow-up raised from a signal was invisible
+           * from the one screen a person actually opens.
+           */}
+          <EntityTasks kind="lead" entityId={form.id} onCountChange={setOpenTasks} />
 
           <section className="grid gap-2 rounded-[11px] border border-line p-3">
             <p className={LABEL}>Timeline</p>

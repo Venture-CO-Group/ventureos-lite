@@ -15,6 +15,7 @@ import {
 import { completeTask, reopenTask } from "@/modules/tasks/actions";
 import { EmptyState } from "./empty-state";
 import { Modal } from "./modal";
+import { EntityTasks } from "./entity-tasks";
 
 const CARD = "rounded-card border border-line bg-panel p-4";
 const BTN =
@@ -53,6 +54,8 @@ export function Projects({ board }: { board: ProjectBoard }) {
   const [open, setOpen] = useState<ProjectDetail | null>(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [newTitle, setNewTitle] = useState("");
+  /** Ad-hoc tasks on this project, for the header badge (playbook-v5 P20/4). */
+  const [openTasks, setOpenTasks] = useState(0);
 
   /**
    * Deep link from the deal board: starting a project lands the operator on
@@ -271,6 +274,15 @@ export function Projects({ board }: { board: ProjectBoard }) {
               <h3 id="project-title" className="font-display text-[19px] font-extrabold lowercase">
                 {open.name.toLowerCase()}
               </h3>
+              {openTasks > 0 && (
+                <span
+                  data-testid="entity-header-task-badge"
+                  title={`${openTasks} open task${openTasks === 1 ? "" : "s"}`}
+                  className="ml-2 align-middle rounded-full border border-accent-soft px-2 py-0.5 text-[11px] tabular-nums text-accent-ink"
+                >
+                  ☑ {openTasks}
+                </span>
+              )}
               <p className="text-[12px] text-muted">
                 {open.companyName ?? "—"} · {open.done}/{open.total} kész
                 {open.closedAt && ` · lezárva ${when(open.closedAt)}`}
@@ -356,6 +368,14 @@ export function Projects({ board }: { board: ProjectBoard }) {
                 </button>
               </div>
             )}
+
+            {/**
+             * Work that grew around the plan (playbook-v5 P20/4). The
+             * milestones above are the template's checklist; this is
+             * everything else anybody attached to the project, and the panel
+             * deliberately leaves the milestones out so nothing appears twice.
+             */}
+            <EntityTasks kind="project" entityId={open.id} onCountChange={setOpenTasks} />
 
             <div className="flex flex-wrap gap-2 border-t border-line pt-3">
               <Link href={`/deals?deal=${open.dealId}`} className={BTN}>

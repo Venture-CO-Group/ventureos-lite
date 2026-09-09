@@ -4,7 +4,6 @@ import { attemptVoid } from "@/lib/client/server-action";
 import { useEffect, useState } from "react";
 import {
   myTasks,
-  tasksForEntity,
   createTask,
   completeTask,
   reopenTask,
@@ -328,71 +327,6 @@ export function TasksPanel({ initial }: { initial: TaskView[] }) {
       )}
 
       <NewTask onCreated={refresh} />
-    </div>
-  );
-}
-
-/** The per-entity list, for a lead or a company. */
-export function EntityTasks({
-  entityType,
-  entityId,
-}: {
-  entityType: "lead" | "company" | "document";
-  entityId: string;
-}) {
-  const { offerUndo } = useToast();
-  const [tasks, setTasks] = useState<TaskView[] | null>(null);
-
-  async function refresh() {
-    setTasks(await tasksForEntity(entityType, entityId));
-  }
-
-  /** Same optimism as the dashboard panel, same rollback on failure (P6/3). */
-  async function toggleHere(task: TaskView) {
-    const previous = tasks;
-    const done = task.doneAt !== null;
-    setTasks((list) =>
-      (list ?? []).map((t) =>
-        t.id === task.id ? { ...t, doneAt: done ? null : new Date() } : t,
-      ),
-    );
-    try {
-      if (done) {
-        await reopenTask(task.id);
-      } else {
-        offerUndo((await completeTask(task.id)).undo);
-      }
-      await refresh();
-    } catch {
-      setTasks(previous);
-    }
-  }
-
-  useEffect(() => {
-    let active = true;
-    tasksForEntity(entityType, entityId).then((t) => {
-      if (active) setTasks(t);
-    });
-    return () => {
-      active = false;
-    };
-  }, [entityType, entityId]);
-
-  if (!tasks) return null;
-  const open = tasks.filter((t) => !t.doneAt);
-
-  return (
-    <div className="mt-3.5 rounded-card border border-line bg-panel p-[18px]">
-      <div className="mb-1 flex flex-wrap items-baseline gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-          Tasks
-        </span>
-        {open.length > 0 && <span className="text-[11px] text-muted">{open.length} open</span>}
-      </div>
-      {tasks.map((t) => (
-        <TaskRow key={t.id} task={t} onToggle={toggleHere} onChanged={refresh} />
-      ))}
-      <NewTask entity={{ entityType, entityId }} onCreated={refresh} />
     </div>
   );
 }

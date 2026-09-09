@@ -6,6 +6,7 @@ import { getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
 import { recordUndo, type UndoToken } from "../undo/store";
 import { TASK_TYPES, groupTasks, orderTasks, type GroupedTasks, type TaskLike } from "./logic";
+import { chipFor } from "./links";
 
 /**
  * Tasks (playbook-v2 P3/3).
@@ -206,18 +207,16 @@ async function decorate(
 
   return rows.map((r) => {
     const boardId = r.boardId ?? null;
-    let entityLabel: string | null = null;
-    let entityHref: string | null = null;
-    if (r.entityType === "lead" && r.entityId) {
-      entityLabel = leadLabel.get(r.entityId) ?? null;
-      entityHref = `/leads?lead=${r.entityId}`;
-    } else if (r.entityType === "company" && r.entityId) {
-      entityLabel = companyLabel.get(r.entityId) ?? null;
-      entityHref = `/leads?company=${r.entityId}`;
-    } else if (r.entityType === "document" && r.entityId) {
-      entityLabel = "document";
-      entityHref = `/documents?doc=${r.entityId}`;
-    }
+    /**
+     * One resolver for the chip (playbook-v5 P20/4). This chain used to be
+     * written out in three files with three slightly different sets of cases,
+     * which is how a company-linked task ended up pointing at a query
+     * parameter nobody read.
+     */
+    const { label: entityLabel, href: entityHref } = chipFor(r, {
+      lead: leadLabel,
+      company: companyLabel,
+    });
     return {
       ...r,
       entityLabel,
@@ -288,32 +287,3 @@ export async function myTasks(): Promise<GroupedTasks<TaskView>> {
   return groupTasks(await decorate(db, rows));
 }
 
-/** Everything on one entity, done included, newest completion last. */
-export async function tasksForEntity(
-  entityType: "lead" | "company" | "document",
-  entityId: string,
-): Promise<TaskView[]> {
-  const { workspaceId } = await getActiveContext();
-  const db = getWorkspaceClient(workspaceId);
-
-  const rows = await db.task.findMany({
-    where: { entityType, entityId },
-    orderBy: [{ doneAt: "asc" }, { dueAt: "asc" }],
-    take: 100,
-    select: {
-      id: true,
-      type: true,
-      title: true,
-      note: true,
-      dueAt: true,
-      doneAt: true,
-      entityType: true,
-      entityId: true,
-      assigneeId: true,
-      source: true,
-    },
-  });
-
-  const decorated = await decorate(db, rows);
-  return orderTasks(decorated);
-}

@@ -117,6 +117,9 @@ export const DESTRUCTIVE_ACTIONS: Record<string, Undoability> = {
   removeTimeEntry: permanent(
     "The logged time is removed and the task's actual figure drops by that much. Only the person who logged it can remove it.",
   ),
+  removeTaskLink: permanent(
+    "The extra link is removed. Neither the task nor the entity is changed, and the task stays about whatever its own entity says.",
+  ),
   removeChecklistItem: permanent(
     "The step is removed from the checklist. The task itself is not changed.",
   ),

@@ -128,6 +128,8 @@ const BUSINESS_TABLES = [
   "time_entries",
   /** Checklist items (playbook-v5 P20/3). */
   "task_checklist_items",
+  /** Extra entity links (playbook-v5 P20/4). */
+  "task_links",
   "mail_accounts",
   "email_threads",
   "email_messages",

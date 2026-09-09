@@ -28,6 +28,10 @@ import { editLeadField } from "@/modules/leads/inline-actions";
 import { InlineCell, type InlineKind } from "./inline-edit";
 import { PIPELINE_STAGES, SIDE_STAGES, STAGE_LABELS } from "@/modules/pipeline/transitions";
 import { EmptyState } from "./empty-state";
+import { EntityDrawer } from "./entity-drawer";
+import { useViewState } from "./use-view-state";
+import { idField, textField } from "@/lib/client/view-state";
+import { returnPath } from "@/lib/paths";
 import { ZeroResults } from "./state-card";
 
 /**
@@ -147,6 +151,20 @@ function humanEnum(v: string): string {
   return v.toLowerCase().replace(/_/g, " ");
 }
 
+/**
+ * The entity a link asked us to open, plus the way back.
+ *
+ * `lead` and `company` keep those exact names because task cards, global
+ * search and notifications have been generating `?lead=` and `?company=`
+ * since long before anything read them.
+ */
+const ENTITY_VIEW = {
+  lead: idField("lead"),
+  company: idField("company"),
+  /** Where to return to. Validated as an internal path before it is rendered. */
+  from: textField("from", "", 300, "replace"),
+};
+
 export function LeadsTable(props: LeadsTableProps) {
   const {
     rows,
@@ -171,7 +189,21 @@ export function LeadsTable(props: LeadsTableProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
-  const [detailFor, setDetailFor] = useState<string | null>(null);
+  /**
+   * Which entity is open, in the URL (playbook-v5 P16/5, P20/4).
+   *
+   * `?lead=` and `?company=` were being GENERATED already — by task cards, by
+   * global search — and read by nobody: clicking a company-linked task's chip
+   * landed on an unfiltered table with nothing opened. They mean something
+   * now, which also makes Back close the drawer and a deep link shareable.
+   */
+  const [entityView, setEntityView] = useViewState(ENTITY_VIEW);
+  const detailFor = entityView.lead;
+  const setDetailFor = useCallback(
+    (id: string | null) => setEntityView({ lead: id }),
+    [setEntityView],
+  );
+  const back = returnPath(entityView.from);
   const [overrideFor, setOverrideFor] = useState<string | null>(null);
   const [enrichFor, setEnrichFor] = useState<string | null>(null);
   const [showColumns, setShowColumns] = useState(false);
@@ -757,6 +789,16 @@ export function LeadsTable(props: LeadsTableProps) {
       )}
 
       {detailFor && <LeadDetailModal leadId={detailFor} onClose={() => setDetailFor(null)} />}
+
+      {/* A company had no surface at all before this (playbook-v5 P20/4). */}
+      {entityView.company && (
+        <EntityDrawer
+          kind="company"
+          entityId={entityView.company}
+          from={back}
+          onClose={() => setEntityView({ company: null })}
+        />
+      )}
       {overrideFor && (
         <OverrideDialog
           leadId={overrideFor}

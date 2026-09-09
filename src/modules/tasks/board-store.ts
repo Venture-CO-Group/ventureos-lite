@@ -10,6 +10,7 @@ import {
   type BoardProgress,
 } from "./board-logic";
 import { groupProgress } from "./checklist-logic";
+import { chipFor } from "./links";
 
 /**
  * Board reads and writes.
@@ -180,18 +181,16 @@ async function decorateCards(db: Db, rows: CardRow[]): Promise<TaskCardView[]> {
   const checklistOf = groupProgress(checklistRows);
 
   return rows.map((r) => {
-    let entityLabel: string | null = null;
-    let entityHref: string | null = null;
-    if (r.entityType === "lead" && r.entityId) {
-      entityLabel = leadLabel.get(r.entityId) ?? null;
-      entityHref = `/leads?lead=${r.entityId}`;
-    } else if (r.entityType === "company" && r.entityId) {
-      entityLabel = companyLabel.get(r.entityId) ?? null;
-      entityHref = `/leads?company=${r.entityId}`;
-    } else if (r.entityType === "document" && r.entityId) {
-      entityLabel = "document";
-      entityHref = `/documents?doc=${r.entityId}`;
-    }
+    /**
+     * One resolver for the chip (playbook-v5 P20/4). This chain used to be
+     * written out in three files with three slightly different sets of cases,
+     * which is how a company-linked task ended up pointing at a query
+     * parameter nobody read.
+     */
+    const { label: entityLabel, href: entityHref } = chipFor(r, {
+      lead: leadLabel,
+      company: companyLabel,
+    });
     return {
       id: r.id,
       title: r.title,

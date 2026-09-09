@@ -47,6 +47,7 @@ import {
   type BoardSummary,
   type BoardView,
 } from "./board-store";
+import { chipFor } from "./links";
 
 /**
  * The board layer's server actions (P8/1).
@@ -1325,15 +1326,16 @@ export async function myWork(): Promise<MyWorkItem[]> {
   const companyLabel = new Map(companies.map((c) => [c.id, c.name]));
 
   return rows.map((r) => {
-    let entityLabel: string | null = null;
-    let entityHref: string | null = null;
-    if (r.entityType === "lead" && r.entityId) {
-      entityLabel = leadLabel.get(r.entityId) ?? null;
-      entityHref = `/leads?lead=${r.entityId}`;
-    } else if (r.entityType === "company" && r.entityId) {
-      entityLabel = companyLabel.get(r.entityId) ?? null;
-      entityHref = `/leads?company=${r.entityId}`;
-    }
+    /**
+     * One resolver for the chip (playbook-v5 P20/4). This chain used to be
+     * written out in three files with three slightly different sets of cases,
+     * which is how a company-linked task ended up pointing at a query
+     * parameter nobody read.
+     */
+    const { label: entityLabel, href: entityHref } = chipFor(r, {
+      lead: leadLabel,
+      company: companyLabel,
+    });
     return {
       id: r.id,
       type: r.type,

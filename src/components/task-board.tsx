@@ -67,6 +67,7 @@ import { TimeReport } from "./time-report";
 import { TaskWorkload } from "./task-workload";
 import { TaskFields } from "./task-fields";
 import { TaskChecklist } from "./task-checklist";
+import { TaskLinks } from "./task-links";
 import { getTaskFieldDefs } from "@/modules/tasks/custom-field-actions";
 import type { FieldDef } from "@/modules/fields/types";
 import { BoardViewTabs } from "./board-view-tabs";
@@ -96,7 +97,8 @@ import {
   resolveBoardTaskIds,
 } from "@/modules/tasks/bulk-actions";
 import { useViewState } from "./use-view-state";
-import { boolField, enumField, idField } from "@/lib/client/view-state";
+import { boolField, enumField, idField, textField } from "@/lib/client/view-state";
+import { returnPath } from "@/lib/paths";
 
 /**
  * The task board (P8/1).
@@ -168,6 +170,13 @@ const TASK_VIEW = {
   savedView: idField("sv"),
   mine: boolField("mine"),
   done: boolField("done"),
+  /**
+   * Where the person came from (playbook-v5 P20/4). A task opened out of a
+   * lead's panel carries the lead's href, and the detail offers the way back —
+   * so following a task and returning lands on the lead rather than at the top
+   * of a list.
+   */
+  from: textField("from", "", 300, "replace"),
 };
 
 function Card({
@@ -1490,6 +1499,7 @@ export function TaskBoards({
         <TaskDetail
           taskId={openTaskId}
           members={members}
+          back={returnPath(viewState.from)}
           onClose={() => setOpenTaskId(null)}
           onChanged={() => void refresh()}
         />
@@ -1908,11 +1918,14 @@ function AddSection({ onAdd }: { onAdd: (name: string) => Promise<unknown> }) {
 function TaskDetail({
   taskId,
   members,
+  back,
   onClose,
   onChanged,
 }: {
   taskId: string;
   members: WorkspaceMemberOption[];
+  /** An internal path to return to, when the link that opened this said one. */
+  back: string | null;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -1993,6 +2006,15 @@ function TaskDetail({
 
   return (
     <Modal onClose={onClose}>
+      {back && (
+        <Link
+          href={back}
+          data-testid="task-detail-back"
+          className="mb-1 inline-block text-[11px] text-accent-ink underline-offset-2 hover:underline"
+        >
+          ← Back to where you were
+        </Link>
+      )}
       <div className="mb-3 flex items-start gap-2">
         <input
           value={task.title}
@@ -2130,6 +2152,9 @@ function TaskDetail({
           onChanged();
         }}
       />
+
+      {/* ---------- extra entity links (playbook-v5 P20/4) ---------- */}
+      <TaskLinks taskId={taskId} />
 
       {/* ---------- Owner-defined fields (playbook-v5 P20/2) ---------- */}
       <TaskFields taskId={taskId} />
