@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { serverActionError } from "@/lib/client/server-action";
 import { exportEmployeeData, getAccessReview } from "@/modules/members/review-actions";
-import { DORMANT_DAYS, type AccessReview } from "@/modules/members/access-review";
+import { DORMANT_DAYS, type AccessReview } from "@/modules/members/review-logic";
 import {
   ACCOUNT_LOCK_MS,
   ACCOUNT_MAX_FAILURES,
@@ -11,7 +11,7 @@ import {
 import {
   SESSION_ABSOLUTE_TTL_MS,
   SESSION_IDLE_TTL_MS,
-} from "@/lib/auth/sessions";
+} from "@/lib/auth/session-policy";
 
 /**
  * The access review, and the sign-in policy it sits under (§7).

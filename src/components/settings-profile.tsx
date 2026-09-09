@@ -67,9 +67,9 @@ export function SettingsProfile({ profile }: { profile: MyProfile }) {
       </div>
 
       <div className="flex flex-wrap items-start gap-4">
-        {/* eslint-disable-next-line @next/next/no-img-element -- served from an
-            authenticated route, so next/image's optimiser cannot fetch it */}
         {avatarUrl ? (
+          /* eslint-disable-next-line @next/next/no-img-element -- served from an
+             authenticated route, so next/image's optimiser cannot fetch it */
           <img
             src={avatarUrl}
             alt=""

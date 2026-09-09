@@ -1,6 +1,7 @@
 import { prismaUnsafe } from "@/lib/db";
 import { DOCUMENT_GRANTS, grantAllowed } from "@/lib/grants";
 import { INVITE_TTL_DAYS, invitationState } from "./invitation-logic";
+import { DORMANT_DAYS, type AccessReview, type ReviewRow } from "./review-logic";
 
 /**
  * The three lists an auditor asks for (§7).
@@ -18,25 +19,12 @@ import { INVITE_TTL_DAYS, invitationState } from "./invitation-logic";
  * a person holding `documents.send` is doing their job. The lists exist so a
  * human decides, which is why each row carries the fact that prompted it
  * rather than a verdict.
+ *
+ * The row shapes and `DORMANT_DAYS` live in `review-logic.ts` so the panel can
+ * read them without pulling this file's Prisma import into the browser.
  */
-export const DORMANT_DAYS = 60;
-
-export interface ReviewRow {
-  userId: string;
-  name: string;
-  email: string;
-  role: string;
-  state: string;
-  detail: string;
-}
-
-export interface AccessReview {
-  dormant: ReviewRow[];
-  documentHolders: ReviewRow[];
-  staleInvitations: { id: string; email: string; role: string; detail: string }[];
-  /** So the panel can say "nothing to review" rather than showing three empty boxes. */
-  clean: boolean;
-}
+export { DORMANT_DAYS } from "./review-logic";
+export type { AccessReview, ReviewRow } from "./review-logic";
 
 export async function accessReview(
   workspaceId: string,

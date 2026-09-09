@@ -1,5 +1,11 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { prismaUnsafe } from "../db";
+import {
+  SESSION_ABSOLUTE_TTL_MS,
+  SESSION_IDLE_TTL_MS,
+  SESSION_IDLE_REFRESH_MS,
+  SESSION_TTL_MS,
+} from "./session-policy";
 
 /**
  * Server-side session store (CLAUDE.md → Auth: "server sessions in DB").
@@ -15,26 +21,16 @@ import { prismaUnsafe } from "../db";
  * correct here and carries no workspace scope by design.
  */
 /**
- * Session lifetime, in two limbs (playbook-v2 P6/2).
- *
- * ABSOLUTE: 30 days. However active you are, a session eventually ends and you
- * sign in again — that is what bounds the damage from a token that leaked
- * months ago and was never used.
- *
- * IDLE: 7 days. A session nobody has used for a week is a laptop in a drawer or
- * a browser on a machine that changed hands, and it should not still be able to
- * read a pipeline.
- *
- * This replaces a flat 12-hour TTL. The old value was safer per-session and
- * wrong in practice: it signed people out mid-week, and the honest fix for
- * "sessions live too long" is the idle limb, not a working-day timer that
- * punishes the people using the product most.
+ * Session lifetime lives in `session-policy.ts` — inert numbers a client
+ * component can read without dragging Prisma into the browser bundle. Re-
+ * exported here because this is the name the rest of the code imports.
  */
-export const SESSION_ABSOLUTE_TTL_MS = 30 * 86_400_000;
-export const SESSION_IDLE_TTL_MS = 7 * 86_400_000;
-/** Kept as the name the rest of the code already imports. */
-export const SESSION_TTL_MS = SESSION_ABSOLUTE_TTL_MS;
-export const SESSION_IDLE_REFRESH_MS = 15 * 60 * 1000; // throttle lastSeenAt writes
+export {
+  SESSION_ABSOLUTE_TTL_MS,
+  SESSION_IDLE_TTL_MS,
+  SESSION_TTL_MS,
+  SESSION_IDLE_REFRESH_MS,
+} from "./session-policy";
 
 export interface SessionUser {
   sessionId: string;
