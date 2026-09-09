@@ -70,17 +70,49 @@ export function useViewState<S extends ViewSchema>(
 
   const update = useCallback(
     (patch: Partial<ViewValues<S>>) => {
-      // Applied locally first: a control bound to an async navigation does not
-      // move when you click it, which reads as broken.
-      setValue((current) => ({ ...current, ...patch }));
-
+      /**
+       * THE ADDRESS BAR FIRST, THEN THE STATE. The order matters.
+       *
+       * It was the other way round, for a reason that turned out not to
+       * apply: a control bound to an ASYNC navigation does not move when you
+       * click it. But `pushState` is synchronous — the value is applied in the
+       * same tick either way — and doing it second cost a whole feature.
+       *
+       * Opening a detail panel is a state change that MOUNTS a component,
+       * and that component immediately fetches what it is about. Next treats
+       * a `pushState` as a navigation and aborts the Server Action already in
+       * flight; the aborted call neither resolves nor rejects, so the panel
+       * sat on "Loading…" for ever. It reproduced every time in a browser and
+       * showed up in the suite as three specs that were "flaky" — they only
+       * passed when the fetch happened to beat the push.
+       *
+       * Pushing first means the navigation is over before anything mounts.
+       */
       const query = viewQuery(schema, patch, window.location.search);
       const href = `${pathname}${query}`;
+      /**
+       * The CURRENT history state is handed back, not `null`.
+       *
+       * Next patches these two methods to watch for URL changes, and a `null`
+       * state tells it this is a new place: on a `force-dynamic` page it then
+       * refetches the route — and that navigation ABORTS the Server Actions
+       * already in flight. Which is how ticking a checkbox was fine and
+       * OPENING A DETAIL PANEL was not: the panel mounts and immediately asks
+       * for what it is about, three calls at once, and Next cancelled two of
+       * them. The aborted calls neither resolve nor reject, so the panel sat
+       * on "Loading…" for ever.
+       *
+       * Passing `window.history.state` through says "same tree, different
+       * address", which is exactly what a view parameter is.
+       */
+      const state = window.history.state;
       if (historyModeFor(schema, patch) === "push") {
-        window.history.pushState(null, "", href);
+        window.history.pushState(state, "", href);
       } else {
-        window.history.replaceState(null, "", href);
+        window.history.replaceState(state, "", href);
       }
+
+      setValue((current) => ({ ...current, ...patch }));
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [pathname],
