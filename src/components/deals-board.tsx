@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { moveDealStage, updateDeal } from "@/modules/deals/actions";
+import { moveDealStage } from "@/modules/deals/actions";
 import { startProjectForDeal } from "@/modules/projects/actions";
 import { attempt } from "@/lib/client/server-action";
 import { useToast } from "./toast";
+import { InlineEdit, type InlineSaveResult, type InlineValue } from "./inline-edit";
+import { editDealField } from "@/modules/deals/inline-actions";
 import type { DealCardView, PipelineView } from "@/modules/deals/store";
 import { EmptyState } from "./empty-state";
 
@@ -67,84 +69,6 @@ function ChainDots({ types }: { types: string[] }) {
  * and blur save; the server is still the boundary, so a rejected value snaps
  * back to what the server last said rather than to what was typed.
  */
-function InlineField({
-  value,
-  display,
-  type,
-  label,
-  onSave,
-}: {
-  value: string;
-  display: string;
-  type: "number" | "date";
-  label: string;
-  onSave: (next: string) => Promise<string | null>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  async function commit() {
-    setEditing(false);
-    if (draft === value) return;
-    setSaving(true);
-    const err = await onSave(draft);
-    setSaving(false);
-    if (err) {
-      setError(err);
-      setDraft(value);
-    } else {
-      setError(null);
-    }
-  }
-
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        aria-label={`Edit ${label}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          setDraft(value);
-          setEditing(true);
-        }}
-        className={`rounded-[6px] px-1 -mx-1 text-left hover:bg-panel ${
-          error ? "text-[#FFB3C2]" : ""
-        } ${saving ? "opacity-60" : ""}`}
-        title={error ?? `Edit ${label}`}
-      >
-        {display}
-      </button>
-    );
-  }
-
-  return (
-    <input
-      autoFocus
-      type={type}
-      inputMode={type === "number" ? "numeric" : undefined}
-      value={draft}
-      aria-label={label}
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          void commit();
-        }
-        if (e.key === "Escape") {
-          e.preventDefault();
-          setDraft(value);
-          setEditing(false);
-        }
-      }}
-      className="w-[110px] rounded-[6px] border border-accent bg-[rgba(0,5,29,0.6)] px-1.5 py-0.5 text-[11px] tabular-nums text-ink outline-none"
-    />
-  );
-}
-
 export function DealsBoard({
   pipelines,
   activePipelineId,
@@ -225,11 +149,23 @@ export function DealsBoard({
     router.refresh();
   }
 
-  async function save(dealId: string, patch: Record<string, unknown>): Promise<string | null> {
-    const res = await updateDeal({ dealId, ...patch });
-    if (!res.ok) return res.error;
-    router.refresh();
-    return null;
+  /**
+   * One field, through the deal's own inline rules.
+   *
+   * This used to round and clamp on the client — `Math.max(0, Math.round(Number(next) || 0))`
+   * turned "abc" into 0 and "1.5" into 2 without telling anybody. Money is an
+   * integer of forints (CLAUDE.md), so the server now refuses a fractional or
+   * unparseable amount and says which; it also refuses edits to a CLOSED deal,
+   * whose numbers the revenue figures are already built on.
+   */
+  async function editField(
+    dealId: string,
+    field: string,
+    value: InlineValue,
+  ): Promise<InlineSaveResult> {
+    const res = await editDealField({ dealId, field, value });
+    if (res.ok) router.refresh();
+    return res;
   }
 
   return (
@@ -331,41 +267,61 @@ export function DealsBoard({
                     c.rotting ? "border-[rgba(255,176,66,0.45)]" : "border-line"
                   }`}
                 >
-                  <b className="block text-[13px]">{c.title}</b>
+                  <b className="block text-[13px]">
+                    <InlineEdit
+                      kind="text"
+                      label="deal title"
+                      activateOn="doubleClick"
+                      value={c.title}
+                      display={c.title}
+                      onSave={(next) => editField(c.id, "title", next)}
+                    />
+                  </b>
                   <span className="mb-2 mt-0.5 block text-[11.5px] text-muted">
                     {c.companyName ?? c.leadName ?? "—"}
                   </span>
 
                   <div className="mb-1.5 flex items-baseline gap-2 text-[12.5px] font-semibold tabular-nums">
-                    <InlineField
-                      label="Deal value"
-                      type="number"
+                    <InlineEdit
+                      kind="number"
+                      label="deal value"
                       value={String(c.value)}
                       display={huf(c.value)}
-                      onSave={(next) =>
-                        save(c.id, { value: Math.max(0, Math.round(Number(next) || 0)) })
-                      }
+                      onSave={(next) => editField(c.id, "value", next)}
                     />
+                    {/**
+                     * The asterisk marks an override. Clearing the field hands
+                     * the weight back to the stage default, which is why the
+                     * value sent is null rather than zero — a zero-percent deal
+                     * and a deal inheriting its stage's weight are not the same
+                     * statement about the pipeline.
+                     */}
                     <span
                       className="ml-auto text-[11px] font-medium text-muted"
                       title={
                         c.inheritedProbability
-                          ? "From the stage default"
-                          : "Set on this deal"
+                          ? "From the stage default — set a number to override it"
+                          : "Set on this deal — clear it to go back to the stage default"
                       }
                     >
-                      {c.probability}%{c.inheritedProbability ? "" : "*"}
+                      <InlineEdit
+                        kind="number"
+                        label="probability"
+                        value={c.inheritedProbability ? null : String(c.probability)}
+                        display={`${c.probability}%${c.inheritedProbability ? "" : "*"}`}
+                        onSave={(next) => editField(c.id, "probability", next)}
+                      />
                     </span>
                   </div>
 
                   <div className="flex items-center gap-2 text-[11px] text-muted">
                     <ChainDots types={c.chainTypes} />
-                    <InlineField
-                      label="Expected close"
-                      type="date"
-                      value={c.expectedCloseAt ?? ""}
+                    <InlineEdit
+                      kind="date"
+                      label="expected close"
+                      value={c.expectedCloseAt ?? null}
                       display={c.expectedCloseAt ?? "no close date"}
-                      onSave={(next) => save(c.id, { expectedCloseAt: next || null })}
+                      onSave={(next) => editField(c.id, "expectedCloseAt", next)}
                     />
                     <span className={`ml-auto ${c.rotting ? "text-warn" : ""}`}>
                       {c.rotting ? `rotting · ${c.daysInStage}d` : `${c.daysInStage}d`}

@@ -36,6 +36,11 @@ import { CaptureDiagnosticsPanel } from "./capture-diagnostics";
 import { SearchVisibility } from "./search-visibility";
 import { duplicatesForLead } from "@/modules/merge/actions";
 import { Modal } from "./modal";
+import { InlineField, type InlineSaveResult, type InlineValue } from "./inline-edit";
+import { editLeadDetailField } from "@/modules/leads/detail-inline-actions";
+
+const INLINE_HINT =
+  "Corrected in place — each change saves as you leave the field.";
 
 const INPUT =
   "w-full rounded-[9px] border border-line bg-[rgba(0,5,29,0.5)] px-2.5 py-2 text-[13px] text-ink outline-none focus:border-accent";
@@ -103,6 +108,34 @@ export function LeadDetailModal({ leadId, onClose }: { leadId: string; onClose: 
 
   function patch(next: Partial<LeadDetail>) {
     setForm((f) => (f ? { ...f, ...next } : f));
+  }
+
+  /**
+   * One field, committed on the spot (playbook-v5 P16/1).
+   *
+   * ── WHY ONLY SOME OF THIS PANEL IS INLINE ───────────────────────────────
+   *
+   * The fields below the Contact block are edited one at a time to correct a
+   * fact, and inline is right for them. The COMPANY BLOCK, the email and the
+   * phone are not: `lookupTaxId` fills them from NAV's register and
+   * `lookupDomain` from a Claude web search that SPENDS MONEY, and both do it
+   * as a suggestion the operator reviews. "Press Save changes to keep it" is
+   * the human-review gate on machine-suggested data — the same principle as
+   * the outreach guardrail — and per-field auto-commit would remove it, taking
+   * NAV's spelling of a company name without anybody agreeing to it.
+   *
+   * So those keep the Save button, and the panel says which is which.
+   */
+  function commitInline(field: string, value: InlineValue): Promise<InlineSaveResult> {
+    if (!form) return Promise.resolve({ ok: false as const, error: "Lead not loaded." });
+    return editLeadDetailField({ leadId: form.id, field, value }).then((res) => {
+      if (res.ok) {
+        // Keep local state in step so a later Save does not post a stale value
+        // back over what was just committed.
+        patch({ [field]: res.value ?? "" } as Partial<LeadDetail>);
+      }
+      return res;
+    });
   }
 
   function remove() {
@@ -457,21 +490,28 @@ export function LeadDetailModal({ leadId, onClose }: { leadId: string; onClose: 
         <div className="grid gap-3">
           <section className="grid gap-2 rounded-[11px] border border-line p-3">
             <p className={LABEL}>Contact</p>
+            <p className="text-[11px] text-muted">{INLINE_HINT}</p>
             <div className="grid gap-2 sm:grid-cols-2">
-              <input
-                className={INPUT}
-                placeholder="Name"
-                data-testid="lead-name"
-                value={form.contactName}
-                onChange={(e) => patch({ contactName: e.target.value })}
-              />
-              <input
-                className={INPUT}
-                placeholder="Job title"
-                data-testid="lead-title"
-                value={form.title}
-                onChange={(e) => patch({ title: e.target.value })}
-              />
+              <span data-testid="lead-name">
+                <InlineField
+                  kind="text"
+                  label="Name"
+                  placeholder="Name"
+                  value={form.contactName}
+                  display={form.contactName}
+                  onSave={(next) => commitInline("contactName", next)}
+                />
+              </span>
+              <span data-testid="lead-title">
+                <InlineField
+                  kind="text"
+                  label="Job title"
+                  placeholder="Job title"
+                  value={form.title}
+                  display={form.title}
+                  onSave={(next) => commitInline("title", next)}
+                />
+              </span>
               {/*
                 THE HEADLINE HAS ITS OWN INPUT.
                 It used to share the job-title one, because the capture wrote
@@ -481,13 +521,16 @@ export function LeadDetailModal({ leadId, onClose }: { leadId: string; onClose: 
                 a job title is "VP Sales", a headline is "VP Sales @ Metaview |
                 Startup Advisor and Investor | Ramp and Navan Alum".
               */}
-              <input
-                className={`${INPUT} sm:col-span-2`}
-                placeholder="Headline"
-                data-testid="lead-headline"
-                value={form.headline}
-                onChange={(e) => patch({ headline: e.target.value })}
-              />
+              <span className="sm:col-span-2" data-testid="lead-headline">
+                <InlineField
+                  kind="text"
+                  label="Headline"
+                  placeholder="Headline"
+                  value={form.headline}
+                  display={form.headline}
+                  onSave={(next) => commitInline("headline", next)}
+                />
+              </span>
               <div className="flex gap-1.5">
                 <input
                   className={INPUT}
@@ -525,19 +568,26 @@ export function LeadDetailModal({ leadId, onClose }: { leadId: string; onClose: 
                 read correctly and stored. It sits in the Contact block because it
                 describes the PERSON, not their employer.
               */}
-              <input
-                className={INPUT}
-                placeholder="Location"
-                data-testid="lead-location"
-                value={form.locationRaw}
-                onChange={(e) => patch({ locationRaw: e.target.value })}
-              />
-              <input
-                className={`${INPUT} sm:col-span-2`}
-                placeholder="LinkedIn URL"
-                value={form.linkedinUrl}
-                onChange={(e) => patch({ linkedinUrl: e.target.value })}
-              />
+              <span data-testid="lead-location">
+                <InlineField
+                  kind="text"
+                  label="Location"
+                  placeholder="Location"
+                  value={form.locationRaw}
+                  display={form.locationRaw}
+                  onSave={(next) => commitInline("locationRaw", next)}
+                />
+              </span>
+              <span className="sm:col-span-2">
+                <InlineField
+                  kind="text"
+                  label="LinkedIn URL"
+                  placeholder="LinkedIn URL"
+                  value={form.linkedinUrl}
+                  display={form.linkedinUrl}
+                  onSave={(next) => commitInline("linkedinUrl", next)}
+                />
+              </span>
               <label className="flex items-center gap-2 text-[12px] text-muted">
                 Language
                 <select
@@ -555,6 +605,17 @@ export function LeadDetailModal({ leadId, onClose }: { leadId: string; onClose: 
 
           <section className="grid gap-2 rounded-[11px] border border-line p-3">
             <p className={LABEL}>Company</p>
+            {/**
+             * Said out loud, because this block behaves differently from the
+             * one above it. The two lookups FILL these fields as a suggestion —
+             * one from NAV's register, one from a Claude web search that costs
+             * money — and the deliberate Save is what accepts them. Auto-saving
+             * each field would take NAV's spelling of a company name without
+             * anybody agreeing to it.
+             */}
+            <p className="text-[11px] text-muted">
+              Filled by the lookups below — review, then press Save changes to keep it.
+            </p>
             <div className="grid gap-2 sm:grid-cols-2">
               <input
                 className={INPUT}

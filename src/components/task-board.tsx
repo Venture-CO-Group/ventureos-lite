@@ -52,6 +52,12 @@ import { TYPE_LABEL, type TaskType } from "@/modules/tasks/logic";
 import { MAX_ATTACHMENT_BYTES } from "@/modules/tasks/attachment-rules";
 import { Modal } from "./modal";
 import { useToast } from "./toast";
+import {
+  InlineEdit,
+  type InlineSaveResult,
+  type InlineValue,
+} from "./inline-edit";
+import { editTaskField } from "@/modules/tasks/inline-actions";
 
 /**
  * The task board (P8/1).
@@ -102,16 +108,20 @@ function Card({
   onOpen,
   onToggle,
   onDragStart,
+  onEdit,
   dragging,
 }: {
   task: TaskCardView;
   onOpen: () => void;
   onToggle: () => void;
   onDragStart: () => void;
+  /** One field, committed to the server, which answers with what it stored. */
+  onEdit: (field: string, value: InlineValue) => Promise<InlineSaveResult>;
   dragging: boolean;
 }) {
   const due = dueLabel(task.dueAt);
   const priority = (task.priority as TaskPriority) ?? "none";
+  const dueDay = task.dueAt ? new Date(task.dueAt).toISOString().slice(0, 10) : null;
 
   return (
     <div
@@ -142,15 +152,32 @@ function Card({
         >
           ✓
         </button>
-        <button onClick={onOpen} className="min-w-0 flex-1 text-left">
-          <span
-            className={`block text-[12.5px] leading-snug ${
-              task.doneAt ? "text-muted line-through" : "text-ink"
-            }`}
-          >
-            {task.title}
-          </span>
-        </button>
+        {/**
+         * Single click OPENS, double click edits.
+         *
+         * The board's primary gesture is opening a card, and inline editing
+         * must not take it: a title that turned into a text input on every
+         * click would break the common action to serve the rarer one. The
+         * tooltip says so, and Enter on the focused title still edits.
+         */}
+        <div className="min-w-0 flex-1" onClick={onOpen}>
+          <InlineEdit
+            kind="text"
+            label="title"
+            activateOn="doubleClick"
+            value={task.title}
+            display={
+              <span
+                className={`block text-[12.5px] leading-snug ${
+                  task.doneAt ? "text-muted line-through" : "text-ink"
+                }`}
+              >
+                {task.title}
+              </span>
+            }
+            onSave={(next) => onEdit("title", next)}
+          />
+        </div>
         {task.assigneeName && (
           <span
             title={task.assigneeName}
@@ -163,21 +190,40 @@ function Card({
 
       {(due.text || priority !== "none" || task.tags.length > 0) && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {/**
+           * These two ARE click-to-edit, unlike the title: a priority chip and
+           * a date chip navigate nowhere, so a click on them has no other
+           * meaning to protect.
+           */}
           {priority !== "none" && (
             <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${PRIORITY_CLASS[priority]}`}
+              data-testid="card-priority"
+              className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${PRIORITY_CLASS[priority]}`}
             >
-              {PRIORITY_LABEL[priority]}
+              <InlineEdit
+                kind="select"
+                label="priority"
+                value={priority}
+                options={TASK_PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
+                display={PRIORITY_LABEL[priority]}
+                onSave={(next) => onEdit("priority", next)}
+              />
             </span>
           )}
           {due.text && (
             <span
               data-testid="task-due"
-              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+              className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
                 due.overdue ? "bg-[rgba(255,92,122,0.15)] text-[#FF5C7A]" : "bg-panel-2 text-muted"
               }`}
             >
-              {due.text}
+              <InlineEdit
+                kind="date"
+                label="due date"
+                value={dueDay}
+                display={due.text}
+                onSave={(next) => onEdit("dueAt", next)}
+              />
             </span>
           )}
           {task.tags.map((t) => (
@@ -286,6 +332,24 @@ export function TaskBoards({
 
   /** The board-settings dialog (name, description, colour, archive). */
   const [editingBoard, setEditingBoard] = useState(false);
+
+  /**
+   * One inline field, committed straight to the server.
+   *
+   * Deliberately NOT wrapped in `guard`: guard shows a page-level error banner
+   * and refreshes the whole board, and an inline edit that did either would
+   * undo the reason it exists. The cell puts the old value back itself and the
+   * toast layer explains why. `refresh()` afterwards only on success, so a
+   * card that now sorts differently ends up where it belongs.
+   */
+  const editField = useCallback(
+    async (taskId: string, field: string, value: InlineValue): Promise<InlineSaveResult> => {
+      const res = await editTaskField({ taskId, field, value });
+      if (res.ok) void refresh();
+      return res;
+    },
+    [refresh],
+  );
 
   async function guard(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -650,6 +714,7 @@ export function TaskBoards({
                     setDraggingId(id);
                   }}
                   onDrop={onDrop}
+                  onEditField={editField}
                   onAdd={(title) =>
                     guard(() =>
                       createBoardTask({
@@ -948,6 +1013,7 @@ function Column({
   onAdd,
   onRename,
   onDelete,
+  onEditField,
   canEditSection,
 }: {
   boardId: string;
@@ -963,6 +1029,11 @@ function Column({
   onAdd: (title: string) => Promise<unknown>;
   onRename: (name: string) => Promise<unknown>;
   onDelete: () => Promise<unknown>;
+  onEditField: (
+    taskId: string,
+    field: string,
+    value: InlineValue,
+  ) => Promise<InlineSaveResult>;
   canEditSection: boolean;
 }) {
   const [adding, setAdding] = useState(false);
@@ -1053,6 +1124,7 @@ function Column({
               onOpen={() => onOpen(t.id)}
               onToggle={() => void onToggle(t)}
               onDragStart={() => onDragStart(t.id)}
+              onEdit={(field, value) => onEditField(t.id, field, value)}
             />
           </div>
         ))}

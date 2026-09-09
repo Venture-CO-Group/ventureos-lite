@@ -32,16 +32,6 @@ export const createDealSchema = z.object({
   ownerId: z.string().min(1).optional(),
 });
 
-export const updateDealSchema = z.object({
-  dealId: z.string().min(1),
-  title: z.string().trim().min(1).max(200).optional(),
-  value: z.number().int().min(0).max(100_000_000_000).optional(),
-  /** Null clears the override and hands the weight back to the stage. */
-  probability: z.number().int().min(0).max(100).nullable().optional(),
-  expectedCloseAt: z.string().nullable().optional(),
-  ownerId: z.string().nullable().optional(),
-});
-
 function parseDate(v: string | null | undefined): Date | null {
   if (!v) return null;
   const d = new Date(v);
@@ -285,25 +275,4 @@ export async function moveStageIn(
     : null;
 
   return { ok: true, undo: undoToken };
-}
-
-export async function patchDealIn(workspaceId: string, raw: unknown): Promise<MoveResult> {
-  const parsed = updateDealSchema.safeParse(raw);
-  if (!parsed.success) return { ok: false, error: "That value is not allowed." };
-  const { dealId, expectedCloseAt, ...rest } = parsed.data;
-  const db = getWorkspaceClient(workspaceId);
-
-  const exists = await db.deal.findUnique({ where: { id: dealId }, select: { id: true } });
-  if (!exists) return { ok: false, error: "Deal not found." };
-
-  await db.deal.update({
-    where: { id: dealId },
-    data: {
-      ...rest,
-      ...(expectedCloseAt === undefined
-        ? {}
-        : { expectedCloseAt: expectedCloseAt === null ? null : parseDate(expectedCloseAt) }),
-    },
-  });
-  return { ok: true };
 }

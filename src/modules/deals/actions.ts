@@ -10,7 +10,6 @@ import {
   createDealIn,
   convertLeadIn,
   moveStageIn,
-  patchDealIn,
   type DealResult,
   type MoveResult,
 } from "./mutations";
@@ -96,16 +95,6 @@ export async function moveDealStage(
   const res = await moveStageIn(workspaceId, userId, dealId, stageId, opts);
   if (res.ok) {
     await onDealStageChanged(workspaceId, dealId);
-    revalidatePath("/deals");
-    revalidatePath("/analytics");
-  }
-  return res;
-}
-
-export async function updateDeal(raw: unknown): Promise<MoveResult> {
-  const { workspaceId } = await getActiveContext();
-  const res = await patchDealIn(workspaceId, raw);
-  if (res.ok) {
     revalidatePath("/deals");
     revalidatePath("/analytics");
   }

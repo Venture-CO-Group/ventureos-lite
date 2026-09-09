@@ -25,7 +25,7 @@ import {
   type FieldDef,
 } from "@/modules/fields/types";
 import { editLeadField } from "@/modules/leads/inline-actions";
-import { InlineCell, type InlineKind } from "./inline-cell";
+import { InlineCell, type InlineKind } from "./inline-edit";
 import { PIPELINE_STAGES, SIDE_STAGES, STAGE_LABELS } from "@/modules/pipeline/transitions";
 import { EmptyState } from "./empty-state";
 

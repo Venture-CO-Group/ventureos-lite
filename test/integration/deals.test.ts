@@ -4,8 +4,8 @@ import {
   convertLeadIn,
   createDealIn,
   moveStageIn,
-  patchDealIn,
 } from "../../src/modules/deals/mutations";
+import { applyDealInlineEdit } from "../../src/modules/deals/inline";
 import {
   dealChipsForLeads,
   ensurePipelines,
@@ -253,12 +253,20 @@ describe("editing a deal", () => {
     });
     if (!created.ok) throw new Error("setup failed");
 
-    await patchDealIn(wsA, { dealId: created.dealId, probability: 90 });
+    await applyDealInlineEdit(wsA, null, {
+      dealId: created.dealId,
+      field: "probability",
+      value: 90,
+    });
     let cards = await loadPipelineBoard(wsA, pipeline.id);
     expect(cards[0].probability).toBe(90);
     expect(cards[0].inheritedProbability).toBe(false);
 
-    await patchDealIn(wsA, { dealId: created.dealId, probability: null });
+    await applyDealInlineEdit(wsA, null, {
+      dealId: created.dealId,
+      field: "probability",
+      value: null,
+    });
     cards = await loadPipelineBoard(wsA, pipeline.id);
     expect(cards[0].probability).toBe(stages[0].probability);
     expect(cards[0].inheritedProbability).toBe(true);
@@ -267,8 +275,13 @@ describe("editing a deal", () => {
   it("refuses a probability outside 0-100", async () => {
     const created = await createDealIn(wsA, null, { title: "Silly" });
     if (!created.ok) throw new Error("setup failed");
-    const res = await patchDealIn(wsA, { dealId: created.dealId, probability: 140 });
+    const res = await applyDealInlineEdit(wsA, null, {
+      dealId: created.dealId,
+      field: "probability",
+      value: 140,
+    });
     expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toMatch(/0 to 100/);
   });
 });
 

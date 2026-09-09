@@ -34,12 +34,16 @@ test("the save reports what happened, whatever happens", async ({ page }) => {
   const suffix = String(Date.now());
   await openFreshLead(page, suffix);
 
-  await page.getByTestId("lead-title").fill("Ügyvezető");
-  await page.getByTestId("lead-location").fill("Budapest, Hungary");
-  await page.getByTestId("lead-save").click();
-  await expect(page.getByText("Saved.")).toBeVisible();
+  // The job title and the location commit in place now (playbook-v5 P16/1),
+  // so they are not part of what Save reports on.
+  await page.getByTestId("lead-title").getByTestId("inline-cell").click();
+  await page.getByTestId("lead-title").getByRole("textbox").fill("Ügyvezető");
+  await page.getByTestId("lead-title").getByRole("textbox").press("Enter");
+  await expect(page.getByTestId("lead-title")).toContainText("Ügyvezető");
 
-  // A refusal is also an answer, and it names the field.
+  // The email and the company block still go through Save, because the NAV and
+  // web-search lookups fill them for review. A refusal is also an answer, and
+  // it names the field.
   await page.getByTestId("lead-email").fill("not-an-email");
   await page.getByTestId("lead-save").click();
   await expect(page.getByText(/email address does not look right/i)).toBeVisible();
