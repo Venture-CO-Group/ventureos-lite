@@ -286,7 +286,7 @@ export function PipelineBoard({
                     }
                     setDetailFor(c.id);
                   }}
-                  className="mb-2.5 cursor-pointer rounded-[11px] border border-line bg-panel-2 p-3 transition-shadow hover:border-accent-soft hover:shadow-[0_0_16px_rgba(116,39,198,0.25)] focus-within:border-accent"
+                  className="mb-[var(--stack-gap)] cursor-pointer rounded-[11px] border border-line bg-panel-2 p-[var(--card-p)] transition-shadow hover:border-accent-soft hover:shadow-[0_0_16px_rgba(116,39,198,0.25)] focus-within:border-accent"
                 >
                   <b className="block text-[13px]">
                     <button

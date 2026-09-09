@@ -410,7 +410,7 @@ export function LeadsTable(props: LeadsTableProps) {
         <table className="w-full border-collapse">
           <thead>
             <tr>
-              <th className="w-8 border-b border-line px-3 py-2.5 text-left">
+              <th className="w-8 border-b border-line px-[var(--cell-px)] py-[var(--row-py)] text-left">
                 <input
                   type="checkbox"
                   checked={allOnPage}
@@ -423,7 +423,7 @@ export function LeadsTable(props: LeadsTableProps) {
               {visible.map((c) => (
                 <th
                   key={c.key}
-                  className={`border-b border-line px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-muted ${
+                  className={`border-b border-line px-[var(--cell-px)] py-[var(--row-py)] text-[10.5px] font-semibold uppercase tracking-[0.1em] text-muted ${
                     c.numeric ? "text-right" : "text-left"
                   } ${c.secondary ? "hidden nav:table-cell" : ""}`}
                 >
@@ -495,7 +495,7 @@ export function LeadsTable(props: LeadsTableProps) {
                     allMatching || selected.includes(l.id) ? "[&>td]:bg-accent-soft/20" : ""
                   }`}
                 >
-                  <td className="border-b border-line px-3 py-3 align-middle">
+                  <td className="border-b border-line px-[var(--cell-px)] py-[var(--row-py)] align-middle">
                     <input
                       type="checkbox"
                       checked={allMatching || selected.includes(l.id)}
@@ -508,7 +508,12 @@ export function LeadsTable(props: LeadsTableProps) {
                   {visible.map((c, colIndex) => (
                     <td
                       key={c.key}
-                      className={`border-b border-line px-3 py-3 align-middle text-[13px] ${
+                      /**
+                       * Padding from the density tokens (playbook-v5 P16/6)
+                       * rather than fixed classes, so compact is one CSS
+                       * declaration instead of a class swap per column.
+                       */
+                      className={`border-b border-line px-[var(--cell-px)] py-[var(--row-py)] align-middle text-[13px] ${
                         c.numeric ? "text-right tabular-nums" : ""
                       } ${c.secondary ? "hidden nav:table-cell" : ""}`}
                     >
@@ -676,7 +681,7 @@ export function LeadsTable(props: LeadsTableProps) {
                         })()}
                     </td>
                   ))}
-                  <td className="border-b border-line px-3 py-3 align-middle text-[13px]">
+                  <td className="border-b border-line px-[var(--cell-px)] py-[var(--row-py)] align-middle text-[13px]">
                     <div className="flex justify-end gap-2">
                       {l.icpScore == null ? (
                         <button

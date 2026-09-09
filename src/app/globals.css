@@ -169,3 +169,50 @@ body::before {
     display: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Density (playbook-v5 P16/6).
+
+   Tokens, not per-component overrides. A table and a board each read the same
+   four variables, so "compact" is one declaration rather than forty class
+   swaps that drift apart the moment somebody adds a column.
+
+   The default block is comfortable, and `[data-density="compact"]` tightens
+   it. Nothing outside this block knows the difference.
+   --------------------------------------------------------------------------- */
+:root {
+  --row-py: 10px;
+  --cell-px: 12px;
+  --card-p: 12px;
+  --stack-gap: 10px;
+  --density-fs: 12.5px;
+}
+
+[data-density="compact"] {
+  --row-py: 5px;
+  --cell-px: 8px;
+  --card-p: 8px;
+  --stack-gap: 6px;
+  --density-fs: 12px;
+}
+
+/* ---------------------------------------------------------------------------
+   COMPACT DOES NOT APPLY ON A PHONE.
+
+   44px touch targets are a hard rule (CLAUDE.md → Responsive), and compact row
+   heights cannot honour them. So below the shell's own breakpoint the tokens
+   go back to comfortable whatever the preference says — and the UI says
+   nothing about it, because explaining that a setting is being ignored is
+   worse than quietly giving somebody targets they can hit.
+
+   `nav` is 700px, the same breakpoint that swaps the sidebar for bottom tabs.
+   --------------------------------------------------------------------------- */
+@media (max-width: 699px) {
+  [data-density="compact"] {
+    --row-py: 10px;
+    --cell-px: 12px;
+    --card-p: 12px;
+    --stack-gap: 10px;
+    --density-fs: 12.5px;
+  }
+}

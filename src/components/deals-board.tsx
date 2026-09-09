@@ -263,7 +263,7 @@ export function DealsBoard({
                     pressRef.current = { x: e.clientX, y: e.clientY };
                     draggedRef.current = false;
                   }}
-                  className={`mb-2.5 rounded-[11px] border bg-panel-2 p-3 transition-shadow hover:border-accent-soft ${
+                  className={`mb-[var(--stack-gap)] rounded-[11px] border bg-panel-2 p-[var(--card-p)] transition-shadow hover:border-accent-soft ${
                     c.rotting ? "border-[rgba(255,176,66,0.45)]" : "border-line"
                   }`}
                 >

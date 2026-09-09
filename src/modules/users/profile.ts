@@ -1,6 +1,7 @@
 "use server";
 
 import { mkdir, writeFile, unlink } from "node:fs/promises";
+import { DENSITIES, toDensity, type Density } from "@/lib/density";
 import { join } from "node:path";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
@@ -28,6 +29,8 @@ export interface MyProfile {
   /** Workspaces they belong to, with the role in each. */
   memberships: Array<{ workspace: string; role: string }>;
   lastLoginAt: string | null;
+  /** Row density, per user. See src/lib/density.ts for why it is not per device. */
+  density: Density;
 }
 
 export async function getMyProfile(): Promise<MyProfile> {
@@ -39,6 +42,7 @@ export async function getMyProfile(): Promise<MyProfile> {
       name: true,
       email: true,
       avatarPath: true,
+      density: true,
       isSuperAdmin: true,
       lastLoginAt: true,
       memberships: {
@@ -59,6 +63,7 @@ export async function getMyProfile(): Promise<MyProfile> {
     isSuperAdmin: user.isSuperAdmin,
     memberships: user.memberships.map((m) => ({ workspace: m.workspace.name, role: m.role })),
     lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+    density: toDensity(user.density),
   };
 }
 
@@ -70,6 +75,27 @@ function stamp(path: string): string {
 }
 
 const nameSchema = z.object({ name: z.string().trim().min(1).max(120) });
+
+/**
+ * Set the row density.
+ *
+ * Its own action rather than a field on `updateMyProfile`, because it is a
+ * one-click toggle: bundling it into the name form would mean choosing compact
+ * required pressing Save on a form you had not otherwise touched.
+ *
+ * Revalidates the layout, not a page: the shell stamps `data-density` on the
+ * whole app, so every open surface has to pick up the change.
+ */
+export async function setMyDensity(
+  raw: unknown,
+): Promise<{ ok: true; density: Density } | { ok: false; error: string }> {
+  const parsed = z.enum(DENSITIES).safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "That is not a density." };
+  const { userId } = await getActiveContext();
+  await prismaUnsafe.user.update({ where: { id: userId }, data: { density: parsed.data } });
+  revalidatePath("/", "layout");
+  return { ok: true, density: parsed.data };
+}
 
 export async function updateMyProfile(
   raw: unknown,

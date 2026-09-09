@@ -156,7 +156,7 @@ function Card({
        * slightly deeper fill and a shadow — the only two things that say
        * "this is a movable object on a surface".
        */
-      className={`group rounded-[11px] border border-line bg-[rgba(0,5,29,0.55)] p-3 shadow-[0_1px_3px_rgba(0,5,29,0.45)] transition-colors hover:border-accent ${
+      className={`group rounded-[11px] border border-line bg-[rgba(0,5,29,0.55)] p-[var(--card-p)] shadow-[0_1px_3px_rgba(0,5,29,0.45)] transition-colors hover:border-accent ${
         dragging ? "opacity-40" : ""
       } ${task.doneAt ? "opacity-60" : ""}`}
     >

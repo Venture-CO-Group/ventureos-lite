@@ -1,0 +1,11 @@
+-- Row density, per USER rather than per device (playbook-v5 P16/6).
+--
+-- On the user, not in localStorage, deliberately: somebody who prefers compact
+-- prefers it on their laptop and on the machine in the meeting room. A
+-- per-device setting means the product looks different depending on where you
+-- opened it, which is the opposite of a preference being honoured.
+--
+-- TEXT rather than an enum, because the schema has to work on MySQL as well as
+-- Postgres (CLAUDE.md) and an enum would need a migration to add a third step.
+-- NULL means "not chosen", which reads as comfortable.
+ALTER TABLE "users" ADD COLUMN "density" TEXT;

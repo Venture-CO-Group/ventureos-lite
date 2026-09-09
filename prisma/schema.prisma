@@ -298,6 +298,10 @@ model User {
   /// at UTC midnight for everybody or guess. An IANA name ("Europe/Budapest"),
   /// not an offset — an offset is wrong twice a year.
   jobTitle            String?              @map("job_title")
+  /// comfortable | compact. Null means never chosen, which reads as
+  /// comfortable. Per USER and not per device: somebody who prefers compact
+  /// prefers it everywhere they sign in (playbook-v5 P16/6).
+  density             String?
   phone               String?
   timezone            String?
   /// UI language. Null means the workspace/browser default decides.

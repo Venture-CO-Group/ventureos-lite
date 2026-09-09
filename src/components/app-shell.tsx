@@ -280,7 +280,17 @@ export async function AppShell({
           the two are identical. A fixed height (not min-height) from `nav:` up
           clamps the sidebar to the viewport so it scrolls internally instead
           of extending the page. */}
-    <div className="relative z-10 flex min-h-[100dvh] flex-col nav:grid nav:h-[100dvh] nav:grid-cols-[228px_1fr] nav:overflow-hidden">
+    <div
+      /**
+       * Density is stamped once, here (playbook-v5 P16/6).
+       *
+       * Every table and board reads the same four custom properties, so the
+       * preference is one attribute rather than a prop threaded through forty
+       * components — and a surface added next month inherits it for free.
+       */
+      data-density={shell.density}
+      className="relative z-10 flex min-h-[100dvh] flex-col nav:grid nav:h-[100dvh] nav:grid-cols-[228px_1fr] nav:overflow-hidden"
+    >
       {/* ---------- sidebar (nav: and up) ---------- */}
       {/* min-h-0 is what makes this scroll. A grid item defaults to
           min-height:auto, so the sidebar grew to fit its content — 1041px in an

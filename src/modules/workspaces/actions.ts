@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { toDensity, type Density } from "@/lib/density";
 import { revalidatePath } from "next/cache";
 import type { Role } from "@prisma/client";
 import { prismaUnsafe, getWorkspaceClient } from "@/lib/db";
@@ -44,6 +45,8 @@ export interface ShellContext {
   activeWorkspaceId: string;
   workspaces: WorkspaceOption[];
   role: string;
+  /** Row density, stamped on the shell so every surface reads the same tokens. */
+  density: Density;
   /**
    * Why this person must register an authenticator before working, if they
    * must. The shell redirects on it; the enrolment page explains which reason
@@ -86,6 +89,7 @@ export async function getShellContext(): Promise<ShellContext> {
       mustEnrollTotp: true,
       totpEnabled: true,
       avatarPath: true,
+      density: true,
     },
   });
   const memberships = await prismaUnsafe.membership.findMany({
@@ -123,6 +127,7 @@ export async function getShellContext(): Promise<ShellContext> {
     activeWorkspaceId: workspaceId,
     workspaces,
     role,
+    density: toDensity(user?.density),
     enrolmentReason: user
       ? enrolmentRequired(user, securityPolicyFrom(brandRow?.featureFlags))
       : null,

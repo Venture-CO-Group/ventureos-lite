@@ -3,7 +3,13 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { attempt, serverActionError } from "@/lib/client/server-action";
-import { removeMyAvatar, updateMyProfile, type MyProfile } from "@/modules/users/profile";
+import {
+  removeMyAvatar,
+  setMyDensity,
+  updateMyProfile,
+  type MyProfile,
+} from "@/modules/users/profile";
+import { DENSITIES, DENSITY_HELP, DENSITY_LABEL } from "@/lib/density";
 import { initialsOf } from "@/lib/initials";
 
 const CARD = "rounded-card border border-line bg-panel p-4";
@@ -28,6 +34,8 @@ export function SettingsProfile({ profile }: { profile: MyProfile }) {
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [density, setDensity] = useState(profile.density);
+  const [savingDensity, setSavingDensity] = useState(false);
   const fileInput = useRef<HTMLInputElement | null>(null);
 
   async function upload(file: File) {
@@ -182,6 +190,57 @@ export function SettingsProfile({ profile }: { profile: MyProfile }) {
           {msg.text}
         </p>
       )}
+
+      {/**
+       * Density (playbook-v5 P16/6).
+       *
+       * Here rather than in a "display" section of its own, because it is one
+       * preference and a section with one control in it is a menu item nobody
+       * finds. Saved on click — a radio pair does not need a Save button.
+       *
+       * The help text says compact is ignored on a phone. The RULE is that
+       * 44px targets win, and it applies silently in the CSS; saying so once,
+       * here, is different from interrupting somebody on a phone to explain
+       * that their setting is being overridden.
+       */}
+      <div className="mt-4 border-t border-line pt-3">
+        <p className={LABEL}>Row density</p>
+        <div className="mt-1.5 flex flex-wrap gap-1.5" data-testid="density-toggle">
+          {DENSITIES.map((d) => (
+            <button
+              key={d}
+              type="button"
+              data-testid={`density-${d}`}
+              aria-pressed={density === d}
+              disabled={savingDensity}
+              onClick={() => {
+                setDensity(d);
+                setSavingDensity(true);
+                startTransition(async () => {
+                  const res = await setMyDensity(d);
+                  setSavingDensity(false);
+                  if (!res.ok) {
+                    setDensity(profile.density);
+                    setMsg({ kind: "err", text: res.error });
+                    return;
+                  }
+                  // The shell stamps the attribute, so the whole app has to
+                  // re-render — not just this panel.
+                  router.refresh();
+                });
+              }}
+              className={`rounded-[10px] border px-3 py-1.5 text-[12.5px] transition-colors disabled:opacity-60 ${
+                density === d
+                  ? "border-accent bg-accent-soft text-[#E4D3FF]"
+                  : "border-line bg-panel text-muted hover:text-ink"
+              }`}
+            >
+              {DENSITY_LABEL[d]}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[11px] text-muted">{DENSITY_HELP[density]}</p>
+      </div>
 
       <div className="mt-4 border-t border-line pt-3">
         <p className={LABEL}>Workspaces</p>
