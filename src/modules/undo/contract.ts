@@ -94,6 +94,8 @@ export const DESTRUCTIVE_ACTIONS: Record<string, Undoability> = {
   deleteTeam: permanent("The team is removed. Nobody loses access, because a team grants nothing."),
   deleteView: permanent("A saved view is a filter set; rebuilding it costs a few clicks and loses no data."),
   deleteLeadView: permanent("A saved view is a filter set; rebuilding it costs a few clicks and loses no data."),
+  deleteTaskView: permanent("A saved board view is a grouping and a filter set; rebuilding it costs a few clicks and loses no tasks."),
+  removeTaskView: permanent("A saved board view is a grouping and a filter set; rebuilding it costs a few clicks and loses no tasks."),
   deleteImportTemplate: permanent("A saved column mapping. The rows it imported are unaffected."),
   archiveProjectTemplate: permanent("Archiving hides the template from the picker. Projects created from it are unaffected."),
   removeKeyword: permanent("Tracking stops. The positions already recorded stay in the history."),
