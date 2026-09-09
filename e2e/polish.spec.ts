@@ -161,7 +161,9 @@ test("undo puts a bulk stage move back", async ({ page }) => {
   await page.getByTestId("bulk-confirm").click();
   await expect(page.getByTestId("bulk-summary")).toContainText("2 leads updated");
 
-  const toast = page.getByTestId("undo-toast");
+  // `undo-toast` became the `undoable` variant of the one toast layer
+  // (playbook-v5 P16/3), so the host is `toast`.
+  const toast = page.getByTestId("toast");
   await expect(toast).toBeVisible();
   await toast.getByTestId("undo-button").click();
   await expect(toast).toHaveCount(0, { timeout: 15_000 });

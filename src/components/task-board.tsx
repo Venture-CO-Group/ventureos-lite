@@ -794,6 +794,7 @@ export function TaskBoards({
                   );
                 }
               }}
+              aria-label="Board name"
               data-testid="board-name"
               className="min-w-0 max-w-[380px] flex-1 rounded-[8px] border border-transparent bg-transparent px-1 py-0.5 font-display text-[20px] font-bold text-ink outline-none hover:border-line focus:border-accent"
             />
