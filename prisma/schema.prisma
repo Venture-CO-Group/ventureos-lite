@@ -1424,6 +1424,17 @@ model Task {
   /// task, which carries `dueAt` itself.
   dueOffsetDays  Int?    @map("due_offset_days")
 
+  /// How long this is expected to take, in whole MINUTES (playbook-v5 P20/1).
+  ///
+  /// Minutes rather than decimal hours for the same reason money is integer
+  /// forints: 1.5h is exactly 90 minutes, while 0.1h is not exactly six of
+  /// anything and a sum of forty is wrong by an amount nobody can explain.
+  /// The UI reads and writes hours. Null means nobody has estimated it — a
+  /// parent may instead have its estimate computed from its subtasks.
+  estimateMinutes Int?   @map("estimate_minutes")
+
+  timeEntries TimeEntry[]
+
   board       TaskBoard?       @relation(fields: [boardId], references: [id], onDelete: SetNull)
   section     TaskSection?     @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   parent      Task?            @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
@@ -2898,6 +2909,10 @@ model Milestone {
   position    Int      @default(0)
   /// generic | certificate
   kind        String   @default("generic")
+  /// What this step is expected to cost, in whole minutes (playbook-v5 P20/1).
+  /// This is how a website project is costed before it starts, and what the
+  /// project view totals.
+  estimateMinutes Int?  @map("estimate_minutes")
   createdAt   DateTime @default(now()) @map("created_at")
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -3159,4 +3174,36 @@ model UserPin {
   @@index([userId, workspaceId, kind, at])
   @@index([workspaceId, userId])
   @@map("user_pins")
+}
+
+/// One stretch of work on a task (playbook-v5 P20/1).
+///
+/// ── A RUNNING TIMER IS A ROW WITH NO endedAt ────────────────────────────────
+///
+/// Which is what makes it survive a reload, a crash and a different machine:
+/// the timer is not browser state, it is a fact in the database. The partial
+/// unique index on `userId WHERE ended_at IS NULL` enforces "one running timer
+/// per person" in the DATABASE rather than by remembering to check — two tabs
+/// racing to start one is exactly the case a code-level check loses.
+///
+/// `minutes` is written when the entry closes, or directly for a manual entry,
+/// so a sum over a range is one indexed read rather than arithmetic over
+/// timestamps.
+model TimeEntry {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  taskId      String    @map("task_id")
+  userId      String    @map("user_id")
+  startedAt   DateTime  @map("started_at")
+  /// Null while the timer is running.
+  endedAt     DateTime? @map("ended_at")
+  minutes     Int       @default(0)
+  note        String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, taskId])
+  @@index([workspaceId, userId, startedAt])
+  @@map("time_entries")
 }

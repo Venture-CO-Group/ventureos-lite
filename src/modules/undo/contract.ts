@@ -111,6 +111,12 @@ export const DESTRUCTIVE_ACTIONS: Record<string, Undoability> = {
   removeMyAvatar: permanent("The photo is removed. You can upload another at any time."),
   removeDependency: permanent("The link between the two tasks is removed. Neither task is changed."),
   removeSubscription: permanent("This browser stops receiving push notifications."),
+  deleteEntry: permanent(
+    "The logged time is removed and the task's actual figure drops by that much. Only the person who logged it can remove it.",
+  ),
+  removeTimeEntry: permanent(
+    "The logged time is removed and the task's actual figure drops by that much. Only the person who logged it can remove it.",
+  ),
 };
 
 /** What the confirmation should say, for any declared action. */

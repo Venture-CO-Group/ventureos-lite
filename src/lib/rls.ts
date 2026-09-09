@@ -124,6 +124,8 @@ const BUSINESS_TABLES = [
    * this table being added without a policy.
    */
   "user_pins",
+  /** Time entries (playbook-v5 P20/1) — what a project cost is not shared. */
+  "time_entries",
   "mail_accounts",
   "email_threads",
   "email_messages",

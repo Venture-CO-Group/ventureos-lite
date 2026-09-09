@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { formatHours } from "@/modules/tasks/time-logic";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { attempt, attemptVoid } from "@/lib/client/server-action";
@@ -186,6 +187,33 @@ export function Projects({ board }: { board: ProjectBoard }) {
           )}
         </div>
         <Progress pct={p.pct} overdue={p.overdue} />
+
+        {/**
+         * What it was estimated at against what it has cost (playbook-v5
+         * P20/1). Shown only once one of the two exists: a row of dashes on
+         * every project would be noise, and this is the number the pricing
+         * intelligence is built on.
+         */}
+        {(p.estimateMinutes > 0 || p.actualMinutes > 0) && (
+          <span data-testid="project-cost" className="text-[11.5px] text-muted">
+            Becslés <span className="text-ink">{formatHours(p.estimateMinutes || null)}</span> ·
+            eddig <span className="text-ink">{formatHours(p.actualMinutes)}</span>
+            {p.estimateMinutes > 0 && (
+              <span
+                className={
+                  p.actualMinutes > p.estimateMinutes * 1.15
+                    ? " text-warn"
+                    : p.actualMinutes < p.estimateMinutes * 0.85
+                      ? " text-pos"
+                      : ""
+                }
+              >
+                {" "}
+                ({Math.round((p.actualMinutes / p.estimateMinutes) * 100)}%)
+              </span>
+            )}
+          </span>
+        )}
         {p.next && (
           <span className="text-[11.5px] text-muted">
             Következő: <span className="text-ink">{p.next.title}</span>

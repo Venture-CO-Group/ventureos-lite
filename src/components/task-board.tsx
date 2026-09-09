@@ -62,6 +62,8 @@ import { StarToggle } from "./star-toggle";
 import { MyWork } from "./my-work";
 import { TaskTimeline } from "./task-timeline";
 import { TaskCalendar } from "./task-calendar";
+import { TaskTimePanel } from "./task-time";
+import { TimeReport } from "./time-report";
 import { BoardViewTabs } from "./board-view-tabs";
 import {
   EMPTY_TASK_FILTER,
@@ -1210,6 +1212,9 @@ export function TaskBoards({
             </>
           )}
 
+          {/* Estimate against actual, and this person's week (P20/1). */}
+          {view === "board" && <TimeReport boardId={board.id} />}
+
           {view === "board" && groupBy !== "section" && (
             <div className="flex snap-x gap-3 overflow-x-auto pb-3" data-testid="grouped-board">
               {groupedColumns.map((group) => (
@@ -2046,6 +2051,11 @@ function TaskDetail({
           className={`${INPUT} mt-1 resize-y`}
         />
       </label>
+
+      {/* ---------- estimate and time (playbook-v5 P20/1) ---------- */}
+      <div className="mb-3">
+        <TaskTimePanel taskId={taskId} />
+      </div>
 
       {/* ---------- subtasks ---------- */}
       <div className="mb-3">

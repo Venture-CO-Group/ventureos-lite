@@ -27,6 +27,13 @@ export interface ProjectBoardRow {
   overdue: number;
   next: { title: string; dueAt: string | null } | null;
   certificateIssued: boolean;
+  /**
+   * Estimated and actual minutes (playbook-v5 P20/1) — the two numbers that
+   * answer "what does a website project actually cost us", and the ones the
+   * pricing intelligence is built on.
+   */
+  estimateMinutes: number;
+  actualMinutes: number;
 }
 
 export interface ProjectBoard {
@@ -50,7 +57,7 @@ export async function getProjectBoard(): Promise<ProjectBoard> {
   const tasks = taskIds.length
     ? await db.task.findMany({
         where: { id: { in: taskIds } },
-        select: { id: true, title: true, dueAt: true, doneAt: true },
+        select: { id: true, title: true, dueAt: true, doneAt: true, estimateMinutes: true },
       })
     : [];
   const byTask = new Map(tasks.map((t) => [t.id, t]));
@@ -63,6 +70,23 @@ export async function getProjectBoard(): Promise<ProjectBoard> {
       })
     : [];
   const nameById = new Map(companies.map((c) => [c.id, c.name]));
+
+  /** Time logged against each project's milestone tasks, in one query. */
+  const logged = taskIds.length
+    ? await db.timeEntry.groupBy({
+        by: ["taskId"],
+        where: { taskId: { in: taskIds } },
+        _sum: { minutes: true },
+      })
+    : [];
+  const loggedByTask = new Map(logged.map((l) => [l.taskId, l._sum.minutes ?? 0]));
+  const loggedByProject = new Map<string, number>();
+  for (const project of projects) {
+    loggedByProject.set(
+      project.id,
+      project.milestones.reduce((n, m) => n + (loggedByTask.get(m.taskId) ?? 0), 0),
+    );
+  }
 
   const rows: ProjectBoardRow[] = projects.map((p) => {
     const lines = p.milestones
@@ -88,6 +112,21 @@ export async function getProjectBoard(): Promise<ProjectBoard> {
         ? { title: progress.next.title, dueAt: progress.next.dueAt?.toISOString() ?? null }
         : null,
       certificateIssued: !!cert?.doneAt,
+      /**
+       * What this project was estimated at, and what it has cost so far
+       * (playbook-v5 P20/1).
+       *
+       * The playbook is explicit that this is the point of the whole item: it
+       * is how the business answers "what does a website project actually cost
+       * us", and the pricing intelligence is only as good as these two
+       * numbers. A milestone's own estimate wins over its task's, because the
+       * milestone is the costed unit.
+       */
+      estimateMinutes: p.milestones.reduce(
+        (n, m) => n + (m.estimateMinutes ?? byTask.get(m.taskId)?.estimateMinutes ?? 0),
+        0,
+      ),
+      actualMinutes: loggedByProject.get(p.id) ?? 0,
     };
   });
 

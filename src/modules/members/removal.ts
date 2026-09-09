@@ -1,4 +1,5 @@
 import { prismaUnsafe } from "@/lib/db";
+import { loggedMinutesFor } from "@/modules/tasks/time-store";
 import { OWNED_CATEGORIES, validatePlan, type ReassignTarget } from "./reassignment";
 import { recordMemberEvent } from "./timeline";
 import { liveOwnerCount } from "./directory";
@@ -39,6 +40,11 @@ export interface ImpactReport {
   counts: ImpactCounts;
   /** Mail and calendar connections that will be disconnected. */
   mailAccounts: number;
+  /**
+   * Minutes of work they have logged. KEPT, not removed — it is what a project
+   * cost, and deleting it would make the estimate-vs-actual history a lie.
+   */
+  loggedMinutes: number;
   /** Total, so the confirmation can lead with one number. */
   total: number;
   /** They are the only Owner who can sign in — removal is refused. */
@@ -67,6 +73,15 @@ export async function impactOf(
     counts[c.key] = await countFor(workspaceId, userId, c.key);
   }
   const mailAccounts = await prismaUnsafe.mailAccount.count({ where: { userId } });
+  /**
+   * Time they have logged here (playbook-v5 P20/1).
+   *
+   * The playbook asks for time data to be included in the removal impact
+   * report, and it is the right thing to surface: it is what a project cost,
+   * and it is the one number in this report that does NOT disappear with them —
+   * so the confirmation can say the history stays.
+   */
+  const loggedMinutes = await loggedMinutesFor(workspaceId, userId);
 
   return {
     userId,
@@ -74,6 +89,7 @@ export async function impactOf(
     name: membership.user.name,
     counts,
     mailAccounts,
+    loggedMinutes,
     total: Object.values(counts).reduce((a, b) => a + b, 0),
     isLastOwner:
       membership.role === "OWNER" && (await liveOwnerCount(workspaceId, userId)) === 0,
