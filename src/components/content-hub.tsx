@@ -23,6 +23,9 @@ import {
 } from "@/modules/content/board";
 import { Modal } from "./modal";
 import { useViewState } from "./use-view-state";
+import { BulkBar, type BulkAction } from "./bulk-bar";
+import { useBulkSelection } from "./use-bulk-selection";
+import { bulkContentStatus } from "@/modules/content/bulk-actions";
 import { idField } from "@/lib/client/view-state";
 
 const CARD = "rounded-card border border-line bg-panel p-3";
@@ -64,6 +67,44 @@ export function ContentHub({ board }: { board: ContentBoardView }) {
     [setView],
   );
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  /**
+   * Bulk status changes (playbook-v5 P17/1).
+   *
+   * The phase rule holds per post — an illegal jump is refused for one card
+   * and must be refused for forty — so the skips name where each post actually
+   * is rather than reporting a bare count.
+   */
+  const selection = useBulkSelection(board.posts.length);
+  const bulkActions = useMemo<BulkAction<unknown>[]>(
+    () => [
+      {
+        key: "status",
+        label: "Move to phase",
+        noun: "post",
+        verb: "moved",
+        initial: "IN_REVIEW" as unknown,
+        form: (state, set) => (
+          <select
+            aria-label="Phase"
+            data-testid="bulk-status-value"
+            value={String(state ?? "IN_REVIEW")}
+            onChange={(e) => set(e.target.value)}
+            className="rounded-[8px] border border-line bg-[rgba(0,5,29,0.6)] px-2 py-1 text-[12px] text-ink outline-none"
+          >
+            {CONTENT_STATUSES.map((st) => (
+              <option key={st} value={st}>
+                {STATUS_LABEL[st]}
+              </option>
+            ))}
+          </select>
+        ),
+        run: (ids, state) => bulkContentStatus(ids, String(state ?? "IN_REVIEW")),
+      },
+    ],
+    [],
+  );
+
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<ContentStatus | null>(null);
   /**
@@ -174,6 +215,12 @@ export function ContentHub({ board }: { board: ContentBoardView }) {
         </p>
       )}
 
+      <BulkBar
+        selection={selection}
+        actions={bulkActions}
+        onDone={() => router.refresh()}
+      />
+
       {/* Swipeable columns on a phone, four across on desktop. */}
       <div
         className="grid snap-x snap-mandatory auto-cols-[82vw] grid-flow-col items-start gap-3 overflow-x-auto pb-3 nav:auto-cols-fr nav:grid-flow-row nav:grid-cols-4 nav:overflow-visible"
@@ -221,12 +268,18 @@ export function ContentHub({ board }: { board: ContentBoardView }) {
               )}
 
               {posts.map((p) => (
+                /**
+                 * NOT role="button" — the same fault axe found on the pipeline
+                 * card (P16/4). It contains a Move-to control, and now a
+                 * selection box, so announcing the whole card as one button
+                 * puts three controls inside it and makes the card a single
+                 * opaque tab stop. /content is not one of the six screens the
+                 * axe gate visits, which is exactly why it was still here. The
+                 * keyboard route in is the title button below.
+                 */
                 <div
                   key={p.id}
                   draggable
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Open ${p.title}`}
                   data-testid="content-card"
                   onDragStart={() => {
                     draggedRef.current = true;
@@ -247,20 +300,38 @@ export function ContentHub({ board }: { board: ContentBoardView }) {
                     }
                     setOpenId(p.id);
                   }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setOpenId(p.id);
-                    }
-                  }}
-                  className={`mb-2 w-full cursor-pointer rounded-[11px] border bg-panel-2 p-2.5 text-left transition-shadow hover:border-accent-soft hover:shadow-[0_0_16px_rgba(116,39,198,0.25)] focus:outline-none focus-visible:border-accent ${
+                  className={`group mb-2 w-full cursor-pointer rounded-[11px] border bg-panel-2 p-2.5 text-left transition-shadow hover:border-accent-soft hover:shadow-[0_0_16px_rgba(116,39,198,0.25)] focus-within:border-accent ${
                     dragId === p.id ? "border-accent opacity-60" : "border-line"
                   }`}
                 >
-                  <span className="mb-1 inline-block rounded-full bg-panel px-2 py-0.5 text-[10px] font-semibold text-muted">
-                    {STATUS_LABEL[p.status]}
+                  <span className="mb-1 flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={selection.isSelected(p.id)}
+                      onChange={() => selection.toggle(p.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      data-testid="content-select"
+                      aria-label={`Select ${p.title}`}
+                      style={{ accentColor: "#7427C6" }}
+                      className={`flex-none transition-opacity ${
+                        selection.isSelected(p.id)
+                          ? "opacity-100"
+                          : "opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+                      }`}
+                    />
+                    <span className="inline-block rounded-full bg-panel px-2 py-0.5 text-[10px] font-semibold text-muted">
+                      {STATUS_LABEL[p.status]}
+                    </span>
                   </span>
-                  <b className="block text-[13px] text-ink">{p.title}</b>
+                  <b className="block text-[13px] text-ink">
+                    <button
+                      type="button"
+                      onClick={() => setOpenId(p.id)}
+                      className="w-full rounded-[4px] text-left focus-visible:ring-1 focus-visible:ring-accent"
+                    >
+                      {p.title}
+                    </button>
+                  </b>
                   {/* No `block` here: line-clamp needs display:-webkit-box, and `block`
                       overrides it — which is why the excerpt was never actually
                       clamped. */}

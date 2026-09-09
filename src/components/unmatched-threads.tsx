@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   listUnmatchedThreads,
   linkThreadToLead,
   type UnmatchedThreadView,
 } from "@/modules/email/thread-actions";
+import { BulkBar, type BulkAction } from "./bulk-bar";
+import { useBulkSelection } from "./use-bulk-selection";
+import { bulkThreadsArchive, bulkThreadsLink, bulkThreadsRead } from "@/modules/inbox/bulk-actions";
 
 /**
  * Correspondence we synced but could not place (playbook-v2 P2a).
@@ -28,6 +31,65 @@ export function UnmatchedThreads({
   const [choice, setChoice] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  /**
+   * Bulk actions on the unmatched queue (playbook-v5 P17/1).
+   *
+   * This queue is where thread bulk actions belong: the inbox's left-hand list
+   * is keyed by LEAD, so it has no thread ids to act on, while every row here
+   * is an EmailThread. Linking twenty forwarded introductions to one lead —
+   * or putting away a batch that will never be placed — is exactly the work
+   * that was one-at-a-time.
+   *
+   * A thread already pointing at a DIFFERENT lead is skipped rather than
+   * relinked: moving correspondence to another company is a decision, not
+   * something a bulk action should do quietly.
+   */
+  const selection = useBulkSelection(threads?.length ?? 0);
+  const bulkActions = useMemo<BulkAction<unknown>[]>(
+    () => [
+      {
+        key: "link",
+        label: "Link to lead",
+        noun: "thread",
+        verb: "linked",
+        initial: "" as unknown,
+        validate: (state) => (String(state ?? "") ? null : "Choose a lead."),
+        form: (state, set) => (
+          <select
+            aria-label="Lead"
+            data-testid="bulk-link-value"
+            value={String(state ?? "")}
+            onChange={(e) => set(e.target.value)}
+            className="min-w-[160px] rounded-[8px] border border-line bg-[rgba(0,5,29,0.6)] px-2 py-1 text-[12px] text-ink outline-none"
+          >
+            <option value="">Choose…</option>
+            {leads.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+        ),
+        run: (ids, state) => bulkThreadsLink(ids, String(state ?? "")),
+      },
+      {
+        key: "read",
+        label: "Mark read",
+        noun: "thread",
+        verb: "marked read",
+        run: (ids) => bulkThreadsRead(ids, false),
+      },
+      {
+        key: "archive",
+        label: "Archive",
+        noun: "thread",
+        verb: "archived",
+        run: (ids) => bulkThreadsArchive(ids, true),
+      },
+    ],
+    [leads],
+  );
 
   async function refresh() {
     setThreads(await listUnmatchedThreads());
@@ -60,10 +122,25 @@ export function UnmatchedThreads({
         same person lands on the right lead by itself.
       </p>
 
+      <BulkBar
+        selection={selection}
+        actions={bulkActions}
+        onDone={() => void refresh()}
+      />
+
       <div className="space-y-2">
         {threads.map((t) => (
           <div key={t.id} className="rounded-[10px] border border-line bg-panel-2 p-3">
             <div className="flex flex-wrap items-baseline gap-2 text-[12.5px]">
+              <input
+                type="checkbox"
+                checked={selection.isSelected(t.id)}
+                onChange={() => selection.toggle(t.id)}
+                data-testid="thread-select"
+                aria-label={`Select ${t.subject || "this thread"}`}
+                style={{ accentColor: "#7427C6" }}
+                className="flex-none"
+              />
               <span className="font-semibold">{t.subject || "(no subject)"}</span>
               <span className="text-[11.5px] text-muted">{t.participants.join(", ")}</span>
               <span className="ml-auto text-[11px] text-muted">

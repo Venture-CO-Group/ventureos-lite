@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -15,6 +15,9 @@ import {
   type ColdStatus,
 } from "@/modules/campaigns/actions";
 import type { AudienceBreakdown } from "@/modules/verification/store";
+import { BulkBar, type BulkAction } from "./bulk-bar";
+import { useBulkSelection } from "./use-bulk-selection";
+import { bulkRemoveCampaignRecipients } from "@/modules/campaigns/bulk-actions";
 import { EmptyState } from "./empty-state";
 
 const INPUT =
@@ -41,11 +44,42 @@ function AudiencePanel({
   breakdown,
   busy,
   onAccept,
+  onRemoved,
 }: {
   breakdown: AudienceBreakdown | undefined;
   busy: boolean;
   onAccept: (recipientId: string) => void;
+  onRemoved: () => void;
 }) {
+  /**
+   * Bulk removal from the audience (playbook-v5 P17/1).
+   *
+   * The risky list is where this belongs: it is a queue of addresses somebody
+   * has to decide about, and until now each decision was one click. Accepting
+   * stays per address — that is a judgement — but taking a batch OUT is the
+   * repetitive half.
+   *
+   * "Remove" is two actions and the report says which happened: a recipient
+   * who has already been sent to is SUPPRESSED rather than deleted, because
+   * the row is the record that mail went to that address and the bounce and
+   * complaint machinery reads it.
+   */
+  const selection = useBulkSelection(breakdown?.awaitingConfirmation.length ?? 0);
+  const bulkActions = useMemo<BulkAction<unknown>[]>(
+    () => [
+      {
+        key: "remove",
+        label: "Remove from audience",
+        noun: "recipient",
+        verb: "removed",
+        destructive: true,
+        confirmWord: "REMOVE",
+        run: (ids) => bulkRemoveCampaignRecipients(ids),
+      },
+    ],
+    [],
+  );
+
   if (!breakdown) return null;
   const chip = (label: string, n: number, cls: string) => (
     <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
@@ -82,8 +116,23 @@ function AudiencePanel({
           <p className="text-[11.5px] font-semibold text-warn">
             {breakdown.awaitingConfirmation.length} kockázatos cím döntésre vár:
           </p>
+          <BulkBar
+            selection={selection}
+            actions={bulkActions}
+            onDone={onRemoved}
+            testId="audience-bulk-bar"
+          />
           {breakdown.awaitingConfirmation.map((r) => (
             <div key={r.id} className="flex items-center justify-between gap-2 text-[11.5px]">
+              <input
+                type="checkbox"
+                checked={selection.isSelected(r.id)}
+                onChange={() => selection.toggle(r.id)}
+                data-testid="recipient-select"
+                aria-label={`Select ${r.email}`}
+                style={{ accentColor: "#7427C6" }}
+                className="flex-none"
+              />
               <span className="truncate text-ink">
                 {r.email}
                 <span className="text-muted"> · {r.reason.replace(/_/g, " ")}</span>
@@ -301,6 +350,7 @@ export function Campaigns({ status, campaigns }: { status: ColdStatus; campaigns
             breakdown={audience[c.id]}
             busy={busy}
             onAccept={(recipientId) => accept(c.id, recipientId)}
+            onRemoved={() => void check(c.id)}
           />
 
           <div className="mt-3 flex flex-wrap gap-2">

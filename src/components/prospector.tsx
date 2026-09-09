@@ -1,8 +1,11 @@
 "use client";
 import { serverActionError } from "@/lib/client/server-action";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { estimateProspectCostUsd } from "@/modules/prospector/cost";
+import { BulkBar, type BulkAction } from "./bulk-bar";
+import { useBulkSelection } from "./use-bulk-selection";
+import { bulkAddProspects, bulkAuditProspects } from "@/modules/prospector/bulk-actions";
 import type {
   ProspectRow,
   ProspectSearchResult,
@@ -85,6 +88,91 @@ export function Prospector({ saved }: { saved: SavedSearch[] }) {
   // What the classifier actually managed — "25 of 60" is information the
   // operator needs and never used to get.
   const [classifyNote, setClassifyNote] = useState<string | null>(null);
+
+  /**
+   * Bulk actions on the results (playbook-v5 P17/1).
+   *
+   * ── DISMISS IS THE ONE THAT IS NOT A SERVER CALL ────────────────────────
+   *
+   * A prospector result is not a row yet — it comes back from Places and only
+   * becomes a company when somebody adds it. So dismissing one is a statement
+   * about THIS list, kept here, and there is nothing to persist. Add-as-leads
+   * and run-audits do reach the server, and both take the payloads rather than
+   * ids for the same reason: there are no ids yet.
+   */
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  const visible = useMemo(
+    () =>
+      (result?.results ?? []).filter(
+        (r, i) => !dismissed.includes(r.placeId ?? `${r.name}-${i}`),
+      ),
+    [result, dismissed],
+  );
+  const selection = useBulkSelection(visible.length);
+  const byKey = useMemo(() => {
+    const map = new Map<string, ProspectRow>();
+    (result?.results ?? []).forEach((r, i) => map.set(r.placeId ?? `${r.name}-${i}`, r));
+    return map;
+  }, [result]);
+
+  const bulkActions = useMemo<BulkAction<unknown>[]>(
+    () => [
+      {
+        key: "add",
+        label: "Add as leads",
+        noun: "prospect",
+        verb: "added",
+        run: async (ids) => {
+          const payloads = ids
+            .map((id) => byKey.get(id))
+            .filter(Boolean)
+            .map((r) => ({
+              placeId: r!.placeId ?? null,
+              name: r!.name,
+              category: r!.category ?? null,
+              phone: r!.phone ?? null,
+              websiteUri: r!.websiteUri ?? null,
+              address: r!.address ?? null,
+              city: r!.city ?? null,
+              businessStatus: r!.businessStatus ?? null,
+              rating: r!.rating ?? null,
+              reviews: r!.reviews ?? null,
+            }));
+          return bulkAddProspects(payloads);
+        },
+      },
+      {
+        key: "audit",
+        label: "Run audits",
+        noun: "prospect",
+        verb: "queued",
+        run: async (ids) => {
+          const payloads = ids
+            .map((id) => byKey.get(id))
+            .filter(Boolean)
+            .map((r) => ({
+              placeId: r!.placeId ?? null,
+              name: r!.name,
+              websiteUri: r!.websiteUri ?? null,
+            }));
+          return bulkAuditProspects(payloads);
+        },
+      },
+      {
+        key: "dismiss",
+        label: "Dismiss",
+        noun: "prospect",
+        verb: "dismissed",
+        run: async (ids) => {
+          // Local only: see the note above. Resolves immediately, and the rows
+          // leave the list.
+          setDismissed((current) => [...new Set([...current, ...ids])]);
+          return { applied: ids.length, skipped: [] };
+        },
+      },
+    ],
+    [byKey],
+  );
 
   const estimate = estimateProspectCostUsd({ expectedResults: depth });
 
@@ -267,9 +355,22 @@ export function Prospector({ saved }: { saved: SavedSearch[] }) {
                     </td>
                   </tr>
                 )}
-                {result.results.map((r, i) => (
+                {result.results.map((r, i) => {
+                  const key = r.placeId ?? `${r.name}-${i}`;
+                  if (dismissed.includes(key)) return null;
+                  return (
                   <tr key={i} className="hover:[&>td]:bg-panel">
                     <td className="border-b border-line px-3 py-3 text-[13px] align-middle">
+                      <span className="mr-1.5 inline-flex align-middle">
+                        <input
+                          type="checkbox"
+                          checked={selection.isSelected(key)}
+                          onChange={() => selection.toggle(key)}
+                          data-testid="prospect-select"
+                          aria-label={`Select ${r.name}`}
+                          style={{ accentColor: "#7427C6" }}
+                        />
+                      </span>
                       <b>{r.name}</b>
                       <StatusChip status={r.businessStatus} />
                       {r.classification && (
@@ -316,10 +417,13 @@ export function Prospector({ saved }: { saved: SavedSearch[] }) {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
+
+          <BulkBar selection={selection} actions={bulkActions} />
 
           <div className="mt-3.5 flex items-center gap-2.5">
             <button
