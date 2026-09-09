@@ -126,6 +126,8 @@ const BUSINESS_TABLES = [
   "user_pins",
   /** Time entries (playbook-v5 P20/1) — what a project cost is not shared. */
   "time_entries",
+  /** Checklist items (playbook-v5 P20/3). */
+  "task_checklist_items",
   "mail_accounts",
   "email_threads",
   "email_messages",

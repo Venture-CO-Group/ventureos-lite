@@ -9,6 +9,7 @@ import {
   subtaskProgress,
   type BoardProgress,
 } from "./board-logic";
+import { groupProgress } from "./checklist-logic";
 
 /**
  * Board reads and writes.
@@ -40,6 +41,12 @@ export interface TaskCardView {
   entityLabel: string | null;
   entityHref: string | null;
   subtasks: { done: number; total: number } | null;
+  /**
+   * Checklist progress (playbook-v5 P20/3) — "3/7" on the card, separately
+   * from subtasks, because they are different kinds of thing and a combined
+   * count would hide which.
+   */
+  checklist: { done: number; total: number } | null;
   commentCount: number;
 }
 
@@ -123,7 +130,7 @@ async function decorateCards(db: Db, rows: CardRow[]): Promise<TaskCardView[]> {
     .filter((r) => r.entityType === "company" && r.entityId)
     .map((r) => r.entityId!);
 
-  const [users, leads, companies, subtasks, comments] = await Promise.all([
+  const [users, leads, companies, subtasks, comments, checklistRows] = await Promise.all([
     assigneeIds.length
       ? prismaUnsafe.user.findMany({
           where: { id: { in: assigneeIds } },
@@ -144,6 +151,15 @@ async function decorateCards(db: Db, rows: CardRow[]): Promise<TaskCardView[]> {
       select: { parentId: true, doneAt: true },
     }),
     db.taskComment.groupBy({ by: ["taskId"], where: { taskId: { in: ids } }, _count: true }),
+    /**
+     * Checklist progress, one query for the whole board (playbook-v5 P20/3),
+     * kept separate from subtasks on the card because they are different kinds
+     * of thing and one combined count would hide which.
+     */
+    db.taskChecklistItem.findMany({
+      where: { taskId: { in: ids } },
+      select: { taskId: true, doneAt: true },
+    }),
   ]);
 
   const userName = new Map(users.map((u) => [u.id, u.name]));
@@ -160,6 +176,8 @@ async function decorateCards(db: Db, rows: CardRow[]): Promise<TaskCardView[]> {
     childrenOf.set(s.parentId, list);
   }
   const commentCount = new Map(comments.map((c) => [c.taskId, c._count as unknown as number]));
+
+  const checklistOf = groupProgress(checklistRows);
 
   return rows.map((r) => {
     let entityLabel: string | null = null;
@@ -194,6 +212,7 @@ async function decorateCards(db: Db, rows: CardRow[]): Promise<TaskCardView[]> {
       entityLabel,
       entityHref,
       subtasks: subtaskProgress(childrenOf.get(r.id) ?? []),
+      checklist: checklistOf.get(r.id) ?? null,
       commentCount: commentCount.get(r.id) ?? 0,
     };
   });

@@ -66,6 +66,7 @@ import { TaskTimePanel } from "./task-time";
 import { TimeReport } from "./time-report";
 import { TaskWorkload } from "./task-workload";
 import { TaskFields } from "./task-fields";
+import { TaskChecklist } from "./task-checklist";
 import { getTaskFieldDefs } from "@/modules/tasks/custom-field-actions";
 import type { FieldDef } from "@/modules/fields/types";
 import { BoardViewTabs } from "./board-view-tabs";
@@ -367,11 +368,18 @@ function Card({
         </div>
       )}
 
-      {(task.subtasks || task.commentCount > 0 || task.entityLabel) && (
+      {(task.subtasks || task.checklist || task.commentCount > 0 || task.entityLabel) && (
         <div className="mt-2 flex flex-wrap items-center gap-2.5 text-[10.5px] text-muted">
           {task.subtasks && (
             <span data-testid="subtask-count">
               ☑ {task.subtasks.done}/{task.subtasks.total}
+            </span>
+          )}
+          {/* A separate count, with its own glyph: a checklist and a set of
+              subtasks are different things and one number would hide which. */}
+          {task.checklist && (
+            <span data-testid="checklist-count" title="Checklist steps">
+              ▤ {task.checklist.done}/{task.checklist.total}
             </span>
           )}
           {task.commentCount > 0 && <span>💬 {task.commentCount}</span>}
@@ -2111,6 +2119,17 @@ function TaskDetail({
           className={`${INPUT} mt-1 resize-y`}
         />
       </label>
+
+      {/* ---------- checklist (playbook-v5 P20/3) ---------- */}
+      <TaskChecklist
+        taskId={taskId}
+        onPromoted={() => {
+          // A promoted step is now a subtask, so the detail's own subtask list
+          // and the board's progress counts both have to reload.
+          void load();
+          onChanged();
+        }}
+      />
 
       {/* ---------- Owner-defined fields (playbook-v5 P20/2) ---------- */}
       <TaskFields taskId={taskId} />

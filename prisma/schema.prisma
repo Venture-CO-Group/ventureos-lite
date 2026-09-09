@@ -1440,6 +1440,7 @@ model Task {
   customFields    Json?  @map("custom_fields")
 
   timeEntries TimeEntry[]
+  checklist   TaskChecklistItem[]
 
   board       TaskBoard?       @relation(fields: [boardId], references: [id], onDelete: SetNull)
   section     TaskSection?     @relation(fields: [sectionId], references: [id], onDelete: SetNull)
@@ -3212,4 +3213,34 @@ model TimeEntry {
   @@index([workspaceId, taskId])
   @@index([workspaceId, userId, startedAt])
   @@map("time_entries")
+}
+
+/// A step inside one person's task (playbook-v5 P20/3).
+///
+/// ── DELIBERATELY THINNER THAN A SUBTASK ─────────────────────────────────────
+///
+/// No assignee, no due date, no comments, no dependencies — because that is
+/// what a subtask is for. A checklist is "the steps within this task"; a
+/// subtask is "work someone else may own". If this model grew an assignee it
+/// would become a worse copy of Task, and the choice between the two would
+/// stop being obvious.
+///
+/// TICKING EVERY ITEM DOES NOT COMPLETE THE TASK. The playbook is explicit and
+/// it matches the existing rule that a parent's completion never cascades from
+/// its subtasks: deciding the work is finished belongs to the person who can
+/// see whether the last step was real.
+model TaskChecklistItem {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  taskId      String    @map("task_id")
+  text        String
+  doneAt      DateTime? @map("done_at")
+  /// Sparse (steps of 1024), so a reorder is one write.
+  position    Int       @default(0)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, taskId, position])
+  @@map("task_checklist_items")
 }
