@@ -136,15 +136,40 @@ export async function updateBoard(raw: unknown): Promise<{ ok: true }> {
  * and "we did that in the old board" is a sentence people need to be able to
  * finish. Archived boards leave the pickers and stay readable.
  */
-export async function archiveBoard(boardId: string, archived: boolean): Promise<{ ok: true }> {
-  const { workspaceId } = await getActiveContext();
+export async function archiveBoard(
+  boardId: string,
+  archived: boolean,
+): Promise<{ ok: true; undo: UndoToken | null }> {
+  const { workspaceId, userId } = await getActiveContext();
   const db = getWorkspaceClient(workspaceId);
-  await db.taskBoard.update({
+  const before = await db.taskBoard.findUnique({
     where: { id: boardId },
-    data: { archivedAt: archived ? new Date() : null },
+    select: { name: true, archivedAt: true },
   });
+  if (!before) throw new Error("Board not found");
+
+  const archivedAt = archived ? new Date() : null;
+  await db.taskBoard.update({ where: { id: boardId }, data: { archivedAt } });
+
+  /**
+   * Archiving takes a board out of the switcher, and the person who did it by
+   * accident has no obvious way back — the board is, by construction, no longer
+   * in the list they would look in. So this is one of the places an undo earns
+   * its keep, and being a flip of one nullable column it is genuinely
+   * reversible (see modules/undo/contract.ts).
+   */
+  const undo = await recordUndo(workspaceId, userId, {
+    kind: "board_archive",
+    label: archived ? `Archived ${before.name}` : `Restored ${before.name}`,
+    inverse: {
+      entity: "taskBoard",
+      targets: [{ id: boardId, set: { archivedAt: before.archivedAt } }],
+    },
+    expected: { [boardId]: { archivedAt } },
+  });
+
   revalidatePath("/tasks");
-  return { ok: true };
+  return { ok: true, undo };
 }
 
 const sectionSchema = z.object({

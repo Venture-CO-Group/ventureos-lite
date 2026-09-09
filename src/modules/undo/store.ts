@@ -32,7 +32,8 @@ export type UndoKind =
   | "bulk_signals"
   | "bulk_owner"
   | "lead_not_now"
-  | "content_status";
+  | "content_status"
+  | "board_archive";
 
 /** One row the inverse touches: put `field` back to `value`. */
 export interface InverseTarget {
@@ -42,10 +43,18 @@ export interface InverseTarget {
 }
 
 export interface InversePlan {
-  /** lead | deal | task | contentPost */
-  entity: "lead" | "deal" | "task" | "contentPost";
+  entity: InverseEntity;
   targets: InverseTarget[];
 }
+
+/**
+ * What the engine can put back.
+ *
+ * Adding one means teaching `readRows` and the write loop about it — which is
+ * the point of keeping the list closed. An entity that is not here cannot be
+ * declared undoable in `contract.ts` without the declaration being a lie.
+ */
+export type InverseEntity = "lead" | "deal" | "task" | "contentPost" | "taskBoard";
 
 /** Field -> value the action LEFT, per row. The undo checks these still hold. */
 export interface ExpectedState {
@@ -113,7 +122,7 @@ type Db = ReturnType<typeof getWorkspaceClient>;
 
 async function readRows(
   db: Db,
-  entity: InversePlan["entity"],
+  entity: InverseEntity,
   ids: string[],
 ): Promise<Map<string, Record<string, unknown>>> {
   const rows =
@@ -123,7 +132,9 @@ async function readRows(
         ? await db.deal.findMany({ where: { id: { in: ids } } })
         : entity === "task"
           ? await db.task.findMany({ where: { id: { in: ids } } })
-          : await db.contentPost.findMany({ where: { id: { in: ids } } });
+          : entity === "taskBoard"
+            ? await db.taskBoard.findMany({ where: { id: { in: ids } } })
+            : await db.contentPost.findMany({ where: { id: { in: ids } } });
   return new Map(rows.map((r) => [r.id, r as unknown as Record<string, unknown>]));
 }
 
@@ -195,6 +206,8 @@ export async function undo(
       restored += (await db.deal.updateMany({ where: { id: target.id }, data })).count;
     } else if (plan.entity === "task") {
       restored += (await db.task.updateMany({ where: { id: target.id }, data })).count;
+    } else if (plan.entity === "taskBoard") {
+      restored += (await db.taskBoard.updateMany({ where: { id: target.id }, data })).count;
     } else {
       restored += (await db.contentPost.updateMany({ where: { id: target.id }, data })).count;
     }

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { moveDealStage, updateDeal } from "@/modules/deals/actions";
 import { startProjectForDeal } from "@/modules/projects/actions";
 import { attempt } from "@/lib/client/server-action";
-import { useUndo } from "./undo-toast";
+import { useToast } from "./toast";
 import type { DealCardView, PipelineView } from "@/modules/deals/store";
 import { EmptyState } from "./empty-state";
 
@@ -154,7 +154,7 @@ export function DealsBoard({
   pageSize = 25,
 }: DealsBoardProps) {
   const router = useRouter();
-  const { offerUndo } = useUndo();
+  const { offerUndo } = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);

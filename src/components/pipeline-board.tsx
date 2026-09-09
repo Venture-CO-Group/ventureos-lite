@@ -11,7 +11,7 @@ import {
   requiresReason,
 } from "@/modules/pipeline/transitions";
 import { moveLeadStage } from "@/modules/leads/actions";
-import { useUndo } from "./undo-toast";
+import { useToast } from "./toast";
 import { LeadDetailModal } from "./lead-detail-modal";
 import { EmptyState } from "./empty-state";
 import { closeDeal } from "@/modules/analytics/actions";
@@ -108,7 +108,7 @@ export function PipelineBoard({
   pageSize?: number;
 }) {
   const router = useRouter();
-  const { offerUndo } = useUndo();
+  const { offerUndo } = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);

@@ -11,7 +11,7 @@ import { MobileNav, type MobileNavItem } from "./mobile-nav";
 import { GlobalSearch } from "./global-search";
 import { Greeting } from "./greeting";
 import { AppActionsProvider } from "./app-actions";
-import { UndoProvider } from "./undo-toast";
+import { ToastProvider } from "./toast";
 import { AppDialogs } from "./app-dialogs";
 import { CommandPalette } from "./command-palette";
 import { TopBarActions } from "./top-bar-actions";
@@ -274,7 +274,7 @@ export async function AppShell({
 
   return (
     <AppActionsProvider>
-      <UndoProvider>
+      <ToastProvider>
       {/* 100dvh, not 100vh: on a mobile browser vh ignores the collapsing
           toolbar, leaving the shell taller than the visible area. On desktop
           the two are identical. A fixed height (not min-height) from `nav:` up
@@ -412,7 +412,7 @@ export async function AppShell({
       <AppDialogs />
       <CommandPalette hiddenNav={shell.hiddenNav} />
     </div>
-      </UndoProvider>
+      </ToastProvider>
     </AppActionsProvider>
   );
 }

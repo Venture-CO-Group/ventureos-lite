@@ -21,7 +21,7 @@ import {
   type ExportFormat,
 } from "@/modules/leads/export-formats";
 import { BULK_BATCH_SIZE, chunk, mergeBulkResults, type BulkResult } from "@/modules/leads/bulk";
-import { useUndo } from "./undo-toast";
+import { useToast } from "./toast";
 import { STAGE_LABELS } from "@/modules/pipeline/transitions";
 import type { FilterSet } from "@/modules/leads/filters";
 import type { LeadFacets } from "@/modules/leads/table";
@@ -92,7 +92,7 @@ export function LeadBulkBar({
   const router = useRouter();
   const [action, setAction] = useState<Action>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-  const { offerUndo } = useUndo();
+  const { offerUndo } = useToast();
   const [summary, setSummary] = useState<(BulkResult & { note?: string }) | null>(null);
   const [error, setError] = useState<string | null>(null);
 

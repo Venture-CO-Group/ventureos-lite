@@ -51,7 +51,7 @@ import { MY_WORK_LIMIT } from "@/modules/tasks/attachment-rules";
 import { TYPE_LABEL, type TaskType } from "@/modules/tasks/logic";
 import { MAX_ATTACHMENT_BYTES } from "@/modules/tasks/attachment-rules";
 import { Modal } from "./modal";
-import { useUndo } from "./undo-toast";
+import { useToast } from "./toast";
 
 /**
  * The task board (P8/1).
@@ -227,7 +227,7 @@ export function TaskBoards({
   openTask?: string | null;
 }) {
   const router = useRouter();
-  const { offerUndo } = useUndo();
+  const { offerUndo } = useToast();
   const [board, setBoard] = useState<BoardView | null>(initialBoard);
   const [boardId, setBoardId] = useState<string | null>(initialBoard?.id ?? null);
   const [view, setView] = useState<"board" | "list">("board");
@@ -777,7 +777,12 @@ export function TaskBoards({
             setEditingBoard(false);
           }}
           onArchive={async (archived) => {
-            await guard(() => archiveBoard(board.id, archived));
+            await guard(async () => {
+              // An archived board leaves the switcher, so the person who did
+              // it by mistake cannot find it to put it back. The undo is the
+              // way back.
+              offerUndo((await archiveBoard(board.id, archived)).undo);
+            });
             setEditingBoard(false);
             // An archived board leaves the switcher, so stop pointing at it.
             if (archived) setBoardId(null);

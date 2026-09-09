@@ -12,7 +12,7 @@ import {
   type TaskView,
 } from "@/modules/tasks/actions";
 import { TYPE_LABEL, groupTasks, type TaskType } from "@/modules/tasks/logic";
-import { useUndo } from "./undo-toast";
+import { useToast } from "./toast";
 
 /**
  * Tasks (playbook-v2 P3/3).
@@ -221,7 +221,7 @@ function NewTask({
  * component briefly broke the mobile navigation tests.
  */
 export function TasksPanel({ initial }: { initial: TaskView[] }) {
-  const { offerUndo } = useUndo();
+  const { offerUndo } = useToast();
   const [tasks, setTasks] = useState<TaskView[]>(initial);
   const [error, setError] = useState<string | null>(null);
 
@@ -338,7 +338,7 @@ export function EntityTasks({
   entityType: "lead" | "company" | "document";
   entityId: string;
 }) {
-  const { offerUndo } = useUndo();
+  const { offerUndo } = useToast();
   const [tasks, setTasks] = useState<TaskView[] | null>(null);
 
   async function refresh() {
