@@ -60,6 +60,7 @@ import { editTaskField } from "@/modules/tasks/inline-actions";
 import { BulkBar, type BulkAction } from "./bulk-bar";
 import { StarToggle } from "./star-toggle";
 import { MyWork } from "./my-work";
+import { TaskTimeline } from "./task-timeline";
 import { BoardViewTabs } from "./board-view-tabs";
 import {
   EMPTY_TASK_FILTER,
@@ -144,7 +145,7 @@ function initials(name: string): string {
 const TASK_VIEW = {
   board: idField("board"),
   task: idField("task"),
-  view: enumField("v", ["board", "list", "mine"] as const, "board"),
+  view: enumField("v", ["board", "list", "mine", "timeline"] as const, "board"),
   /** Grouping is a view concern, so it belongs in the URL like the rest. */
   group: enumField("g", GROUP_BYS, "section"),
   savedView: idField("sv"),
@@ -412,7 +413,7 @@ export function TaskBoards({
   );
   const view = viewState.view;
   const setView = useCallback(
-    (next: "board" | "list" | "mine") => setViewState({ view: next }),
+    (next: "board" | "list" | "mine" | "timeline") => setViewState({ view: next }),
     [setViewState],
   );
   /**
@@ -1070,7 +1071,7 @@ export function TaskBoards({
                 * detail modal and its URL state, and "what is on me" belongs
                 * beside "where is everything" rather than a click away from it.
                 */}
-              {(["board", "list", "mine"] as const).map((v) => (
+              {(["board", "list", "mine", "timeline"] as const).map((v) => (
                 <button
                   key={v}
                   onClick={() => setView(v)}
@@ -1319,6 +1320,14 @@ export function TaskBoards({
           )}
 
           {/* ---------- list view ---------- */}
+          {view === "timeline" && (
+            <TaskTimeline
+              boardId={board.id}
+              onOpen={setOpenTaskId}
+              onChanged={() => void refresh()}
+            />
+          )}
+
           {view === "mine" && (
             <MyWork
               items={mine ?? []}

@@ -216,26 +216,10 @@ export function wouldCycle(
   taskId: string,
   blockedById: string,
 ): boolean {
-  if (taskId === blockedById) return true;
-
-  // blocker -> everything that blocker is itself waiting for.
-  const waitsFor = new Map<string, string[]>();
-  for (const e of edges) {
-    const list = waitsFor.get(e.taskId) ?? [];
-    list.push(e.blockedById);
-    waitsFor.set(e.taskId, list);
-  }
-
-  const seen = new Set<string>();
-  const stack = [blockedById];
-  while (stack.length > 0) {
-    const at = stack.pop()!;
-    if (at === taskId) return true;
-    if (seen.has(at)) continue;
-    seen.add(at);
-    for (const next of waitsFor.get(at) ?? []) stack.push(next);
-  }
-  return false;
+  // One traversal, one answer. `cyclePath` finds the chain; this is the
+  // question the form asks of it, and having two walks of the same graph is
+  // how the two start disagreeing.
+  return cyclePath(edges, taskId, blockedById) !== null;
 }
 
 /**
@@ -294,4 +278,59 @@ export function describeRecurrence(r: TaskRecurrence): string {
   const d = r.dayOfMonth ?? 1;
   const suffix = d === 1 ? "st" : d === 2 ? "nd" : d === 3 ? "rd" : "th";
   return `Repeats on the ${d}${suffix} of every month`;
+}
+
+/**
+ * The path a new dependency would close into a loop (playbook-v5 P19/1).
+ *
+ * ── WHY THE PATH AND NOT JUST "NO" ──────────────────────────────────────────
+ *
+ * `wouldCycle` answers whether an edge is legal, which is all the form needed.
+ * The timeline lets somebody draw a dependency by dragging between two bars,
+ * and there "that would make a loop" is not enough to act on — with fifteen
+ * tasks on screen the useful question is WHICH chain, and the playbook asks
+ * for the refusal to name it.
+ *
+ * Returns the ids from the blocker back to the task, so the caller can render
+ * "A → B → C → A" in whatever labels it has.
+ */
+export function cyclePath(
+  edges: DependencyEdge[],
+  taskId: string,
+  blockedById: string,
+): string[] | null {
+  if (taskId === blockedById) return [taskId, taskId];
+
+  const waitsFor = new Map<string, string[]>();
+  for (const e of edges) {
+    const list = waitsFor.get(e.taskId) ?? [];
+    list.push(e.blockedById);
+    waitsFor.set(e.taskId, list);
+  }
+
+  // Breadth-first from the proposed blocker, remembering how we got there, so
+  // the answer is the SHORTEST loop rather than whichever one a stack found.
+  const cameFrom = new Map<string, string>();
+  const queue = [blockedById];
+  const seen = new Set([blockedById]);
+  while (queue.length > 0) {
+    const at = queue.shift()!;
+    if (at === taskId) {
+      const path: string[] = [taskId];
+      let cursor = at;
+      while (cursor !== blockedById) {
+        cursor = cameFrom.get(cursor)!;
+        path.push(cursor);
+      }
+      // From the task, through the chain, back to the task.
+      return [taskId, ...path.slice(1).reverse(), taskId];
+    }
+    for (const next of waitsFor.get(at) ?? []) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      cameFrom.set(next, at);
+      queue.push(next);
+    }
+  }
+  return null;
 }

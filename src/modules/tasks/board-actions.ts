@@ -24,7 +24,7 @@ import {
   extractMentions,
   nextPosition,
   readRecurrence,
-  wouldCycle,
+  cyclePath,
   type DependencyEdge,
 } from "./board-logic";
 import { nextRunAt } from "@/modules/leads/schedule-logic";
@@ -803,11 +803,24 @@ export async function addDependency(
   const existing = await db.taskDependency.findMany({
     select: { taskId: true, blockedById: true },
   });
-  if (wouldCycle(existing as DependencyEdge[], taskId, blockedById)) {
+  /**
+   * Named, not just refused (playbook-v5 P19/1).
+   *
+   * "That would make a loop" is all a form needed. On the timeline somebody
+   * draws a dependency between two bars, and with fifteen tasks on screen the
+   * useful question is WHICH chain — so the message walks it.
+   */
+  const cycle = cyclePath(existing as DependencyEdge[], taskId, blockedById);
+  if (cycle) {
+    const titles = await db.task.findMany({
+      where: { id: { in: [...new Set(cycle)] } },
+      select: { id: true, title: true },
+    });
+    const label = new Map(titles.map((t) => [t.id, t.title]));
+    const chain = cycle.map((id) => label.get(id) ?? "a deleted task").join(" → ");
     return {
       ok: false,
-      error:
-        "That would make a loop — the two tasks would end up waiting for each other, and neither could ever start.",
+      error: `That would make a loop: ${chain}. Nothing in that chain could ever start.`,
     };
   }
 
