@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { openLeadDetail } from "./helpers/leads";
 
 /**
  * The Lookup button beside the lead form's Domain field.
@@ -17,7 +18,7 @@ async function openLeadWith(page: import("@playwright/test").Page, suffix: numbe
   await page.getByPlaceholder("Company name *").fill(`Domain Co ${suffix}`);
   await page.getByRole("button", { name: "Add lead" }).click();
   await expect(page.locator("tr", { hasText: name })).toBeVisible();
-  await page.locator("tr", { hasText: name }).getByTestId("lead-open-detail").click();
+  await openLeadDetail(page, name);
   return name;
 }
 

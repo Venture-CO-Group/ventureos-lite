@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { prismaUnsafe } from "../src/lib/db";
+import { openLeadDetail } from "./helpers/leads";
 
 /**
  * The P7 polish surfaces (playbook-v2 P7 VERIFICATION):
@@ -258,7 +259,7 @@ test("a workflow rule creates a draft a human must send, and it appears in the l
 
   // And the draft is on the lead, unsent.
   await page.goto("/leads");
-  await page.locator("tr", { hasText: leadName }).getByTestId("lead-open-detail").click();
+  await openLeadDetail(page, leadName);
   await expect(page.getByTestId("lead-timeline")).toContainText("Following up");
 
   // Clean up so the rule does not fire for every later spec.

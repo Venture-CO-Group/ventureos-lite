@@ -295,6 +295,8 @@ test("bulk delete erases the selected leads after confirmation", async ({ page }
   // Same contention as expectColumnEventually: the delete has happened, but the
   // client router can still be holding a render from before it.
   await expect(async () => {
-    await expect(page.locator("tbody tr")).toContainText("No lead matches this filter");
+    // The zero-results copy comes from the shared StateCard (playbook-v5
+    // P17/3), which is lowercase Bricolage and says what to do about it.
+    await expect(page.locator("tbody tr")).toContainText("no leads match this filter");
   }).toPass({ timeout: 15_000 });
 });

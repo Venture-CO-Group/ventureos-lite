@@ -89,7 +89,13 @@ export default async function Home() {
               <p className="text-[12.5px] leading-relaxed text-muted">
                 Runs weekly on aggregates. Proposals (frame promotion, score weights) require
                 n≥20 and wait for your approval in{" "}
-                <a href="/settings/admin/sales" className="text-accent-ink">
+                {/* Underlined, not just recoloured: a link inside a sentence
+                    that differs only in colour is invisible to anybody who
+                    cannot see the colour (axe: link-in-text-block). */}
+                <a
+                  href="/settings/admin/sales"
+                  className="text-accent-ink underline underline-offset-2"
+                >
                   Settings → sales
                 </a>
                 . Nothing self-modifies.

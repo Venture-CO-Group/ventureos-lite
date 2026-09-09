@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import { openLeadDetail } from "./helpers/leads";
 
 const prisma = new PrismaClient();
 let workspaceId = "";
@@ -122,7 +123,7 @@ test("a real event queues a delivery, and the panel shows what happened to it", 
   await page.getByPlaceholder("Company name *").fill(`E2E Webhook Co ${suffix}`);
   await page.getByRole("button", { name: "Add lead" }).click();
   await expect(page.locator("tr", { hasText: name })).toBeVisible();
-  await page.locator("tr", { hasText: name }).getByTestId("lead-open-detail").click();
+  await openLeadDetail(page, name);
 
   // Above the score gate, or Contacted is refused (hard rule #5).
   await page.getByTestId("lead-score-5").click();

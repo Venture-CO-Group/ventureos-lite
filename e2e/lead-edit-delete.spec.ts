@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { openLeadDetail } from "./helpers/leads";
 
 /**
  * Editing and deleting a lead from the Lead Engine.
@@ -24,7 +25,7 @@ test("edit a lead's details from the Lead Engine", async ({ page }) => {
   const suffix = Date.now();
   const { name } = await createLead(page, suffix);
 
-  await page.locator("tr", { hasText: name }).getByTestId("lead-open-detail").click();
+  await openLeadDetail(page, name);
 
   const email = page.getByTestId("lead-email");
   await expect(email).toHaveValue(`before${suffix}@example.com`);
@@ -40,7 +41,7 @@ test("edit a lead's details from the Lead Engine", async ({ page }) => {
 
   // Survives a reload — proves it persisted rather than just updating state.
   await page.reload();
-  await page.locator("tr", { hasText: name }).getByTestId("lead-open-detail").click();
+  await openLeadDetail(page, name);
   await expect(page.getByTestId("lead-email")).toHaveValue(`after${suffix}@example.com`);
 });
 
@@ -48,7 +49,7 @@ test("delete a lead, with a confirmation step", async ({ page }) => {
   const suffix = Date.now() + 1;
   const { name } = await createLead(page, suffix);
 
-  await page.locator("tr", { hasText: name }).getByTestId("lead-open-detail").click();
+  await openLeadDetail(page, name);
 
   // One click must not destroy anything — it only reveals the confirmation.
   await page.getByTestId("lead-delete").click();
@@ -61,7 +62,7 @@ test("delete a lead, with a confirmation step", async ({ page }) => {
   await expect(page.locator("tr", { hasText: name })).toBeVisible();
 
   // Now go through with it.
-  await page.locator("tr", { hasText: name }).getByTestId("lead-open-detail").click();
+  await openLeadDetail(page, name);
   await page.getByTestId("lead-delete").click();
   await page.getByTestId("lead-delete-confirmed").click();
 

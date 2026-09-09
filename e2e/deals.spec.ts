@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { openLeadDetail } from "./helpers/leads";
 
 /**
  * The deals layer end to end (playbook-v2 P4 VERIFICATION):
@@ -42,7 +43,7 @@ test("a qualified lead converts to a deal and appears on the board", async ({ pa
   // Open the lead and walk it into deal territory. Meeting booked rather than
   // Qualified: Qualified has its own gate (3 of 4 qualification answers, spec
   // §4.7), and this test is about the deals boundary, not that gate.
-  await page.locator("tr", { hasText: name }).getByTestId("lead-open-detail").click();
+  await openLeadDetail(page, name);
 
   const convert = page.getByTestId("convert-to-deal");
   await expect(page.getByTestId("lead-stage-MEETING_BOOKED")).toBeVisible();
@@ -63,7 +64,7 @@ test("a deal moves through its pipeline and closing it requires a reason", async
   const suffix = Date.now();
   const { name, company } = await captureQualifiedLead(page, suffix);
 
-  await page.locator("tr", { hasText: name }).getByTestId("lead-open-detail").click();
+  await openLeadDetail(page, name);
   await expect(page.getByTestId("lead-stage-MEETING_BOOKED")).toBeVisible();
   await page.getByTestId("lead-stage-MEETING_BOOKED").click();
   await expect(page.getByText("Moved to Meeting booked.")).toBeVisible();

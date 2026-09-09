@@ -397,8 +397,14 @@ export function LeadDetailModal({ leadId, onClose }: { leadId: string; onClose: 
 
   if (loadError) {
     return (
-      <Modal onClose={onClose}>
-        <p className="text-[13px] text-[#FFB3C2]" data-testid="lead-modal-error">
+      // Named, like every other dialog: an unnamed dialog is announced as
+      // "dialog" and nothing else.
+      <Modal onClose={onClose} labelledBy="lead-modal-status">
+        <p
+          id="lead-modal-status"
+          className="text-[13px] text-[#FFB3C2]"
+          data-testid="lead-modal-error"
+        >
           That lead is not available in this workspace.
         </p>
         <div className="mt-3 flex justify-end">
@@ -412,8 +418,10 @@ export function LeadDetailModal({ leadId, onClose }: { leadId: string; onClose: 
 
   if (!form || !detail) {
     return (
-      <Modal onClose={onClose}>
-        <p className="text-[13px] text-muted">Loading…</p>
+      <Modal onClose={onClose} labelledBy="lead-modal-status">
+        <p id="lead-modal-status" className="text-[13px] text-muted">
+          Loading the lead…
+        </p>
       </Modal>
     );
   }

@@ -13,7 +13,28 @@ const FILES = process.env.FILES_DIR!;
  * browser can prove is that BOTH images actually load — the file route derives
  * the owning workspace from the audit id embedded in the filename, so a
  * mismatch is a 404 and a silently broken image rather than an error.
+ *
+ * ── WHY THE CLEANUP IS AT THE START ─────────────────────────────────────────
+ *
+ * Both tests here fabricate audit rows, and both used to delete them on their
+ * last line. That works right up to the first failure: a run that stops in the
+ * middle leaves a `done` audit for the same URL behind, the next run's audit is
+ * served from the 30-day cache instead of being taken again, and the captures
+ * it points at are files an earlier run has since removed. The image then
+ * fails to load and the test fails for a reason that has nothing to do with
+ * the thing it is testing — and it keeps failing until somebody clears the
+ * table by hand. Deleting first makes each run start from nothing.
  */
+const URLS = ["https://ventureco.agency", "https://example.com"];
+
+test.beforeEach(async () => {
+  await prisma.auditResult.deleteMany({ where: { url: { in: URLS } } });
+});
+
+test.afterAll(async () => {
+  await prisma.auditResult.deleteMany({ where: { url: { in: URLS } } });
+  await prisma.$disconnect();
+});
 test("the before/after wipe loads both captures", async ({ page }) => {
   const ws = await prisma.workspace.findFirst({ orderBy: { createdAt: "asc" } });
   // A real audit first, so there are genuine captures on disk.
@@ -95,14 +116,10 @@ test("the before/after wipe loads both captures", async ({ page }) => {
   await expect(page.getByTestId("compare-desktop")).toBeVisible();
   await page.getByTestId("compare-mobile").click();
   await expect(page.getByTestId("compare-before")).toBeVisible();
-
-  await prisma.auditResult.deleteMany({ where: { url: "https://ventureco.agency" } });
-  await prisma.$disconnect();
 });
 
 test("nothing is rendered when there is no previous run to compare against", async ({ page }) => {
   const ws = await prisma.workspace.findFirst({ orderBy: { createdAt: "asc" } });
-  await prisma.auditResult.deleteMany({ where: { url: "https://example.com" } });
 
   await page.goto("/audit");
   await page.getByPlaceholder("Website URL").fill("https://example.com");
@@ -113,5 +130,4 @@ test("nothing is rendered when there is no previous run to compare against", asy
   // screenshot would read as "your site broke" — a claim we would be inventing.
   await expect(page.getByTestId("screenshot-compare")).toHaveCount(0);
   expect(ws).toBeTruthy();
-  await prisma.auditResult.deleteMany({ where: { url: "https://example.com" } });
 });

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import { openLeadDetail } from "./helpers/leads";
 
 /**
  * The rest of the lead modal's controls.
@@ -27,7 +28,7 @@ async function openFreshLead(page: import("@playwright/test").Page, suffix: stri
   await page.getByPlaceholder("Company name *").fill(`E2E Rest Co ${suffix}`);
   await page.getByRole("button", { name: "Add lead" }).click();
   await expect(page.locator("tr", { hasText: name })).toBeVisible();
-  await page.locator("tr", { hasText: name }).getByTestId("lead-open-detail").click();
+  await openLeadDetail(page, name);
   return name;
 }
 

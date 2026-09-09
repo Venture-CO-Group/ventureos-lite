@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { openLeadDetail } from "./helpers/leads";
 
 /**
  * The Verify button beside a lead's email (playbook-v3 P9/2, ad hoc).
@@ -15,7 +16,7 @@ async function leadWithEmail(page: import("@playwright/test").Page, email: strin
   await page.getByPlaceholder("Company name *").fill(`Verify Co ${n}`);
   await page.getByRole("button", { name: "Add lead" }).click();
   await expect(page.locator("tr", { hasText: name })).toBeVisible();
-  await page.locator("tr", { hasText: name }).getByTestId("lead-open-detail").click();
+  await openLeadDetail(page, name);
   return name;
 }
 

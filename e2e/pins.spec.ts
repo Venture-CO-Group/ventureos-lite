@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import { openLeadDetail } from "./helpers/leads";
 
 const prisma = new PrismaClient();
 const RUN = String(Date.now());
@@ -40,7 +41,7 @@ test("opening a lead records it, and starring it survives a reload", async ({ pa
   await page.goto("/leads");
   await expect(page.getByTestId("skeleton")).toHaveCount(0, { timeout: 30_000 });
 
-  await page.locator("tr", { hasText: `Pin Lead ${RUN}` }).getByTestId("lead-open-detail").click();
+  await openLeadDetail(page, `Pin Lead ${RUN}`);
   const star = page.getByTestId("star-toggle");
   await expect(star).toBeVisible({ timeout: 15_000 });
 

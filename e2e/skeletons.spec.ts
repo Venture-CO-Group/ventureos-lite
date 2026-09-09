@@ -126,16 +126,33 @@ test.describe("every listed surface has a skeleton of the right shape", () => {
        *
        * What a wrong-shaped placeholder actually does is change the page's
        * HEIGHT under the swap, which is the jump a person sees as the
-       * scrollbar leaping. The band is wide because the real row and card
-       * counts depend on the data, but "half" and "double" catch a placeholder
-       * that was never the shape of its surface.
+       * scrollbar leaping.
+       *
+       * ── AND WHY THE COMPARISON IS CAPPED AT THE VIEWPORT ──────────────────
+       *
+       * The first version compared against the whole surface, and it failed on
+       * a full database: a leads table holding twenty-five rows is nearly four
+       * thousand pixels tall, and no placeholder can be that — nor should it
+       * be, since the reader can only see one screen of it. Requiring parity
+       * with scrollable content makes the test a function of how much data the
+       * suite happened to leave behind, which is not a property of the
+       * skeleton at all.
+       *
+       * So the bar is the visible part: the placeholder must fill at least
+       * half of whichever is smaller, the surface or the screen. A 4px block
+       * still fails, which is the whole point.
        */
-      const ratio = loadingHeight / loadedHeight;
+      const viewport = page.viewportSize()?.height ?? 720;
+      const visible = Math.min(loadedHeight, viewport);
+      const ratio = loadingHeight / visible;
       expect(
         ratio,
-        `${surface.path}: the skeleton was ${loadingHeight}px against ${loadedHeight}px of real content — the page jumps under the swap`,
+        `${surface.path}: the skeleton was ${loadingHeight}px against ${visible}px of visible surface (${loadedHeight}px in total) — the page jumps under the swap`,
       ).toBeGreaterThan(0.5);
-      expect(ratio, `${surface.path}: the skeleton is far taller than its surface`).toBeLessThan(2);
+      expect(
+        loadingHeight / loadedHeight,
+        `${surface.path}: the skeleton is far taller than its surface`,
+      ).toBeLessThan(2);
 
       // And no shift for anything that does sit below the boundary.
       const score = await shiftScore(page);

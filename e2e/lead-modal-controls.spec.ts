@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import { openLeadDetail } from "./helpers/leads";
 
 /**
  * The four controls that were reported dead (items 1-4).
@@ -26,7 +27,7 @@ async function openFreshLead(page: import("@playwright/test").Page, suffix: stri
   await page.getByPlaceholder("Company name *").fill(`E2E Modal Co ${suffix}`);
   await page.getByRole("button", { name: "Add lead" }).click();
   await expect(page.locator("tr", { hasText: name })).toBeVisible();
-  await page.locator("tr", { hasText: name }).getByTestId("lead-open-detail").click();
+  await openLeadDetail(page, name);
   return name;
 }
 
@@ -68,7 +69,7 @@ test("a company typed onto a lead that has none is created, not discarded", asyn
   });
 
   await page.goto("/leads");
-  await page.locator("tr", { hasText: name }).getByTestId("lead-open-detail").click();
+  await openLeadDetail(page, name);
   await page.getByTestId("lead-company").fill(`E2E Modal Co ${suffix}`);
   await page.getByTestId("lead-city").fill("Debrecen");
   await page.getByTestId("lead-save").click();
