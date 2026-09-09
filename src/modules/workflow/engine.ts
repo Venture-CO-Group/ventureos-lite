@@ -375,7 +375,17 @@ async function runAssign(
     return { type: action.type, ok: true, detail: "It was already theirs" };
   }
 
-  await db.task.update({ where: { id: found.task.id }, data: { assigneeId } });
+  /**
+   * Through the same function a person's reassignment goes through
+   * (playbook-v5 P20/6), so a rule's handover appears in the trail — with a
+   * null actor, which is how the trail says "the system did this".
+   */
+  const { applyAssignment } = await import("@/modules/tasks/collaborators");
+  await applyAssignment(workspaceId, found.task.id, {
+    before: found.task.assigneeId,
+    after: assigneeId,
+    actorUserId: null,
+  });
   await refire(workspaceId, "task_assignee_changed", found.task.id, chain);
   return {
     type: action.type,

@@ -48,6 +48,7 @@ import {
   type BoardView,
 } from "./board-store";
 import { chipFor } from "./links";
+import { applyAssignment, collaboratingTaskIds, recordTaskEvent } from "./collaborators";
 import {
   onTaskAssigneeChanged,
   onTaskCompleted,
@@ -296,6 +297,17 @@ export async function createBoardTask(raw: unknown): Promise<{ id: string }> {
 
   // The creator follows what they made; the assignee follows what they owe.
   await addFollowers(workspaceId, task.id, [userId, ...(task.assigneeId ? [task.assigneeId] : [])]);
+  if (task.assigneeId) {
+    // Given out, not handed over: the trail says "assigned", and the
+    // delegation columns stay empty.
+    await recordTaskEvent(workspaceId, {
+      taskId: task.id,
+      kind: "assigned",
+      userId: task.assigneeId,
+      actorUserId: userId,
+      after: { assigneeId: task.assigneeId },
+    });
+  }
   if (task.assigneeId && task.assigneeId !== userId) {
     await notifyTaskAudience(workspaceId, task.id, userId, {
       type: "task_assigned",
@@ -344,10 +356,22 @@ export async function updateTask(raw: unknown): Promise<{ ok: true }> {
   if (input.priority !== undefined) data.priority = input.priority;
   if (input.dueAt !== undefined) data.dueAt = input.dueAt ? new Date(input.dueAt) : null;
   if (input.startAt !== undefined) data.startAt = input.startAt ? new Date(input.startAt) : null;
-  if (input.assigneeId !== undefined) data.assigneeId = input.assigneeId;
   if (input.tags !== undefined) data.tags = input.tags;
 
   await db.task.update({ where: { id: input.id }, data });
+
+  /**
+   * The assignee goes through one function, everywhere (playbook-v5 P20/6).
+   * It writes the delegation columns and the trail, and a trail that four of
+   * five reassignment paths remember to write is not a trail.
+   */
+  if (input.assigneeId !== undefined) {
+    await applyAssignment(workspaceId, input.id, {
+      before: before.assigneeId,
+      after: input.assigneeId,
+      actorUserId: userId,
+    });
+  }
 
   // Only on a real handover — re-saving a task without touching the assignee
   // must not fire a notification.
@@ -515,6 +539,13 @@ export interface TaskDetailView {
   /** Null when it happens once. */
   recurrence: { cadence: string; dayOfWeek?: number; dayOfMonth?: number } | null;
   attachments: TaskAttachmentView[];
+  /**
+   * Who is working on this without owning it, and who handed it over
+   * (playbook-v5 P20/6). The assignee picker shows these separately, because
+   * the person already helping is usually the person it goes to next.
+   */
+  collaboratorIds: string[];
+  delegatedByName: string | null;
 }
 
 export async function getTaskDetail(taskId: string): Promise<TaskDetailView | null> {
@@ -547,6 +578,8 @@ export async function getTaskDetail(taskId: string): Promise<TaskDetailView | nu
         select: { id: true, body: true, userId: true, createdAt: true, editedAt: true },
       },
       followers: { select: { userId: true } },
+      collaborators: { orderBy: { createdAt: "asc" }, select: { userId: true } },
+      delegatedBy: true,
       recurrence: true,
       blockedBy: {
         select: { blockedBy: { select: { id: true, title: true, doneAt: true } } },
@@ -569,7 +602,12 @@ export async function getTaskDetail(taskId: string): Promise<TaskDetailView | nu
   });
   if (!task) return null;
 
-  const userIds = [...new Set(task.comments.map((c) => c.userId))];
+  const userIds = [
+    ...new Set([
+      ...task.comments.map((c) => c.userId),
+      ...(task.delegatedBy ? [task.delegatedBy] : []),
+    ]),
+  ];
   const users = userIds.length
     ? await prismaUnsafe.user.findMany({
         where: { id: { in: userIds } },
@@ -590,6 +628,8 @@ export async function getTaskDetail(taskId: string): Promise<TaskDetailView | nu
     blocking: task.blocking.map((d) => d.task),
     recurrence: readRecurrence(task.recurrence),
     attachments: task.attachments,
+    collaboratorIds: task.collaborators.map((c) => c.userId),
+    delegatedByName: task.delegatedBy ? (name.get(task.delegatedBy) ?? null) : null,
   };
 }
 
@@ -1233,6 +1273,15 @@ export interface MyWorkItem {
   /** Set when the system created it. "raised from a signal", not their idea. */
   source: string | null;
   doneAt: Date | null;
+  /**
+   * True when this is here because you are COLLABORATING on it, not because
+   * you own it (playbook-v5 P20/6). The row says so, because "what do I owe"
+   * and "what am I helping with" are different questions and a list that
+   * mixes them silently answers neither.
+   */
+  collaborating: boolean;
+  /** Who handed it to you, when somebody did. */
+  delegatedByName: string | null;
 }
 
 /**
@@ -1245,7 +1294,9 @@ export interface MyWorkItem {
  * somebody asks when they see it. A board answers "where is everything"; this
  * answers "what do I do next", which is a sort across all of them.
  */
-export async function myWork(): Promise<MyWorkItem[]> {
+export async function myWork(
+  opts: { includeCollaborating?: boolean } = {},
+): Promise<MyWorkItem[]> {
   const { workspaceId, userId } = await getActiveContext();
   const db = getWorkspaceClient(workspaceId);
 
@@ -1276,10 +1327,27 @@ export async function myWork(): Promise<MyWorkItem[]> {
     entityId: true,
     tags: true,
     source: true,
+    assigneeId: true,
+    delegatedBy: true,
     board: { select: { name: true } },
     section: { select: { name: true } },
   } as const;
-  const MINE = { doneAt: null, parentId: null, assigneeId: userId } as const;
+
+  /**
+   * Mine by default; mine PLUS what I am collaborating on behind the toggle
+   * (playbook-v5 P20/6). Default off, because the answer to "what do I owe"
+   * gets less useful the more it is padded with work somebody else owns.
+   */
+  const collaboratingIds = opts.includeCollaborating
+    ? await collaboratingTaskIds(workspaceId, userId)
+    : [];
+  const MINE = {
+    doneAt: null,
+    parentId: null,
+    ...(collaboratingIds.length
+      ? { OR: [{ assigneeId: userId }, { id: { in: collaboratingIds } }] }
+      : { assigneeId: userId }),
+  } as const;
 
   const dated = await db.task.findMany({
     where: { ...MINE, dueAt: { not: null } },
@@ -1345,6 +1413,21 @@ export async function myWork(): Promise<MyWorkItem[]> {
     });
   }
 
+  /**
+   * Who handed each of these over. One query for the names, because a list of
+   * twenty delegated tasks should not be twenty lookups.
+   */
+  const delegatorIds = [
+    ...new Set(rows.map((r) => r.delegatedBy).filter((v): v is string => !!v)),
+  ];
+  const delegators = delegatorIds.length
+    ? await prismaUnsafe.user.findMany({
+        where: { id: { in: delegatorIds } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const delegatorName = new Map(delegators.map((u) => [u.id, u.name]));
+
   const leadIds = rows.filter((r) => r.entityType === "lead" && r.entityId).map((r) => r.entityId!);
   const companyIds = rows
     .filter((r) => r.entityType === "company" && r.entityId)
@@ -1390,6 +1473,8 @@ export async function myWork(): Promise<MyWorkItem[]> {
       subtasks: subtaskProgress.get(r.id) ?? null,
       source: r.source ?? null,
       doneAt: r.doneAt,
+      collaborating: r.assigneeId !== userId,
+      delegatedByName: r.delegatedBy ? (delegatorName.get(r.delegatedBy) ?? null) : null,
     };
   });
 }

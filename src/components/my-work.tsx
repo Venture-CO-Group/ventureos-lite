@@ -52,10 +52,15 @@ const GROUPING_LABEL: Record<Grouping, string> = {
 
 export function MyWork({
   items,
+  includeCollaborating,
+  onIncludeCollaboratingChange,
   onChanged,
   onOpen,
 }: {
   items: MyWorkItem[];
+  /** Whether work somebody else owns but you are helping with is in the list. */
+  includeCollaborating: boolean;
+  onIncludeCollaboratingChange: (next: boolean) => void;
   onChanged: () => void;
   onOpen: (taskId: string) => void;
 }) {
@@ -143,6 +148,22 @@ export function MyWork({
             {GROUPING_LABEL[g]}
           </button>
         ))}
+
+        {/**
+         * The collaborator toggle (playbook-v5 P20/6), off by default: the
+         * answer to "what do I owe" gets less useful the more it is padded
+         * with work somebody else is accountable for.
+         */}
+        <label className="ml-auto flex items-center gap-1.5 text-[12px] text-muted">
+          <input
+            type="checkbox"
+            checked={includeCollaborating}
+            data-testid="my-work-collaborating"
+            onChange={(e) => onIncludeCollaboratingChange(e.target.checked)}
+            style={{ accentColor: "#7427C6" }}
+          />
+          Include what I am helping with
+        </label>
       </div>
 
       <div className="grid gap-3">
@@ -245,6 +266,27 @@ export function MyWork({
                           className="flex-none rounded-full border border-dashed border-line px-2 py-0.5 text-[10px] text-muted"
                         >
                           loose
+                        </span>
+                      )}
+
+                      {/* Somebody else owns this one — say so, rather than
+                          letting it read as work you are accountable for. */}
+                      {t.collaborating && (
+                        <span
+                          data-testid="my-work-collaborator"
+                          title="You are a collaborator — somebody else owns this"
+                          className="flex-none rounded-full border border-accent-soft px-2 py-0.5 text-[10px] text-accent-ink"
+                        >
+                          helping
+                        </span>
+                      )}
+
+                      {t.delegatedByName && (
+                        <span
+                          data-testid="my-work-delegated"
+                          className="flex-none text-[10px] text-muted"
+                        >
+                          from {t.delegatedByName}
                         </span>
                       )}
 

@@ -21,6 +21,51 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Somebody working on a task who is not accountable for it (playbook-v5 P20/6).
+///
+/// The middle of three relationships. The assignee owes the task; a
+/// collaborator is doing some of it and sees it in My Work behind a toggle; a
+/// follower merely watches and owes nothing. Collapsing the first two is how a
+/// card ends up with three names and no owner.
+model TaskCollaborator {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  taskId      String   @map("task_id")
+  userId      String   @map("user_id")
+  addedBy     String?  @map("added_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([workspaceId, userId])
+  @@map("task_collaborators")
+}
+
+/// What happened to a task, and who did it (playbook-v5 P20/6).
+///
+/// The same shape as `MembershipEvent`, on purpose: a reassignment somebody
+/// disputes should be answered by a row rather than a recollection.
+model TaskEvent {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  taskId      String   @map("task_id")
+  /// One of TASK_EVENT_KINDS in src/modules/tasks/events.ts.
+  kind        String
+  /// The person it happened TO, where there is one.
+  userId      String?  @map("user_id")
+  /// The person who did it. Null for the system — a workflow rule.
+  actorUserId String?  @map("actor_user_id")
+  before      Json?
+  after       Json?
+  at          DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, taskId, at])
+  @@map("task_events")
+}
+
 // ============================================================================
 // Enums (portable across postgres + mysql)
 // ============================================================================
@@ -1381,7 +1426,15 @@ model Task {
   entityType  String?   @map("entity_type")
   entityId    String?   @map("entity_id")
   /// Who owes this. Null means unassigned, which is visible rather than hidden.
+  ///
+  /// ONE person, deliberately (playbook-v5 P20/6). Not an array: "everyone is
+  /// responsible" is how tasks die, and the people helping are collaborators —
+  /// a separate relationship with a separate table.
   assigneeId  String?   @map("assignee_id")
+  /// Who handed it over, and when (playbook-v5 P20/6). The current state of the
+  /// delegation trail; the full trail is in `TaskEvent`.
+  delegatedBy String?   @map("delegated_by")
+  delegatedAt DateTime? @map("delegated_at")
   doneAt      DateTime? @map("done_at")
   completedBy String?   @map("completed_by")
   /// Set when the system created it from a signal, so the UI can say why this
@@ -1449,8 +1502,10 @@ model Task {
   section     TaskSection?     @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   parent      Task?            @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
   subtasks    Task[]           @relation("Subtasks")
-  comments    TaskComment[]
-  followers   TaskFollower[]
+  comments      TaskComment[]
+  followers     TaskFollower[]
+  collaborators TaskCollaborator[]
+  events        TaskEvent[]
   attachments TaskAttachment[]
   /// Tasks that must finish before this one can start (P3/3.1).
   blockedBy   TaskDependency[] @relation("Blocked")

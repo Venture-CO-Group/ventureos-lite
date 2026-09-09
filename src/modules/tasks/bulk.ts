@@ -32,6 +32,8 @@ import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
 import { EMPTY_BULK_RESULT, type BulkResult, type SkippedRow } from "@/lib/bulk";
 import { TASK_PRIORITIES } from "./board-logic";
 import { recordUndo } from "../undo/store";
+import { recordTaskEvent } from "./collaborators";
+import { assignmentKind } from "./events";
 
 type Db = ReturnType<typeof getWorkspaceClient>;
 
@@ -162,8 +164,35 @@ export async function bulkAssignTasks(
   });
   const { count } = await db.task.updateMany({
     where: { id: { in: targets } },
-    data: { assigneeId },
+    data: {
+      assigneeId,
+      /**
+       * A bulk reassignment is a handover too (playbook-v5 P20/6). Set in the
+       * same statement rather than row by row, and cleared when the batch
+       * unassigns, because there is then nobody it was handed to.
+       */
+      delegatedBy: assigneeId ? userId : null,
+      delegatedAt: assigneeId ? new Date() : null,
+    },
   });
+
+  /**
+   * One trail row per task that actually changed hands. Written after the
+   * update and best-effort: a missing trail row must not undo a reassignment
+   * somebody made deliberately.
+   */
+  for (const row of before) {
+    const kind = assignmentKind(row.assigneeId, assigneeId);
+    if (!kind) continue;
+    await recordTaskEvent(workspaceId, {
+      taskId: row.id,
+      kind,
+      userId: assigneeId,
+      actorUserId: userId,
+      before: { assigneeId: row.assigneeId },
+      after: { assigneeId },
+    });
+  }
 
   const undo = await recordUndo(workspaceId, userId, {
     kind: "bulk_owner",

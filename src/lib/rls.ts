@@ -130,6 +130,9 @@ const BUSINESS_TABLES = [
   "task_checklist_items",
   /** Extra entity links (playbook-v5 P20/4). */
   "task_links",
+  /** Collaborators and the delegation trail (playbook-v5 P20/6). */
+  "task_collaborators",
+  "task_events",
   "mail_accounts",
   "email_threads",
   "email_messages",

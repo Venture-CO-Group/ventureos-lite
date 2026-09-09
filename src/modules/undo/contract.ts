@@ -117,6 +117,12 @@ export const DESTRUCTIVE_ACTIONS: Record<string, Undoability> = {
   removeTimeEntry: permanent(
     "The logged time is removed and the task's actual figure drops by that much. Only the person who logged it can remove it.",
   ),
+  removeCollaborator: permanent(
+    "They stop being a collaborator and the task leaves their My Work. They keep following it, so they still hear about comments, and the handover trail keeps the record.",
+  ),
+  removeTaskCollaborator: permanent(
+    "They stop being a collaborator and the task leaves their My Work. They keep following it, so they still hear about comments, and the handover trail keeps the record.",
+  ),
   removeTaskLink: permanent(
     "The extra link is removed. Neither the task nor the entity is changed, and the task stays about whatever its own entity says.",
   ),

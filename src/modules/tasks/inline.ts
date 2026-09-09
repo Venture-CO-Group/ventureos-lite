@@ -30,6 +30,7 @@ import {
   onTaskAssigneeChanged,
   onTaskPriorityChanged,
 } from "@/modules/workflow/triggers";
+import { applyAssignment } from "./collaborators";
 
 export const TASK_INLINE_FIELDS = [
   "title",
@@ -163,8 +164,16 @@ export async function applyTaskInlineEdit(
         return { ok: false, error: "That person's access is suspended — assign it to somebody else." };
       }
     }
-    await db.task.update({ where: { id: task.id }, data: { assigneeId } });
-    if (assigneeId !== task.assigneeId) await onTaskAssigneeChanged(workspaceId, task.id);
+    /**
+     * Through the one function (playbook-v5 P20/6), so an inline reassignment
+     * writes the delegation trail exactly as the detail panel does.
+     */
+    const kind = await applyAssignment(workspaceId, task.id, {
+      before: task.assigneeId,
+      after: assigneeId,
+      actorUserId,
+    });
+    if (kind) await onTaskAssigneeChanged(workspaceId, task.id);
     return { ok: true, value: assigneeId };
   }
 

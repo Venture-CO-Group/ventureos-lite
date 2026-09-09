@@ -68,6 +68,7 @@ import { TaskWorkload } from "./task-workload";
 import { TaskFields } from "./task-fields";
 import { TaskChecklist } from "./task-checklist";
 import { TaskLinks } from "./task-links";
+import { TaskPeople } from "./task-people";
 import { getTaskFieldDefs } from "@/modules/tasks/custom-field-actions";
 import type { FieldDef } from "@/modules/fields/types";
 import { BoardViewTabs } from "./board-view-tabs";
@@ -170,6 +171,8 @@ const TASK_VIEW = {
   savedView: idField("sv"),
   mine: boolField("mine"),
   done: boolField("done"),
+  /** My Work includes what I am collaborating on (playbook-v5 P20/6). */
+  helping: boolField("helping"),
   /**
    * Where the person came from (playbook-v5 P20/4). A task opened out of a
    * lead's panel carries the lead's href, and the detail offers the way back —
@@ -465,9 +468,16 @@ export function TaskBoards({
    * My Work reads across every board, so it is the most expensive query on
    * this screen — and most visits never open it.
    */
+  /**
+   * My Work, optionally including work somebody else owns and you are helping
+   * with (playbook-v5 P20/6). In the URL like every other view choice, so the
+   * toggle survives a reload and can be linked.
+   */
   const loadMine = useCallback(async () => {
-    setMine(await myWork().catch(() => []));
-  }, []);
+    setMine(
+      await myWork({ includeCollaborating: viewState.helping }).catch(() => []),
+    );
+  }, [viewState.helping]);
   const [templates, setTemplates] = useState<BoardTemplateSummary[]>([]);
   const [fromTemplate, setFromTemplate] = useState(false);
   const mineOnly = viewState.mine;
@@ -1422,6 +1432,12 @@ export function TaskBoards({
 
           {view === "mine" && (
             <MyWork
+              includeCollaborating={viewState.helping}
+              onIncludeCollaboratingChange={(next) => {
+                // Cleared so the effect refetches with the new scope.
+                setMine(null);
+                setViewState({ helping: next });
+              }}
               items={mine ?? []}
               onChanged={() => {
                 void loadMine();
@@ -2003,6 +2019,10 @@ function TaskDetail({
   }
 
   const iso = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
+  /** The assignee picker groups the people already on it (playbook-v5 P20/6). */
+  const onIt = new Set(task.collaboratorIds);
+  const collaborating = members.filter((m) => onIt.has(m.id));
+  const others = members.filter((m) => !onIt.has(m.id));
 
   return (
     <Modal onClose={onClose}>
@@ -2053,11 +2073,28 @@ function TaskDetail({
             className={`${INPUT} mt-1`}
           >
             <option value="">Unassigned</option>
-            {members.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
+            {/**
+             * Collaborators first, in their own group (playbook-v5 P20/6).
+             * The person already working on the task is usually the person it
+             * is about to be handed to, and a flat alphabetical list of
+             * everybody buries them.
+             */}
+            {collaborating.length > 0 && (
+              <optgroup label="Working on it">
+                {collaborating.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            <optgroup label={collaborating.length > 0 ? "Everybody else" : "Members"}>
+              {others.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </optgroup>
           </select>
         </label>
 
@@ -2151,6 +2188,15 @@ function TaskDetail({
           void load();
           onChanged();
         }}
+      />
+
+      {/* ---------- collaborators and the handover trail (playbook-v5 P20/6) ---------- */}
+      <TaskPeople
+        taskId={taskId}
+        assigneeId={task.assigneeId}
+        members={members}
+        delegatedByName={task.delegatedByName}
+        onChanged={() => void load()}
       />
 
       {/* ---------- extra entity links (playbook-v5 P20/4) ---------- */}

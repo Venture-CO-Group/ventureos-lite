@@ -10,6 +10,7 @@ import {
   type BoardProgress,
 } from "./board-logic";
 import { groupProgress } from "./checklist-logic";
+import { RELATION_NOTE, type TaskRelation } from "./events";
 import { chipFor } from "./links";
 
 /**
@@ -465,27 +466,57 @@ export async function notifyTaskAudience(
   });
   if (!task) return;
 
-  const followers = await db.taskFollower.findMany({
-    where: { taskId },
-    select: { userId: true },
-  });
-  const audience = new Set<string>(followers.map((f) => f.userId));
-  if (task.assigneeId) audience.add(task.assigneeId);
-  // Never notify somebody about their own action — that is how a bell badge
-  // stops meaning anything.
-  audience.delete(actorId);
-  if (audience.size === 0) return;
+  const [followers, collaborators] = await Promise.all([
+    db.taskFollower.findMany({ where: { taskId }, select: { userId: true } }),
+    db.taskCollaborator.findMany({ where: { taskId }, select: { userId: true } }),
+  ]);
 
-  await deliverNotification({
-    workspaceId,
-    userIds: [...audience],
-    type: input.type,
-    title: input.title,
-    body: input.body ?? null,
-    href: task.boardId ? `/tasks?board=${task.boardId}&task=${taskId}` : `/tasks?task=${taskId}`,
-    entityType: "task",
-    entityId: taskId,
-    // Two comments on one task are two events, not a repeat of one.
-    discriminator: `${input.type}:${Date.now()}`,
-  });
+  /**
+   * Three relationships, three notifications (playbook-v5 P20/6).
+   *
+   * The same sentence to everybody would be the easy thing and the wrong one:
+   * "this task was assigned to you" and "somebody you are following was
+   * reassigned" are different pieces of news, and a person who cannot tell
+   * which one arrived stops reading them.
+   */
+  const collaboratorIds = new Set(collaborators.map((c) => c.userId));
+  const groups: Array<{ relation: TaskRelation; userIds: string[] }> = [
+    {
+      relation: "assignee",
+      userIds: task.assigneeId ? [task.assigneeId] : [],
+    },
+    { relation: "collaborator", userIds: [...collaboratorIds] },
+    {
+      relation: "follower",
+      userIds: followers
+        .map((f) => f.userId)
+        .filter((id) => id !== task.assigneeId && !collaboratorIds.has(id)),
+    },
+  ];
+
+  const href = task.boardId
+    ? `/tasks?board=${task.boardId}&task=${taskId}`
+    : `/tasks?task=${taskId}`;
+  // One timestamp for the whole fan-out: three groups notified about one event
+  // are one event, and a per-group discriminator would defeat the de-duping.
+  const at = Date.now();
+
+  for (const group of groups) {
+    // Never notify somebody about their own action — that is how a bell badge
+    // stops meaning anything.
+    const userIds = group.userIds.filter((id) => id !== actorId);
+    if (userIds.length === 0) continue;
+    await deliverNotification({
+      workspaceId,
+      userIds,
+      type: input.type,
+      title: input.title,
+      body: [input.body, RELATION_NOTE[group.relation]].filter(Boolean).join(" "),
+      href,
+      entityType: "task",
+      entityId: taskId,
+      // Two comments on one task are two events, not a repeat of one.
+      discriminator: `${input.type}:${at}`,
+    });
+  }
 }
