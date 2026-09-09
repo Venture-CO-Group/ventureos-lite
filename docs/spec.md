@@ -203,12 +203,15 @@ Prospector finds businesses whose owners answer phones, not LinkedIn.
 - Every import is a tracked **ImportBatch**; created and updated rows carry the batch id, and the batch stores what each row looked like before and after.
 - **Rollback within 7 days** deletes what the import created and reverts what it updated — and REFUSES, naming each row, when a person has touched it since. A refused rollback is a no-op, never a partial one. Owner-only, like the single-lead delete.
 
-### 4.29 Automation (workflow-lite) — v2 (P7/5)
-- **WHEN** a trigger fires — a lead or deal reaching a stage, a quote accepted, a meeting outcome logged, a task overdue by N days, a lead arriving from a source — **IF** a flat list of field comparisons all hold (custom fields included) — **THEN** run up to five actions in order.
-- Actions: create a task, **prepare an email DRAFT**, add or remove a signal tag, move to Not now, notify a user.
+### 4.29 Automation (workflow-lite) — v2 (P7/5), extended to boards in v5 (P20/5)
+- **WHEN** a trigger fires — a lead or deal reaching a stage, a quote accepted, a meeting outcome logged, a task overdue by N days, a lead arriving from a source, **a task created / moved to a section / completed / re-prioritised / reassigned** — **IF** a flat list of field comparisons all hold (custom fields included) — **THEN** run up to five actions in order.
+- Actions: create a task, **prepare an email DRAFT**, add or remove a signal tag, move to Not now, notify a user, notify a **team**, and on the task triggers: set the priority, set a due date by offset, assign, add or remove a tag, move to a section, copy a follow-up off a template board.
+- **Board rules watch one board**; a rule with no board watches the whole workspace, which is what every rule written before board automations existed is. A **task action on a non-task trigger is refused** at save time and again at run time: a rule that saves, fires and does nothing for ever is the hardest automation bug to notice. A rule may not move a task to a section on **another** board.
+- Task triggers fire on what actually changed: reordering inside a column is not a move to a section, editing a note is not a priority change, and reopening a task is not a completion.
 - **The email action drafts and stops.** There is no send path from the engine (CLAUDE.md hard rule #2); a person opens the draft, reads it and sends it.
-- Twenty rules per workspace, Owner-gated, each with a kill switch and a version stamped onto every run. **Cycle protection is two rules**: a rule cannot re-trigger itself, and no more than three chained rule executions run per originating event — the second is what stops a mutually-triggering pair.
-- The execution log records **every evaluation, including the no-matches**, because "why did my rule not fire?" is what a run log is for.
+- Twenty rules per workspace, Owner-gated, each with a kill switch and a version stamped onto every run. The cap **fails loudly** — the twenty-first rule is refused with a sentence and nothing is dropped to make room.
+- **Cycle protection is two rules**: a rule cannot re-trigger itself, and no more than three chained rule executions run per originating event — the second is what stops a mutually-triggering pair. A task action that is itself a trigger (setting a priority *is* a priority change) genuinely wakes the engine again, carrying the chain, so the guard catches the loop and writes the refusal down. An action that changes nothing does not wake it at all.
+- The execution log records **every evaluation, including the no-matches**, because "why did my rule not fire?" is what a run log is for — with the per-action outcomes and the chain depth, so "2 of 3 actions ran" can say which one did not.
 
 
 ### 4.30 Email sync — v2 (P2)
@@ -217,8 +220,86 @@ Two-way per-user mailbox sync (Gmail first, behind a `MailProvider` interface). 
 ### 4.31 Global search, saved views, bulk actions — v2 (P3/1, P3/2)
 Postgres full-text + trigram search across leads, companies, deals, documents, threads and notes, typo-tolerant and ranked. Filter builder over the core fields, saved as named views (personal or shared). Bulk actions apply to everything matching the filter, not just the visible page — the score gate is still enforced per lead, and skipped ones are reported.
 
-### 4.32 Tasks — v2 (P3/3)
-A first-class task: type, title, note, due datetime, polymorphic link (lead / company / deal / document / project), assignee, done state. Created from anywhere; merged into the Today Queue at its due time; overdue tasks reach the Monday digest. **Project milestones are tasks** (§4.38), which is why they appear in every task surface without any of them knowing what a milestone is.
+### 4.32 Tasks — v2 (P3/3), extended through v5 (P18–P20)
+
+The task module is the second half of the product: the pipeline says what is
+happening to a lead, and this says what anybody is doing about it. Its full
+capability set:
+
+**The task itself.** This is a first-class task, not a note attached to a lead:
+type (call / email / todo / follow-up), title, note, due
+datetime, **start datetime** (a task due Friday that takes three days is not a
+Friday problem), assignee, done state, priority, free-text tags, source (set
+when the system raised it), and a polymorphic link to a lead, company, deal,
+document or project. Created from anywhere; merged into the Today Queue at its
+due time; overdue tasks reach the Monday digest. **Project milestones are
+tasks** (§4.38), which is why they appear in every task surface without any of
+them knowing what a milestone is.
+
+**Boards, sections and loose tasks.** Boards hold sections (columns on the
+kanban, headings in the list) and tasks rank within a section on sparse
+positions, so a drag is one write. `boardId` is nullable and stays that way: a
+follow-up raised from a lead or a signal is a **loose** task with no board, and
+every surface says so rather than hiding it. Board templates are boards with a
+flag — a template *is* a board, so "new board from template" is a copy and
+relative due offsets become real dates on use.
+
+**Structure within a task.** Subtasks, one level deep; a parent never completes
+from its children and completing a parent never completes them. Dependencies
+("this cannot start until that finishes") with cycle detection that names the
+loop it found. Comments with @-mentions stored as ids at write time.
+Attachments. Recurrence, which **spawns the successor on completion** rather
+than filling the board with future copies. **Checklists** (P20/3): light steps
+inside one task, capped at fifty, shown as "3/7" on the card, promotable to a
+real subtask in one action — and ticking every one of them does **not**
+complete the task.
+
+**Views over the same rows.** Board, list, **My Work**, **timeline/Gantt**,
+**calendar** and **workload** (P18, P19). My Work is the cross-board personal
+view: everything assigned to you including loose tasks, in Overdue / Today /
+This week / Later / No date buckets, with dragging between buckets rewriting
+the due date and each bucket stating what a drop into it does. It and the
+Today Queue compute due-ness with **one function** so they cannot disagree.
+Grouping by section, assignee, priority, due bucket, tag or an Owner-defined
+field; **a regroup never moves the card between columns.** Saved views extend
+the existing `SavedView` table rather than adding a second one. Every view
+choice lives in the URL, so a view is linkable and Back closes what it opened.
+
+**Estimates and time** (P20/1). Estimates in whole **minutes** (1.5h is exactly
+90 minutes; 0.1h is not exactly six of anything), entered and read as hours. A
+parent's estimate is either its own or **computed from its subtasks**, and the
+UI states which mode is in use. One running timer per person, enforced by a
+partial unique index rather than by hope; manual entries; variance against the
+estimate; a per-board time report and an export.
+
+**Owner-defined fields on tasks** (P20/2), in the same `CustomFieldDef` table
+and through the same validator as leads, companies and deals — one field
+system, one GDPR path — filterable, groupable and exportable.
+
+**Bidirectional entity links** (P20/4). Tasks always knew what they were
+about; every lead, company, deal and project now shows its open and recently
+completed tasks in a panel, with inline create ("add a task for this lead",
+pre-linked), inline complete and a count badge on the header. A task that
+genuinely spans two entities carries the extra one in a **join table**;
+`tasks.entity_type`/`entity_id` remain the single-entity fast path and reads
+union the two. Following a task out of an entity carries the way back.
+
+**Board automations** (P20/5) — see §4.29; they are the same rule engine, not a
+second one.
+
+**Collaborators and delegation** (P20/6). `assigneeId` stays **one**
+accountable owner — "everyone is responsible" is how tasks die. Beside it:
+**collaborators**, who are working on it and see it in their own My Work behind
+a toggle, and **followers**, who merely watch. Reassignment stamps
+`delegatedBy`/`delegatedAt` and writes a `TaskEvent` trail (the same shape as
+`MembershipEvent`), so a task that went Anna → Béla → Anna is visible as that.
+A first assignment is **not** a handover. Notifications say three different
+things to the three relationships.
+
+**Bulk actions** (P17/1) — complete, assign, set priority, set a due date, add a
+tag, move to a section, delete — over everything matching the filter rather
+than the visible page, with per-row rules still applied individually and every
+skipped row reported with its reason.
 
 ### 4.33 Notifications — v2 (P6/1)
 In-app notification centre with unread count, per-type preferences per user, PWA web push (VAPID) and an email-digest fallback that batches rather than sending per event. Types cover replies, escalation, callbacks, due tasks, quote accepted/declined, meetings, campaign circuit-breaker, sync failures, pending proposals, new sign-in, and visitor signals (§4.35). 90-day retention.

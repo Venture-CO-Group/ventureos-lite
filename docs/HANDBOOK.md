@@ -877,6 +877,48 @@ A rule cannot trigger itself, and no more than three rules run in a chain from
 one original event. Two rules that trigger each other are stopped by the second
 limit, not the first.
 
+#### Board rules
+
+Rules can now watch the **task boards** as well as leads and deals — the same
+twenty, the same log, the same switch. The task triggers are: a task created, a
+task moved to a section, a task completed, a task's priority changed, a task
+reassigned, and the existing "overdue by N days".
+
+When you pick one of those, the editor grows a **board** dropdown. This is the
+choice to make deliberately:
+
+- **Pick a board** and the rule only ever looks at that board. This is what you
+  usually want: *"on the delivery board, anything landing in Blocked goes
+  urgent."*
+- **Leave it on "every board in the workspace"** and the rule watches every
+  board — including ones somebody creates next month, which they will not know
+  about. The editor says so under the dropdown.
+
+The board actions are: set the priority, set a due date a number of days from
+when the rule fires, assign it to somebody (or to nobody, deliberately), add or
+remove a tag, move it to a section, and copy a follow-up task off a template
+board. Plus "notify a team", which reaches everybody on the team as it stands
+at that moment.
+
+Three refusals you may run into, all of them on purpose:
+
+1. **A task action needs a task trigger.** "Set the priority" on "a lead reaches
+   a stage" is refused when you save, because there is no task for it to act
+   on — and a rule that saves, fires and quietly does nothing for ever is the
+   worst kind to debug.
+2. **A rule may not move a task to another board's section.** "The automation
+   moved it and I cannot find it" is the worst thing an automation can do.
+3. **The twenty-first rule is refused**, with a sentence, and nothing is dropped
+   to make room. Delete or switch off a rule first.
+
+Setting a priority *is* a priority change, so a rule of that shape genuinely
+tries to fire again — and is stopped by the self-trigger limit, with the refusal
+written into the run log at its chain depth. If you see a "skipped" line saying
+a rule cannot re-trigger itself, that is the protection working, not a fault.
+
+The log line for a rule with several actions now lists each one, so *"2 of 3
+actions ran"* says which one did not.
+
 ### Sessions, and getting signed out less
 
 A session now lasts **30 days**, or **7 days without use** — whichever comes
@@ -891,6 +933,81 @@ notification to you and to nobody else.
 Five failed sign-ins lock the account, and each consecutive lock waits longer —
 fifteen minutes, then thirty, an hour, four hours, a day — resetting the moment
 somebody gets in. Every lockout is on the audit log.
+
+---
+
+## 9b. Tasks: estimates, checklists, and who owns what
+
+### Estimates and time on tasks
+
+**On any task's detail panel.** Two numbers, and they are not the same thing:
+
+- **Estimate** — how long you think it will take. Typed in hours: `1.5`, `1,5`,
+  `90m` and `1h30` all mean ninety minutes. It is stored in whole minutes, which
+  is why the sums always add up.
+- **Actual** — what was logged against it, either by starting the timer or by
+  entering a block of time by hand.
+
+**A parent task's estimate has two modes**, and the panel says which one is in
+use. If the parent has no estimate of its own, it is **computed from its
+subtasks** and shown as such. Type an estimate on the parent and that number
+wins from then on. Clear it and it goes back to the computed one. Nothing is
+ever silently overwritten.
+
+**One timer runs at a time, per person.** Starting a second one is refused
+rather than quietly stopping the first, because a timer you did not know was
+running is time attributed to the wrong task. A timer left running for more than
+twelve hours is flagged as a runaway on the report rather than counted as a
+working day.
+
+**The board time report** (the clock icon on a board) shows estimate against
+actual per task and per person, and the variance. It exports.
+
+**Workload** (the board's Workload view) is where the estimates are used
+outside a single task: it lays each person's work over a date range and marks
+who is over capacity. Where estimates exist it uses them. Where they do not, it
+falls back to a **count of tasks per day** — and the header states which of the
+two assumptions it is using, with the "tasks per day" number as a control right
+beside it. That is deliberate: a count-based figure presented as if it were
+hours is a number somebody will plan around.
+
+### Checklists, and when to use a subtask instead
+
+A task's detail panel has both, and the panel prints the difference:
+
+> Checklist for steps within this task; subtask for work someone else may own.
+
+A checklist step has no owner, no date, no comments and no dependencies. That is
+the point — it is the list inside one person's head, capped at fifty steps,
+shown as "3/7" on the card. If a step turns out to need an owner and a deadline,
+**↑ subtask** converts it in one click and removes the step, so the same piece of
+work is never counted twice.
+
+**Ticking every step does not complete the task.** Deliberately: whether the
+work is finished is a judgement, and it belongs to the person who can see
+whether the last step was real.
+
+### Who owns a task, who is helping, who is watching
+
+Three different relationships, and it is worth keeping them straight:
+
+- **Assignee** — one person, accountable. Never a list. A card with three names
+  on it has no owner.
+- **Collaborators** — people working on it. It shows in their My Work behind the
+  *"Include what I am helping with"* toggle, marked **helping** so it does not
+  read as work they owe.
+- **Followers** — people watching. They hear about comments and owe nothing.
+  Commenting on a task, or being @-mentioned in one, makes somebody a follower.
+
+Adding a collaborator also makes them a follower — working on something implies
+hearing about it. Removing them as a collaborator leaves them following, because
+somebody taken off a piece of work may still want to know how it ends.
+
+**Handovers are recorded.** Reassigning a task that already had an owner stamps
+who handed it over and when, shows *"handed over by …"* on the panel, and adds a
+line to the task's trail — including when a workflow rule did it, which the
+trail attributes to "the system". Giving out a task that nobody owned yet is an
+assignment, not a handover, and is recorded as such.
 
 ---
 
