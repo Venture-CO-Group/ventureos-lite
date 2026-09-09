@@ -169,9 +169,17 @@ describe("the form's shape matches the columns", () => {
     ]) {
       expect(src, `no input carries data-testid="${testid}"`).toContain(`data-testid="${testid}"`);
     }
-    // The headline input is bound to the headline, not to the title.
-    expect(src).toMatch(/data-testid="lead-headline"[\s\S]{0,120}value=\{form\.headline\}/);
-    expect(src).toMatch(/data-testid="lead-title"[\s\S]{0,120}value=\{form\.title\}/);
+    /**
+     * Each control is bound to ITS OWN field — the bug being pinned is the
+     * headline sharing the job title's input.
+     *
+     * The window is 300 characters rather than 120 because these are inline
+     * controls now (playbook-v5 P16/1) and an <InlineField> spans more lines
+     * than the bare <input> it replaced. The assertion is the same one: the
+     * testid and the binding have to belong together.
+     */
+    expect(src).toMatch(/data-testid="lead-headline"[\s\S]{0,300}value=\{form\.headline\}/);
+    expect(src).toMatch(/data-testid="lead-title"[\s\S]{0,300}value=\{form\.title\}/);
   });
 
   it("no longer collapses the headline into the title anywhere in the capture route", async () => {

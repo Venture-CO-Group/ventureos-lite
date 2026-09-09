@@ -126,16 +126,26 @@ export function LeadDetailModal({ leadId, onClose }: { leadId: string; onClose: 
    *
    * So those keep the Save button, and the panel says which is which.
    */
-  function commitInline(field: string, value: InlineValue): Promise<InlineSaveResult> {
-    if (!form) return Promise.resolve({ ok: false as const, error: "Lead not loaded." });
-    return editLeadDetailField({ leadId: form.id, field, value }).then((res) => {
-      if (res.ok) {
-        // Keep local state in step so a later Save does not post a stale value
-        // back over what was just committed.
-        patch({ [field]: res.value ?? "" } as Partial<LeadDetail>);
-      }
-      return res;
-    });
+  async function commitInline(field: string, value: InlineValue): Promise<InlineSaveResult> {
+    if (!form) return { ok: false, error: "Lead not loaded." };
+    /**
+     * Through `attempt`, not returned bare.
+     *
+     * Next redacts anything THROWN out of a Server Action, so an unexpected
+     * failure arrives as an Error with only a digest — no message. A bare
+     * `return action(...)` leaves that rejection uncaught: the cell stays in
+     * its saving state for ever, shows nothing, and keeps the edit. Expected
+     * refusals were always returned as data; this is the net under the rest,
+     * and test/unit/server-action-silence.test.ts is what noticed it was
+     * missing here.
+     */
+    const res = await attempt(editLeadDetailField({ leadId: form.id, field, value }));
+    if (res.ok) {
+      // Keep local state in step so a later Save does not post a stale value
+      // back over what was just committed.
+      patch({ [field]: ("value" in res ? res.value : null) ?? "" } as Partial<LeadDetail>);
+    }
+    return res as InlineSaveResult;
   }
 
   function remove() {

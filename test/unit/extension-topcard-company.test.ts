@@ -146,9 +146,17 @@ describe("the location reaches the form", () => {
     // The lead carries the raw line…
     expect(detail).toMatch(/locationRaw:\s*string/);
     expect(detail).toMatch(/locationRaw:\s*lead\.locationRaw/);
-    // …and the form has an input of its own for it, in the Contact block.
+    /**
+     * …and the form has a control of its own for it, in the Contact block,
+     * bound to the LEAD's location rather than to the company's city.
+     *
+     * 300 characters rather than 140: it is an inline control now
+     * (playbook-v5 P16/1), which spans more lines than the bare <input> it
+     * replaced. What is being pinned is unchanged — the testid and the binding
+     * belong together.
+     */
     expect(modal).toContain('data-testid="lead-location"');
-    expect(modal).toMatch(/data-testid="lead-location"[\s\S]{0,140}value=\{form\.locationRaw\}/);
+    expect(modal).toMatch(/data-testid="lead-location"[\s\S]{0,300}value=\{form\.locationRaw\}/);
     // Sent back on save, so an edit sticks.
     expect(modal).toMatch(/locationRaw:\s*form\.locationRaw/);
   });
