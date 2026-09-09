@@ -90,15 +90,21 @@ async function deleteView(page: Page, name: string) {
    * and it simply never runs — which is how this helper started failing only
    * when it was called straight after clicking a tab.
    */
-  await expect(page.getByTestId("skeleton")).toHaveCount(0, { timeout: 30_000 });
-  const tab = page.getByTestId("view-tab").filter({ hasText: name });
-  if ((await tab.count()) === 0) return;
-  await page.getByLabel(`Delete view ${name}`).click();
-
+  /**
+   * And the CLICK is inside the retry, not before it.
+   *
+   * The first version clicked once and then retried only the reload, so a
+   * click that never ran left the loop reloading a page that would never
+   * change — which is exactly what a swallowed click looks like from here.
+   * Re-clicking is safe: the button is gone once the view is.
+   */
   await expect(async () => {
+    await expect(page.getByTestId("skeleton")).toHaveCount(0, { timeout: 30_000 });
+    if ((await page.getByTestId("view-tab").filter({ hasText: name }).count()) === 0) return;
+    await page.getByLabel(`Delete view ${name}`).click({ timeout: 5_000 });
     await page.reload();
     await expect(page.getByTestId("view-tab").filter({ hasText: name })).toHaveCount(0);
-  }).toPass({ timeout: 15_000 });
+  }).toPass({ timeout: 45_000 });
 }
 
 test("a saved view restores the filter it was saved with", async ({ page }) => {
