@@ -322,6 +322,15 @@ export async function executeRemoval(input: {
       // Team memberships go: they are an assignment target, and a departed
       // person on a team is a team that routes work to nobody.
       await tx.teamMember.deleteMany({ where: { workspaceId, userId } });
+      /**
+       * Their shortcuts go too (playbook-v5 P17/2).
+       *
+       * Recents and favourites are a record of what somebody was working on,
+       * and that has no business surviving their access — the playbook asks
+       * for exactly this. Inside the same transaction as the rest of the
+       * removal, so a rollback leaves them intact along with everything else.
+       */
+      await tx.userPin.deleteMany({ where: { workspaceId, userId } });
     });
   } catch (e) {
     return {

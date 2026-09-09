@@ -209,40 +209,14 @@ export interface RecentItem {
   atMs: number;
 }
 
-export const MAX_RECENTS = 6;
-const STORAGE_KEY = "vos.palette.recents";
-
 /**
- * What an empty palette shows.
+ * Recents moved to the server (playbook-v5 P17/2).
  *
- * Stored per browser rather than per user on the server: "the four things I
- * looked at this morning" is a property of the tab, not of the account, and
- * writing a row on every entity open to power a convenience list is not a
- * trade worth making.
+ * `readRecents`, `pushRecent`, the cap and the storage key are gone with the
+ * localStorage list. The argument for keeping them per-browser — that "what I
+ * looked at this morning" belongs to the tab — held only while recents were
+ * the ONLY thing in that list. Favourites are a deliberate shortlist that has
+ * to follow the person and disappear with their access, and ranking two
+ * sources of truth against each other in one list is not something to build.
+ * See modules/pins.
  */
-export function readRecents(raw: string | null): RecentItem[] {
-  if (!raw) return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(
-        (r): r is RecentItem =>
-          !!r &&
-          typeof r === "object" &&
-          typeof (r as RecentItem).id === "string" &&
-          typeof (r as RecentItem).href === "string" &&
-          typeof (r as RecentItem).title === "string",
-      )
-      .slice(0, MAX_RECENTS);
-  } catch {
-    return [];
-  }
-}
-
-/** Newest first, de-duplicated by href, bounded. */
-export function pushRecent(current: RecentItem[], item: RecentItem): RecentItem[] {
-  return [item, ...current.filter((r) => r.href !== item.href)].slice(0, MAX_RECENTS);
-}
-
-export const RECENTS_STORAGE_KEY = STORAGE_KEY;

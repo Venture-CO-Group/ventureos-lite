@@ -37,6 +37,7 @@ import { SearchVisibility } from "./search-visibility";
 import { duplicatesForLead } from "@/modules/merge/actions";
 import { Modal } from "./modal";
 import { InlineField, type InlineSaveResult, type InlineValue } from "./inline-edit";
+import { StarToggle } from "./star-toggle";
 import { editLeadDetailField } from "@/modules/leads/detail-inline-actions";
 
 const INLINE_HINT =
@@ -421,6 +422,17 @@ export function LeadDetailModal({ leadId, onClose }: { leadId: string; onClose: 
         <h3 id="lead-modal-title" className="font-display text-lg font-bold lowercase">
           {form.contactName || form.companyName || "lead"}
         </h3>
+        {/**
+         * The star also records the visit (playbook-v5 P17/2) — mounting it
+         * means somebody is looking at this lead, which is exactly when a
+         * "recent" becomes true, and it keeps the write off the render path.
+         */}
+        <StarToggle
+          entityType="lead"
+          entityId={form.id}
+          label={form.contactName || form.companyName || "Lead"}
+          href={`/leads?lead=${form.id}`}
+        />
         <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-muted">
           {STAGE_LABELS[detail.stage as Stage] ?? detail.stage} · {detail.daysInStage}d
         </span>

@@ -17,6 +17,7 @@ import { CommandPalette } from "./command-palette";
 import { TopBarActions } from "./top-bar-actions";
 import { AccountMenu } from "./account-menu";
 import { SidebarNav } from "./sidebar-nav";
+import { SidebarFavourites } from "./sidebar-favourites";
 import {
   DashboardIcon,
   ProspectorIcon,
@@ -322,6 +323,10 @@ export async function AppShell({
           {nav.map((item) => (
             <NavRow key={item.label} item={item} activePath={activePath} />
           ))}
+
+          {/* Only present once something is starred — see the component for
+              why a heading over nothing is worse than no heading. */}
+          <SidebarFavourites favourites={shell.favourites} />
           <div className="px-2.5 pb-1.5 pt-3.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
             System
           </div>

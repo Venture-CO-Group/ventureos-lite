@@ -59,6 +59,7 @@ import {
 } from "./inline-edit";
 import { editTaskField } from "@/modules/tasks/inline-actions";
 import { BulkBar, type BulkAction } from "./bulk-bar";
+import { StarToggle } from "./star-toggle";
 import { useBulkSelection, type BulkSelection } from "./use-bulk-selection";
 import {
   bulkTasksAssign,
@@ -1723,7 +1724,15 @@ function TaskDetail({
           onChange={(e) => setTask({ ...task, title: e.target.value })}
           onBlur={(e) => e.target.value.trim() && void save({ title: e.target.value.trim() })}
           data-testid="detail-title"
+          aria-label="Task title"
           className="min-w-0 flex-1 rounded-[8px] border border-transparent bg-transparent px-1 py-1 font-display text-[19px] font-bold text-ink outline-none hover:border-line focus:border-accent"
+        />
+        <StarToggle
+          entityType="task"
+          entityId={taskId}
+          label={task.title}
+          href={`/tasks${task.boardId ? `?board=${task.boardId}&task=${taskId}` : `?task=${taskId}`}`}
+          className="mt-1.5 flex-none"
         />
         <button aria-label="Close" onClick={onClose} className="text-muted hover:text-ink">
           ✕

@@ -3123,3 +3123,34 @@ model WebhookDelivery {
   @@index([status, nextAttemptAt])
   @@map("webhook_deliveries")
 }
+
+/// Recents and favourites, per person per workspace (playbook-v5 P17/2).
+///
+/// One table for both, because a recent and a favourite are the same fact —
+/// "this person cares about this entity" — differing only in whether the
+/// caring was deliberate. The command palette reads both on an empty query, so
+/// two tables would mean two joins on the one read that has to be instant.
+///
+/// `label` and `href` are STORED rather than resolved. Seven entity types
+/// would be seven queries to render a list of shortcuts; the cost is a label
+/// that can go stale after a rename, and opening the thing corrects it.
+model UserPin {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  userId      String   @map("user_id")
+  /// recent | favourite
+  kind        String
+  /// lead | company | deal | task | board | document | audit
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  label       String
+  href        String
+  /// Hand order, for the sidebar's favourites. Unused for recents.
+  position    Int      @default(0)
+  at          DateTime @default(now())
+
+  @@unique([userId, workspaceId, kind, entityType, entityId])
+  @@index([userId, workspaceId, kind, at])
+  @@index([workspaceId, userId])
+  @@map("user_pins")
+}

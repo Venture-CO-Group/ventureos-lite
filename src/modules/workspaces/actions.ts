@@ -2,6 +2,8 @@
 
 import { z } from "zod";
 import { toDensity, type Density } from "@/lib/density";
+import { listPins } from "@/modules/pins/store";
+import type { FavouriteRow } from "@/components/sidebar-favourites";
 import { revalidatePath } from "next/cache";
 import type { Role } from "@prisma/client";
 import { prismaUnsafe, getWorkspaceClient } from "@/lib/db";
@@ -47,6 +49,15 @@ export interface ShellContext {
   role: string;
   /** Row density, stamped on the shell so every surface reads the same tokens. */
   density: Density;
+  /**
+   * The sidebar's starred shortcuts (playbook-v5 P17/2).
+   *
+   * On the shell context because the sidebar renders on every screen, and one
+   * small indexed read by (user, workspace, kind) is the cost. Recents are NOT
+   * here: they are read only when the palette opens, which is the requirement
+   * that they never touch a page render.
+   */
+  favourites: FavouriteRow[];
   /**
    * Why this person must register an authenticator before working, if they
    * must. The shell redirects on it; the enrolment page explains which reason
@@ -97,6 +108,7 @@ export async function getShellContext(): Promise<ShellContext> {
     include: { workspace: { select: { id: true, name: true } } },
     orderBy: { createdAt: "asc" },
   });
+  const favourites = await listPins(workspaceId, userId, "favourite");
   const workspaces: WorkspaceOption[] = memberships.map((m) => ({
     id: m.workspace.id,
     name: m.workspace.name,
@@ -128,6 +140,13 @@ export async function getShellContext(): Promise<ShellContext> {
     workspaces,
     role,
     density: toDensity(user?.density),
+    favourites: favourites.map((f) => ({
+      entityType: f.entityType,
+      entityId: f.entityId,
+      label: f.label,
+      href: f.href,
+      position: f.position,
+    })),
     enrolmentReason: user
       ? enrolmentRequired(user, securityPolicyFrom(brandRow?.featureFlags))
       : null,

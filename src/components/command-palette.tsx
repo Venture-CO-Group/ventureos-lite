@@ -4,13 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { searchWorkspace } from "@/modules/search/actions";
 import { MIN_QUERY_LENGTH, type SearchHit } from "@/modules/search/query";
+import { getPaletteShortcuts } from "@/modules/pins/actions";
 import {
   GOTO_MAP,
   PALETTE_ACTIONS,
-  RECENTS_STORAGE_KEY,
   matchActions,
-  pushRecent,
-  readRecents,
   type PaletteAction,
   type RecentItem,
 } from "@/modules/search/palette";
@@ -80,25 +78,54 @@ export function CommandPalette({ hiddenNav = [] }: { hiddenNav?: string[] }) {
   const gotoArmed = useRef(false);
   const gotoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const rememberRecent = useCallback((item: Omit<RecentItem, "atMs">) => {
-    setRecents((current) => {
-      const next = pushRecent(current, { ...item, atMs: Date.now() });
-      try {
-        window.localStorage.setItem(RECENTS_STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        /* private browsing, a full quota — a convenience list is not worth throwing over */
-      }
-      return next;
-    });
+  /**
+   * Recents come from the SERVER now (playbook-v5 P17/2).
+   *
+   * They used to live in localStorage, on the argument that "the four things I
+   * looked at this morning" is a property of the tab rather than the account.
+   * That was defensible while recents were the only thing in this list.
+   * Favourites are not: a deliberate shortlist has to follow the person across
+   * their laptop and the machine in the meeting room, and it has to disappear
+   * when their membership does. Keeping recents per-browser and favourites
+   * per-user would put two sources of truth in one list, ranked against each
+   * other — so both are rows, scoped per workspace, capped, and swept when
+   * access ends.
+   *
+   * The write is off the render path: `StarToggle` records the visit when a
+   * detail opens, with nothing awaiting it.
+   */
+  const rememberRecent = useCallback((_item: Omit<RecentItem, "atMs">) => {
+    // Recording is StarToggle's job now; navigating from the palette just
+    // navigates. Kept as a no-op so the row handlers below stay unchanged.
+    void _item;
   }, []);
 
   useEffect(() => {
-    try {
-      setRecents(readRecents(window.localStorage.getItem(RECENTS_STORAGE_KEY)));
-    } catch {
-      setRecents([]);
-    }
-  }, []);
+    // Read when the palette opens, not on mount: this is the one list that has
+    // to be instant, and it must not cost anything on a page that never
+    // opens the palette.
+    if (!open) return;
+    let live = true;
+    getPaletteShortcuts()
+      .then((rows) => {
+        if (!live) return;
+        setRecents(
+          rows.map((r) => ({
+            kind: r.entityType,
+            id: r.entityId,
+            title: r.label,
+            subtitle: r.favourite ? "Favourite" : r.entityType,
+            href: r.href,
+            atMs: Date.parse(r.at),
+            favourite: r.favourite,
+          })),
+        );
+      })
+      .catch(() => live && setRecents([]));
+    return () => {
+      live = false;
+    };
+  }, [open]);
 
   // ---- global keys ---------------------------------------------------------
   useEffect(() => {
@@ -196,7 +223,9 @@ export function CommandPalette({ hiddenNav = [] }: { hiddenNav?: string[] }) {
         key: `recent:${r.href}`,
         label: r.title,
         detail: r.subtitle,
-        group: "Recent",
+        // Favourites are a group of their own and come first, which is what
+        // "ranks favourites first" means in a list grouped by heading.
+        group: (r as { favourite?: boolean }).favourite ? "Favourites" : "Recent",
         run: () => {
           setOpen(false);
           router.push(r.href);
