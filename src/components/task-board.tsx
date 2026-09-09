@@ -58,6 +58,8 @@ import {
   type InlineValue,
 } from "./inline-edit";
 import { editTaskField } from "@/modules/tasks/inline-actions";
+import { useViewState } from "./use-view-state";
+import { boolField, enumField, idField } from "@/lib/client/view-state";
 
 /**
  * The task board (P8/1).
@@ -102,6 +104,22 @@ function initials(name: string): string {
 // ---------------------------------------------------------------------------
 // card
 // ---------------------------------------------------------------------------
+
+/**
+ * What a task board's URL can say.
+ *
+ * Short keys, because people read and paste these: `/tasks?v=list&mine=1`.
+ * `board` and `task` keep the names the notification links already use —
+ * `notifyTaskAudience` has been sending `/tasks?board=X&task=Y` since task
+ * assignment shipped, and renaming them would break every one already sent.
+ */
+const TASK_VIEW = {
+  board: idField("board"),
+  task: idField("task"),
+  view: enumField("v", ["board", "list"] as const, "board"),
+  mine: boolField("mine"),
+  done: boolField("done"),
+};
 
 function Card({
   task,
@@ -320,8 +338,30 @@ export function TaskBoards({
   const router = useRouter();
   const { offerUndo } = useToast();
   const [board, setBoard] = useState<BoardView | null>(initialBoard);
-  const [boardId, setBoardId] = useState<string | null>(initialBoard?.id ?? null);
-  const [view, setView] = useState<"board" | "list">("board");
+
+  /**
+   * The view lives in the URL (playbook-v5 P16/5).
+   *
+   * `board` and `task` were already query parameters — the page seeded them —
+   * but they were copied into state on mount and never written back, so
+   * switching board or opening a card changed nothing in the address bar. Which
+   * meant a board could not be sent to anybody, a reload went back to the
+   * first one, and Back did not close an open card: it left the page.
+   *
+   * `mine` and `done` were pure component state, so a filtered board was not a
+   * thing you could link to at all.
+   */
+  const [viewState, setViewState] = useViewState(TASK_VIEW);
+  const boardId = viewState.board ?? initialBoard?.id ?? null;
+  const setBoardId = useCallback(
+    (id: string | null) => setViewState({ board: id }),
+    [setViewState],
+  );
+  const view = viewState.view;
+  const setView = useCallback(
+    (next: "board" | "list") => setViewState({ view: next }),
+    [setViewState],
+  );
   /**
    * "My work" is a third tab rather than a filter, because it is a different
    * question. The board answers "where is everything"; this answers "what do I
@@ -332,8 +372,16 @@ export function TaskBoards({
   const [mine, setMine] = useState<MyWorkItem[] | null>(null);
   const [templates, setTemplates] = useState<BoardTemplateSummary[]>([]);
   const [fromTemplate, setFromTemplate] = useState(false);
-  const [mineOnly, setMineOnly] = useState(false);
-  const [showDone, setShowDone] = useState(false);
+  const mineOnly = viewState.mine;
+  const setMineOnly = useCallback(
+    (next: boolean) => setViewState({ mine: next }),
+    [setViewState],
+  );
+  const showDone = viewState.done;
+  const setShowDone = useCallback(
+    (next: boolean) => setViewState({ done: next }),
+    [setViewState],
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -344,7 +392,25 @@ export function TaskBoards({
    * that the URL is not the authority, or closing the drawer would fight the
    * query string and re-open it.
    */
-  const [openTaskId, setOpenTaskId] = useState<string | null>(openTask);
+  /**
+   * The open card, in the URL, so Back closes it.
+   *
+   * NOT `viewState.task ?? openTask`, which is what this was and which reopened
+   * the card the instant it was closed. `guard()` calls `router.refresh()`
+   * after every write, and a refresh re-renders the server page against the
+   * CURRENT url — so once the card had been opened, the `openTask` prop was no
+   * longer null, and closing (which clears the parameter) fell straight back
+   * to the prop. The URL said no card was open and the modal stayed up.
+   *
+   * The prop is only a first-paint seed for a deep link, and the hook reads
+   * the same parameter itself, so there is nothing to fall back to.
+   */
+  const openTaskId = viewState.task;
+  void openTask;
+  const setOpenTaskId = useCallback(
+    (id: string | null) => setViewState({ task: id }),
+    [setViewState],
+  );
   const [newBoardOpen, setNewBoardOpen] = useState(false);
 
   const dragged = useRef<string | null>(null);
@@ -763,6 +829,7 @@ export function TaskBoards({
                   key={v}
                   onClick={() => setView(v)}
                   data-testid={`view-${v}`}
+                  aria-pressed={view === v}
                   className={`rounded-[8px] px-3 py-1.5 text-[12px] capitalize ${
                     view === v ? "bg-panel-2 text-ink" : "text-muted hover:text-ink"
                   }`}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Stage } from "@prisma/client";
@@ -12,6 +12,8 @@ import {
 } from "@/modules/pipeline/transitions";
 import { moveLeadStage } from "@/modules/leads/actions";
 import { useToast } from "./toast";
+import { useViewState } from "./use-view-state";
+import { idField } from "@/lib/client/view-state";
 import { LeadDetailModal } from "./lead-detail-modal";
 import { EmptyState } from "./empty-state";
 import { closeDeal } from "@/modules/analytics/actions";
@@ -94,6 +96,9 @@ function Notches({ score }: { score: number | null }) {
   );
 }
 
+/** `?lead=` is the open detail overlay. */
+const PIPELINE_VIEW = { lead: idField("lead") };
+
 export function PipelineBoard({
   cards,
   totals = {},
@@ -112,7 +117,17 @@ export function PipelineBoard({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
-  const [detailFor, setDetailFor] = useState<string | null>(null);
+  /**
+   * The open lead lives in the URL (playbook-v5 P16/5), so Back closes the
+   * overlay instead of leaving the board — and so a lead somebody is looking
+   * at can be sent to a colleague as a link.
+   */
+  const [view, setView] = useViewState(PIPELINE_VIEW);
+  const detailFor = view.lead;
+  const setDetailFor = useCallback(
+    (id: string | null) => setView({ lead: id }),
+    [setView],
+  );
   /** Press origin + whether a drag actually began — see DRAG_THRESHOLD_PX. */
   const pressRef = useRef<{ x: number; y: number } | null>(null);
   const draggedRef = useRef(false);

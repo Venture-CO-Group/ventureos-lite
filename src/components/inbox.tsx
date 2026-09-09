@@ -1,9 +1,11 @@
 "use client";
 import { attemptVoid } from "@/lib/client/server-action";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { EmailThreads } from "./email-threads";
+import { useViewState } from "./use-view-state";
+import { idField } from "@/lib/client/view-state";
 import { UnmatchedThreads } from "./unmatched-threads";
 import {
   getThread,
@@ -29,6 +31,9 @@ const INTENT: Record<string, { label: string; cls: string }> = {
   referral: { label: "referral", cls: "bg-accent-soft text-accent-ink" },
 };
 
+/** `?thread=` is the open conversation. */
+const INBOX_VIEW = { thread: idField("thread") };
+
 export function Inbox({
   threads,
   leads,
@@ -37,7 +42,19 @@ export function Inbox({
   leads: Array<{ id: string; name: string }>;
 }) {
   const router = useRouter();
-  const [selected, setSelected] = useState<string | null>(threads[0]?.leadId ?? null);
+  /**
+   * Which thread is open, in the URL (playbook-v5 P16/5).
+   *
+   * The inbox is three columns and the middle one is a conversation — the
+   * thing you most want to send somebody a link to. It falls back to the first
+   * thread when the URL names none, which is what it always did.
+   */
+  const [view, setView] = useViewState(INBOX_VIEW);
+  const selected = view.thread ?? threads[0]?.leadId ?? null;
+  const setSelected = useCallback(
+    (id: string | null) => setView({ thread: id }),
+    [setView],
+  );
   const [thread, setThread] = useState<ThreadView | null>(null);
   const [composer, setComposer] = useState("");
   const [paste, setPaste] = useState("");

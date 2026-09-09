@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   createPost,
@@ -22,6 +22,8 @@ import {
   type ContentStatus,
 } from "@/modules/content/board";
 import { Modal } from "./modal";
+import { useViewState } from "./use-view-state";
+import { idField } from "@/lib/client/view-state";
 
 const CARD = "rounded-card border border-line bg-panel p-3";
 const BTN =
@@ -45,10 +47,22 @@ const COLUMN_HINT: Record<ContentStatus, string> = {
  */
 const DRAG_THRESHOLD_PX = 5;
 
+/** `?post=` is the open editor. */
+const CONTENT_VIEW = { post: idField("post") };
+
 export function ContentHub({ board }: { board: ContentBoardView }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [openId, setOpenId] = useState<string | null>(null);
+  /**
+   * The open post, in the URL (playbook-v5 P16/5): Back closes the editor
+   * rather than leaving the board, and a draft under review can be linked to.
+   */
+  const [view, setView] = useViewState(CONTENT_VIEW);
+  const openId = view.post;
+  const setOpenId = useCallback(
+    (id: string | null) => setView({ post: id }),
+    [setView],
+  );
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<ContentStatus | null>(null);
