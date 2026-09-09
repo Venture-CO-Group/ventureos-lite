@@ -150,7 +150,12 @@ test("a photo can be uploaded, is served back, and can be removed", async ({ pag
     buffer: png,
   });
 
-  await expect(page.getByTestId("profile-message")).toContainText("Photo updated.");
+  // 30s, not the default 5: the upload is a real multipart request writing a
+  // file, and on a cold dev server under the full suite it has been caught
+  // still showing "Uploading…" when a five-second budget ran out.
+  await expect(page.getByTestId("profile-message")).toContainText("Photo updated.", {
+    timeout: 30_000,
+  });
   const img = page.getByTestId("profile-avatar");
   await expect(img).toBeVisible();
 
