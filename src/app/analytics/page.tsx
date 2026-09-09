@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { AppShell } from "@/components/app-shell";
+import { AnalyticsSkeleton } from "@/components/skeletons";
 import { Analytics } from "@/components/analytics";
 import { AnalyticsTabs } from "@/components/analytics-tabs";
 import { RevenueTab } from "@/components/revenue-tab";
@@ -19,7 +21,21 @@ export const dynamic = "force-dynamic";
  * subscription event log, and there is no reason to pay for that when someone
  * opened the funnel.
  */
-export default async function AnalyticsPage({
+export default function AnalyticsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  return (
+    <AppShell activePath="/analytics">
+      <Suspense fallback={<AnalyticsSkeleton />}>
+        <AnalyticsBody searchParams={searchParams} />
+      </Suspense>
+    </AppShell>
+  );
+}
+
+async function AnalyticsBody({
   searchParams,
 }: {
   searchParams: Promise<{ tab?: string }>;
@@ -35,12 +51,10 @@ export default async function AnalyticsPage({
 
   if (active === "commission") {
     return (
-      <AppShell activePath="/analytics">
-        <div className="mx-auto w-full max-w-[1400px]">
-          <AnalyticsTabs active={active} isOwner={owner} />
-          <CommissionTab />
-        </div>
-      </AppShell>
+      <div className="mx-auto w-full max-w-[1400px]">
+        <AnalyticsTabs active={active} isOwner={owner} />
+        <CommissionTab />
+      </div>
     );
   }
 
@@ -48,12 +62,10 @@ export default async function AnalyticsPage({
     const { workspaceId } = await getActiveContext();
     const view = await loadForecast(workspaceId);
     return (
-      <AppShell activePath="/analytics">
-        <div className="mx-auto w-full max-w-[1400px]">
-          <AnalyticsTabs active={active} isOwner={owner} />
-          <ForecastTab view={view} isOwner={owner} />
-        </div>
-      </AppShell>
+      <div className="mx-auto w-full max-w-[1400px]">
+        <AnalyticsTabs active={active} isOwner={owner} />
+        <ForecastTab view={view} isOwner={owner} />
+      </div>
     );
   }
 
@@ -61,22 +73,20 @@ export default async function AnalyticsPage({
     const { workspaceId } = await getActiveContext();
     const view = await loadRevenue(workspaceId);
     return (
-      <AppShell activePath="/analytics">
-        <div className="mx-auto w-full max-w-[1400px]">
-          <AnalyticsTabs active={active} isOwner={owner} />
-          <RevenueTab view={view} />
-        </div>
-      </AppShell>
+      <div className="mx-auto w-full max-w-[1400px]">
+        <AnalyticsTabs active={active} isOwner={owner} />
+        <RevenueTab view={view} />
+      </div>
     );
   }
 
   const view = await getAnalytics();
   return (
-    <AppShell activePath="/analytics">
+    <>
       <div className="mx-auto w-full max-w-[1400px]">
         <AnalyticsTabs active={active} isOwner={owner} />
       </div>
       <Analytics view={view} />
-    </AppShell>
+    </>
   );
 }

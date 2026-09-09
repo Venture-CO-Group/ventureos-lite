@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { AppShell } from "@/components/app-shell";
+import { TaskBoardSkeleton } from "@/components/skeletons";
 import { TaskBoards } from "@/components/task-board";
 import {
   getAssignableMembers,
@@ -20,7 +22,21 @@ import { getActiveContext } from "@/lib/session";
  */
 export const dynamic = "force-dynamic";
 
-export default async function TasksPage({
+export default function TasksPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ board?: string; task?: string }>;
+}) {
+  return (
+    <AppShell activePath="/tasks">
+      <Suspense fallback={<TaskBoardSkeleton />}>
+        <TasksBody searchParams={searchParams} />
+      </Suspense>
+    </AppShell>
+  );
+}
+
+async function TasksBody({
   searchParams,
 }: {
   searchParams: Promise<{ board?: string; task?: string }>;
@@ -37,7 +53,7 @@ export default async function TasksPage({
   const initialBoard = requested ? await getBoard(requested) : null;
 
   return (
-    <AppShell activePath="/tasks">
+    <>
       <div className="mb-4">
         <h1 className="font-display text-[28px] font-extrabold lowercase tracking-display">
           tasks
@@ -65,6 +81,6 @@ export default async function TasksPage({
          */
         openTask={params.task ?? null}
       />
-    </AppShell>
+    </>
   );
 }

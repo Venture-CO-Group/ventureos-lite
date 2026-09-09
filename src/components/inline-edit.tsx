@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useToast } from "./toast";
+import { useSlowAction } from "./use-slow-action";
 
 /**
  * Editing in place, everywhere (playbook-v5 P16/1).
@@ -114,7 +115,12 @@ export function InlineEdit({
   const [shown, setShown] = useState<ReactNode>(display);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
-  const [saving, setSaving] = useState(false);
+  /**
+   * Dimmed only once the commit is genuinely slow. A cell edit is usually a
+   * single indexed UPDATE and answers in well under the threshold, so showing
+   * "saving" immediately would flicker on every keystroke-and-Enter.
+   */
+  const { slow: saving, run } = useSlowAction();
   const ref = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
   const toast = useToast();
   const describedBy = useId();
@@ -148,10 +154,8 @@ export function InlineEdit({
     setEditing(false);
     if (JSON.stringify(next) === JSON.stringify(value)) return;
 
-    setSaving(true);
     setError(null);
-    const res = await onSave(next);
-    setSaving(false);
+    const res = await run(() => onSave(next));
 
     if (!res.ok) {
       // Put the previous value back, and say why in both places.

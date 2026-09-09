@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { AppShell } from "@/components/app-shell";
+import { ProspectorSkeleton } from "@/components/skeletons";
 import { Prospector } from "@/components/prospector";
 import { ProspectorBackfill } from "@/components/prospector-backfill";
 import { getWorkspaceClient } from "@/lib/db";
@@ -8,7 +10,17 @@ import { getBackfillState, canRunBackfill } from "@/modules/prospector/backfill-
 
 export const dynamic = "force-dynamic";
 
-export default async function ProspectorPage() {
+export default function ProspectorPage() {
+  return (
+    <AppShell activePath="/prospector">
+      <Suspense fallback={<ProspectorSkeleton />}>
+        <ProspectorBody />
+      </Suspense>
+    </AppShell>
+  );
+}
+
+async function ProspectorBody() {
   const { workspaceId } = await getActiveContext();
   const db = getWorkspaceClient(workspaceId);
   const rows = await db.prospectSearch.findMany({
@@ -30,11 +42,9 @@ export default async function ProspectorPage() {
   const [mayBackfill, backfill] = await Promise.all([canRunBackfill(), getBackfillState()]);
 
   return (
-    <AppShell activePath="/prospector">
-      <div className="flex flex-col gap-4">
-        <Prospector saved={saved} />
-        {mayBackfill && <ProspectorBackfill state={backfill} />}
-      </div>
-    </AppShell>
+    <div className="flex flex-col gap-4">
+      <Prospector saved={saved} />
+      {mayBackfill && <ProspectorBackfill state={backfill} />}
+    </div>
   );
 }

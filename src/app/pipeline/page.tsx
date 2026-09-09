@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { AppShell } from "@/components/app-shell";
+import { PipelineBoardSkeleton } from "@/components/skeletons";
 import { PipelineBoard, type PipelineCard } from "@/components/pipeline-board";
 import { getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
@@ -13,7 +15,21 @@ const STAGE_PAGE_SIZE = 25;
 
 const ALL_STAGE_KEYS = [...PIPELINE_STAGES, ...SIDE_STAGES];
 
-export default async function PipelinePage({
+export default function PipelinePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ per?: string }>;
+}) {
+  return (
+    <AppShell activePath="/pipeline">
+      <Suspense fallback={<PipelineBoardSkeleton />}>
+        <PipelineBody searchParams={searchParams} />
+      </Suspense>
+    </AppShell>
+  );
+}
+
+async function PipelineBody({
   searchParams,
 }: {
   searchParams: Promise<{ per?: string }>;
@@ -105,13 +121,13 @@ export default async function PipelinePage({
   }));
 
   return (
-    <AppShell activePath="/pipeline">
+    <>
       <PipelineBoard
         cards={cards}
         totals={Object.fromEntries(totalByStage)}
         shown={perStage}
         pageSize={STAGE_PAGE_SIZE}
       />
-    </AppShell>
+    </>
   );
 }

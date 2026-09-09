@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { AppShell } from "@/components/app-shell";
+import { DealsBoardSkeleton } from "@/components/skeletons";
 import { DealsBoard } from "@/components/deals-board";
 import { getDealsBoard } from "@/modules/deals/actions";
 
@@ -10,7 +12,21 @@ export const dynamic = "force-dynamic";
  * One pipeline at a time, chosen by the `pipeline` query parameter, so a board
  * is a place with a URL rather than a client-side toggle.
  */
-export default async function DealsPage({
+export default function DealsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ pipeline?: string; per?: string }>;
+}) {
+  return (
+    <AppShell activePath="/deals">
+      <Suspense fallback={<DealsBoardSkeleton />}>
+        <DealsBody searchParams={searchParams} />
+      </Suspense>
+    </AppShell>
+  );
+}
+
+async function DealsBody({
   searchParams,
 }: {
   searchParams: Promise<{ pipeline?: string; per?: string }>;
@@ -19,7 +35,7 @@ export default async function DealsPage({
   const board = await getDealsBoard(pipeline, Number(per) || undefined);
 
   return (
-    <AppShell activePath="/deals">
+    <>
       {board.pipelines.length === 0 ? (
         <div className="rounded-card border border-line bg-panel p-8 text-center">
           <h2 className="font-display text-[22px] lowercase tracking-display">no pipelines yet</h2>
@@ -37,6 +53,6 @@ export default async function DealsPage({
           pageSize={board.pageSize}
         />
       )}
-    </AppShell>
+    </>
   );
 }

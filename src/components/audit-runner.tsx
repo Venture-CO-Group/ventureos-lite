@@ -1,5 +1,6 @@
 "use client";
 import { attemptVoid } from "@/lib/client/server-action";
+import { AuditChecksSkeleton } from "./skeletons";
 
 import { serverActionError } from "@/lib/client/server-action";
 import { useEffect, useRef, useState } from "react";
@@ -469,7 +470,7 @@ export function AuditRunner({
                 {running ? "auditing…" : "cached 30 days"}
               </div>
               {view.checks.length === 0 ? (
-                <p className="text-[12.5px] text-muted">Running deterministic checks…</p>
+                <AuditChecksSkeleton />
               ) : (
                 <div className="grid grid-cols-1 gap-x-[18px] gap-y-1.5 sm:grid-cols-2">
                   {view.checks.map((c) => (

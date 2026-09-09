@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { AppShell } from "@/components/app-shell";
+import { LeadsTableSkeleton } from "@/components/skeletons";
 import { LeadEngine } from "@/components/lead-engine";
 import { LeadsTable } from "@/components/leads-table";
 import { prismaUnsafe } from "@/lib/db";
@@ -28,7 +30,21 @@ function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-export default async function LeadsPage({
+export default function LeadsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  return (
+    <AppShell activePath="/leads">
+      <Suspense fallback={<LeadsTableSkeleton />}>
+        <LeadsBody searchParams={searchParams} />
+      </Suspense>
+    </AppShell>
+  );
+}
+
+async function LeadsBody({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -57,7 +73,7 @@ export default async function LeadsPage({
   const canCurateViews = isTrustedMember(membership?.role);
 
   return (
-    <AppShell activePath="/leads">
+    <>
       <LeadEngine
         threshold={data.threshold}
         table={
@@ -82,6 +98,6 @@ export default async function LeadsPage({
           />
         }
       />
-    </AppShell>
+    </>
   );
 }
