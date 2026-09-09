@@ -12,7 +12,7 @@ let frameProposalId = "";
 let weightProposalId = "";
 
 test.beforeAll(async () => {
-  const ws = await prisma.workspace.findFirst();
+  const ws = await prisma.workspace.findFirst({ orderBy: { createdAt: "asc" } });
   if (!ws) throw new Error("no workspace");
   workspaceId = ws.id;
 

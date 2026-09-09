@@ -155,23 +155,33 @@ describe("confirming an email change", () => {
      * each workspace's Owner is entitled to see it.
      */
     const ws = await prismaUnsafe.workspace.create({ data: { name: `Admin WS ${Date.now()}` } });
-    await prismaUnsafe.membership.create({
-      data: { userId, workspaceId: ws.id, role: "BDR", grants: [], state: "ACTIVE" },
-    });
-    await stage(tok("h"));
-    await confirmEmailChangeToken(tok("h"));
+    /**
+     * `finally`, because this cleanup used to sit at the end of the happy path.
+     * Three failing runs during development each left a workspace behind, and
+     * the e2e suite seeds through `workspace.findFirst()` — so a card landed on
+     * a board nobody was looking at and two content specs failed for a reason
+     * that had nothing to do with content. A test that dirties a shared
+     * database has to clean up when it fails, which is the only time it matters.
+     */
+    try {
+      await prismaUnsafe.membership.create({
+        data: { userId, workspaceId: ws.id, role: "BDR", grants: [], state: "ACTIVE" },
+      });
+      await stage(tok("h"));
+      await confirmEmailChangeToken(tok("h"));
 
-    const events = await prismaUnsafe.membershipEvent.findMany({
-      where: { workspaceId: ws.id, userId, kind: "email_changed" },
-    });
-    expect(events).toHaveLength(1);
-    expect(events[0]!.before).toMatchObject({ email: EMAIL });
-    expect(events[0]!.after).toMatchObject({ email: NEW_EMAIL });
-
-    await prismaUnsafe.membershipEvent.deleteMany({ where: { workspaceId: ws.id } });
-    await prismaUnsafe.auditLog.deleteMany({ where: { workspaceId: ws.id } });
-    await prismaUnsafe.membership.deleteMany({ where: { workspaceId: ws.id } });
-    await prismaUnsafe.workspace.delete({ where: { id: ws.id } });
+      const events = await prismaUnsafe.membershipEvent.findMany({
+        where: { workspaceId: ws.id, userId, kind: "email_changed" },
+      });
+      expect(events).toHaveLength(1);
+      expect(events[0]!.before).toMatchObject({ email: EMAIL });
+      expect(events[0]!.after).toMatchObject({ email: NEW_EMAIL });
+    } finally {
+      await prismaUnsafe.membershipEvent.deleteMany({ where: { workspaceId: ws.id } });
+      await prismaUnsafe.auditLog.deleteMany({ where: { workspaceId: ws.id } });
+      await prismaUnsafe.membership.deleteMany({ where: { workspaceId: ws.id } });
+      await prismaUnsafe.workspace.delete({ where: { id: ws.id } });
+    }
   });
 
   it("refuses a token that is obviously not one", async () => {

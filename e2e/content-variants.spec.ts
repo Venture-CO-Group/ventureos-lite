@@ -23,7 +23,10 @@ test.afterAll(async () => {
 });
 
 async function seed(title: string) {
-  const ws = await prisma.workspace.findFirst({ select: { id: true } });
+  const ws = await prisma.workspace.findFirst({
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
   const post = await prisma.contentPost.create({
     data: { workspaceId: ws!.id, title, status: "DRAFT" },
   });
@@ -89,7 +92,10 @@ test("a topic gains a blog and a newsletter version inside the same card", async
 test("the topic moves as one, and every channel has to be ready", async ({ page }) => {
   const title = `${PREFIX}gate ${Date.now()}`;
   const postId = await seed(title);
-  const ws = await prisma.workspace.findFirst({ select: { id: true } });
+  const ws = await prisma.workspace.findFirst({
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
   // A second channel with nothing in it.
   await prisma.contentVariant.create({
     data: { workspaceId: ws!.id, postId, channel: "newsletter", body: "" },

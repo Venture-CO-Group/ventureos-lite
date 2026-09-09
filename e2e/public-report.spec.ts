@@ -18,7 +18,10 @@ const AUDIT_URL = `https://pelda-public-${RUN}.hu`;
 let slug = "";
 
 test.beforeAll(async () => {
-  const ws = await prisma.workspace.findFirst({ select: { id: true } });
+  const ws = await prisma.workspace.findFirst({
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
   const audit = await prisma.auditResult.create({
     data: {
       workspaceId: ws!.id,

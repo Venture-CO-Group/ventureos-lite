@@ -31,7 +31,14 @@ const EXCERPT =
  * a variant, one per channel — so a seed has to create both.
  */
 async function seedPost(title: string, status: "DRAFT" | "IN_REVIEW" = "DRAFT") {
-  const ws = await prisma.workspace.findFirst({ select: { id: true } });
+  // Oldest first: an unordered findFirst seeds the post into whatever
+  // workspace the database happens to return, and a suite that creates
+  // workspaces (or a test run that left one behind) then puts the card on a
+  // board the signed-in user is not looking at.
+  const ws = await prisma.workspace.findFirst({
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
   const post = await prisma.contentPost.create({
     data: { workspaceId: ws!.id, title, status },
   });
