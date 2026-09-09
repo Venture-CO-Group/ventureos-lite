@@ -9,6 +9,7 @@ import { workspaceMembers } from "@/modules/leads/table";
 import { listPipelines } from "@/modules/deals/store";
 import {
   MAX_RULES,
+  isTaskTrigger,
   ruleSchema,
   validateActions,
   type Action,
@@ -32,6 +33,8 @@ export interface RuleView {
   actions: Action[];
   enabled: boolean;
   version: number;
+  /** Which board this rule watches, or null for the whole workspace. */
+  boardId: string | null;
   /** Last few runs, newest first. */
   recent: RunView[];
 }
@@ -42,6 +45,10 @@ export interface RunView {
   detail: string;
   at: string;
   ruleVersion: number;
+  /** How deep in a chain of rule-triggered-rule this run sat. */
+  depth: number;
+  /** Per-action outcomes, so "2 of 3 ran" can say which one did not. */
+  results: Array<{ type: string; ok: boolean; detail: string }>;
 }
 
 export interface WorkflowView {
@@ -51,6 +58,11 @@ export interface WorkflowView {
   members: Array<{ id: string; name: string }>;
   dealStages: Array<{ key: string; label: string }>;
   emailTemplates: Array<{ id: string; name: string }>;
+  /** Board automations (playbook-v5 P20/5): what a task rule can point at. */
+  boards: Array<{ id: string; name: string; sections: Array<{ id: string; name: string }> }>;
+  teams: Array<{ id: string; name: string }>;
+  /** Tasks on template boards, for the follow-up action. */
+  templateTasks: Array<{ id: string; label: string }>;
   atLimit: boolean;
 }
 
@@ -65,7 +77,7 @@ export async function getWorkflows(): Promise<WorkflowView> {
     owner = false;
   }
 
-  const [rules, members, pipelines, templates] = await Promise.all([
+  const [rules, members, pipelines, templates, boards, teams, templateTasks] = await Promise.all([
     db.workflowRule.findMany({
       orderBy: { createdAt: "asc" },
       include: { runs: { orderBy: { at: "desc" }, take: 5 } },
@@ -76,6 +88,28 @@ export async function getWorkflows(): Promise<WorkflowView> {
       where: { type: "EMAIL", status: "ACTIVE" },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
+    }),
+    // Real boards only: a rule on a template board would watch a board nobody
+    // works in.
+    db.taskBoard.findMany({
+      where: { isTemplate: false, archivedAt: null },
+      orderBy: { position: "asc" },
+      select: {
+        id: true,
+        name: true,
+        sections: { orderBy: { position: "asc" }, select: { id: true, name: true } },
+      },
+    }),
+    db.team.findMany({
+      where: { archivedAt: null },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    db.task.findMany({
+      where: { board: { isTemplate: true }, parentId: null },
+      orderBy: { title: "asc" },
+      take: 100,
+      select: { id: true, title: true, board: { select: { name: true } } },
     }),
   ]);
 
@@ -91,6 +125,12 @@ export async function getWorkflows(): Promise<WorkflowView> {
     members,
     dealStages: [...stageMap].map(([key, label]) => ({ key, label })),
     emailTemplates: templates,
+    boards,
+    teams,
+    templateTasks: templateTasks.map((t) => ({
+      id: t.id,
+      label: `${t.board?.name ?? "template"} · ${t.title}`,
+    })),
     atLimit: rules.length >= MAX_RULES,
     rules: rules.map((r) => ({
       id: r.id,
@@ -101,12 +141,17 @@ export async function getWorkflows(): Promise<WorkflowView> {
       actions: (r.actions ?? []) as unknown as Action[],
       enabled: r.enabled,
       version: r.version,
+      boardId: r.boardId,
       recent: r.runs.map((run) => ({
         id: run.id,
         status: run.status,
         detail: run.detail,
         at: run.at.toISOString(),
         ruleVersion: run.ruleVersion,
+        depth: run.depth,
+        results: Array.isArray(run.results)
+          ? (run.results as unknown as Array<{ type: string; ok: boolean; detail: string }>)
+          : [],
       })),
     })),
   };
@@ -131,8 +176,18 @@ export async function saveRule(raw: unknown): Promise<RuleResult> {
   const denied = await ownerOnly();
   if (denied) return { ok: false, error: denied };
 
-  const problems = validateActions(parsed.data.actions as Action[]);
+  /**
+   * The trigger goes in, so a task action on a lead trigger is refused here
+   * rather than saving a rule that fires cleanly and does nothing for ever.
+   */
+  const problems = validateActions(parsed.data.actions as Action[], parsed.data.trigger);
   if (problems.length > 0) return { ok: false, error: problems[0] };
+  if (parsed.data.boardId && !isTaskTrigger(parsed.data.trigger)) {
+    return {
+      ok: false,
+      error: "Only a task trigger can watch one board — leave the board empty for this trigger.",
+    };
+  }
 
   const { workspaceId, userId } = await getActiveContext();
   const db = getWorkspaceClient(workspaceId);
@@ -147,8 +202,16 @@ export async function saveRule(raw: unknown): Promise<RuleResult> {
 
   if (!parsed.data.id) {
     const count = await db.workflowRule.count();
+    /**
+     * The cap FAILS LOUDLY (playbook-v5 P20/5) rather than degrading: the
+     * twenty-first rule is refused with a sentence, and no existing rule
+     * quietly stops running to make room for it.
+     */
     if (count >= MAX_RULES) {
-      return { ok: false, error: `A workspace may have at most ${MAX_RULES} rules.` };
+      return {
+        ok: false,
+        error: `A workspace may have at most ${MAX_RULES} rules. Delete or disable one first — nothing is dropped to make room.`,
+      };
     }
   }
 
@@ -159,6 +222,7 @@ export async function saveRule(raw: unknown): Promise<RuleResult> {
     conditions: parsed.data.conditions as unknown as object[],
     actions: parsed.data.actions as unknown as object[],
     enabled: parsed.data.enabled,
+    boardId: parsed.data.boardId,
   };
 
   const rule = parsed.data.id
@@ -178,7 +242,12 @@ export async function saveRule(raw: unknown): Promise<RuleResult> {
       action: parsed.data.id ? "workflow.update" : "workflow.create",
       entityType: "WorkflowRule",
       entityId: rule.id,
-      meta: { name: rule.name, trigger: rule.trigger, version: rule.version },
+      meta: {
+        name: rule.name,
+        trigger: rule.trigger,
+        version: rule.version,
+        boardId: rule.boardId,
+      },
     },
   });
 

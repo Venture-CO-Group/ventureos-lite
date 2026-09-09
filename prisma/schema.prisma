@@ -2508,6 +2508,10 @@ model WorkflowRule {
   actions       Json     @default("[]")
   /// The kill switch. Off means the rule is kept and does nothing.
   enabled       Boolean  @default(true)
+  /// Which board this rule watches, for the task triggers (playbook-v5 P20/5).
+  /// Null means the whole workspace — which is what every rule written before
+  /// board automations existed is, so nothing needed backfilling.
+  boardId       String?  @map("board_id")
   /// Bumped on every edit, and stamped onto each run — so a run log entry says
   /// which VERSION of the rule produced it, and a rule someone rewrote last
   /// week cannot be read as an explanation of what happened the week before.
@@ -2520,6 +2524,7 @@ model WorkflowRule {
 
   @@unique([workspaceId, name])
   @@index([workspaceId, enabled])
+  @@index([workspaceId, boardId])
   @@map("workflow_rules")
 }
 

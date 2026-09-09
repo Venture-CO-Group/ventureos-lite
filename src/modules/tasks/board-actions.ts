@@ -48,6 +48,13 @@ import {
   type BoardView,
 } from "./board-store";
 import { chipFor } from "./links";
+import {
+  onTaskAssigneeChanged,
+  onTaskCompleted,
+  onTaskCreated,
+  onTaskMoved,
+  onTaskPriorityChanged,
+} from "@/modules/workflow/triggers";
 
 /**
  * The board layer's server actions (P8/1).
@@ -297,6 +304,12 @@ export async function createBoardTask(raw: unknown): Promise<{ id: string }> {
     });
   }
 
+  /**
+   * Board automations (playbook-v5 P20/5). Best-effort and last, so a rule
+   * that throws cannot fail the creation somebody just made.
+   */
+  await onTaskCreated(workspaceId, task.id);
+
   revalidatePath("/tasks");
   return { id: task.id };
 }
@@ -320,7 +333,7 @@ export async function updateTask(raw: unknown): Promise<{ ok: true }> {
 
   const before = await db.task.findUnique({
     where: { id: input.id },
-    select: { assigneeId: true, title: true },
+    select: { assigneeId: true, title: true, priority: true },
   });
   if (!before) throw new Error("Task not found");
 
@@ -347,6 +360,18 @@ export async function updateTask(raw: unknown): Promise<{ ok: true }> {
     });
   }
 
+  /**
+   * One trigger per thing that actually changed (playbook-v5 P20/5). Compared
+   * against `before` rather than fired on every save: a rule on "priority
+   * changed" that fires when somebody edits the note is a rule nobody trusts.
+   */
+  if (input.priority !== undefined && input.priority !== before.priority) {
+    await onTaskPriorityChanged(workspaceId, input.id);
+  }
+  if (input.assigneeId !== undefined && input.assigneeId !== before.assigneeId) {
+    await onTaskAssigneeChanged(workspaceId, input.id);
+  }
+
   revalidatePath("/tasks");
   revalidatePath("/");
   return { ok: true };
@@ -362,10 +387,20 @@ const moveSchema = z.object({
 export async function moveBoardTask(raw: unknown): Promise<{ ok: true }> {
   const input = moveSchema.parse(raw);
   const { workspaceId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+  const before = await db.task.findUnique({
+    where: { id: input.id },
+    select: { sectionId: true },
+  });
   await moveTask(workspaceId, input.id, {
     sectionId: input.sectionId,
     afterId: input.afterId,
   });
+  // Reordering within a column is not a move to a section: a rule on "lands in
+  // Blocked" must not fire every time somebody tidies that column.
+  if (before && before.sectionId !== (input.sectionId ?? null)) {
+    await onTaskMoved(workspaceId, input.id);
+  }
   revalidatePath("/tasks");
   return { ok: true };
 }
@@ -415,6 +450,9 @@ export async function setTaskDone(
    */
   if (count > 0 && done) {
     await spawnRecurrence(workspaceId, userId, taskId).catch(() => null);
+    // Completion is a trigger; reopening is not. A rule that fired on the way
+    // back out would undo itself every time somebody corrected a mis-click.
+    await onTaskCompleted(workspaceId, taskId);
   }
 
   revalidatePath("/tasks");

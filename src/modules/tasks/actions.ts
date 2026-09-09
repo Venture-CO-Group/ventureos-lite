@@ -7,6 +7,7 @@ import { getActiveContext } from "@/lib/session";
 import { recordUndo, type UndoToken } from "../undo/store";
 import { TASK_TYPES, groupTasks, orderTasks, type GroupedTasks, type TaskLike } from "./logic";
 import { chipFor } from "./links";
+import { onTaskCompleted, onTaskCreated } from "@/modules/workflow/triggers";
 
 /**
  * Tasks (playbook-v2 P3/3).
@@ -68,6 +69,10 @@ export async function createTask(raw: unknown): Promise<{ id: string }> {
     select: { id: true },
   });
 
+  // Board automations (playbook-v5 P20/5). A loose task is still a task, and
+  // a workspace-wide rule is meant to see it.
+  await onTaskCreated(workspaceId, task.id);
+
   revalidatePath("/");
   revalidatePath("/leads");
   return { id: task.id };
@@ -99,6 +104,8 @@ export async function completeTask(
           expected: { [taskId]: { doneAt: doneAt.toISOString() } },
         })
       : null;
+
+  if (count > 0) await onTaskCompleted(workspaceId, taskId);
 
   revalidatePath("/");
   revalidatePath("/leads");

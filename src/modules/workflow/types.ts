@@ -24,6 +24,13 @@ export const TRIGGERS = [
   "meeting_outcome_logged",
   "task_overdue",
   "lead_created",
+  // Board automations (playbook-v5 P20/5). Same engine, same log, same cycle
+  // protection — a second automation system is the thing not to build.
+  "task_created",
+  "task_moved",
+  "task_completed",
+  "task_priority_changed",
+  "task_assignee_changed",
 ] as const;
 export type Trigger = (typeof TRIGGERS)[number];
 
@@ -32,7 +39,7 @@ export interface TriggerDef {
   label: string;
   description: string;
   /** Which extra setting the trigger takes, if any. */
-  config: "stage" | "deal_stage" | "days" | "source" | "none";
+  config: "stage" | "deal_stage" | "days" | "source" | "section" | "none";
 }
 
 export const TRIGGER_DEFS: Record<Trigger, TriggerDef> = {
@@ -72,7 +79,58 @@ export const TRIGGER_DEFS: Record<Trigger, TriggerDef> = {
     description: "Fires when a lead is captured from the source you pick.",
     config: "source",
   },
+  task_created: {
+    id: "task_created",
+    label: "A task is created",
+    description: "Fires the moment a task appears on a board.",
+    config: "none",
+  },
+  task_moved: {
+    id: "task_moved",
+    label: "A task moves to a section",
+    description: "Fires when a task lands in the column you pick, on the rule's board.",
+    config: "section",
+  },
+  task_completed: {
+    id: "task_completed",
+    label: "A task is completed",
+    description: "Fires when somebody ticks it. Reopening does not fire anything.",
+    config: "none",
+  },
+  task_priority_changed: {
+    id: "task_priority_changed",
+    label: "A task's priority changes",
+    description: "Fires on the new priority, whatever it was before.",
+    config: "none",
+  },
+  task_assignee_changed: {
+    id: "task_assignee_changed",
+    label: "A task is reassigned",
+    description: "Fires when the accountable owner changes, including to nobody.",
+    config: "none",
+  },
 };
+
+/**
+ * Which triggers are about a task (playbook-v5 P20/5).
+ *
+ * It decides two things: which condition fields the builder offers, and — more
+ * importantly — that a task action cannot be attached to a lead trigger. "Set
+ * the priority" on "a lead reaches a stage" has no task to set it on, and a
+ * rule that can be saved but can never do anything is worse than one refused.
+ */
+export const TASK_TRIGGERS = [
+  "task_created",
+  "task_moved",
+  "task_completed",
+  "task_priority_changed",
+  "task_assignee_changed",
+  "task_overdue",
+] as const;
+
+export function isTaskTrigger(trigger: string): boolean {
+  return (TASK_TRIGGERS as readonly string[]).includes(trigger);
+}
 
 // ---- conditions --------------------------------------------------------------
 
@@ -86,6 +144,11 @@ export const CONDITION_OPERATORS = [
   "is_not_set",
   "has_signal",
   "not_has_signal",
+  // Task tags are a JSON array like signals, and read the same way — but they
+  // are a different field, so they get their own operators rather than
+  // overloading "has_signal" to mean two things depending on the trigger.
+  "has_tag",
+  "not_has_tag",
 ] as const;
 export type ConditionOperator = (typeof CONDITION_OPERATORS)[number];
 
@@ -99,6 +162,8 @@ export const OPERATOR_LABELS: Record<ConditionOperator, string> = {
   is_not_set: "is not set",
   has_signal: "has the signal",
   not_has_signal: "does not have the signal",
+  has_tag: "has the tag",
+  not_has_tag: "does not have the tag",
 };
 
 export interface Condition {
@@ -136,6 +201,24 @@ export const CONDITION_FIELDS = [
   { key: "pipeline", label: "Pipeline" },
 ] as const;
 
+/** The facts a TASK trigger supplies (playbook-v5 P20/5). */
+export const TASK_CONDITION_FIELDS = [
+  { key: "board", label: "Board" },
+  { key: "section", label: "Section" },
+  { key: "tags", label: "Tags" },
+  { key: "priority", label: "Priority" },
+  { key: "assigneeId", label: "Assignee" },
+  { key: "taskType", label: "Task type" },
+  { key: "overdueDays", label: "Days overdue" },
+] as const;
+
+/** Which condition fields the builder should offer for a trigger. */
+export function conditionFieldsFor(
+  trigger: string,
+): readonly { key: string; label: string }[] {
+  return isTaskTrigger(trigger) ? TASK_CONDITION_FIELDS : CONDITION_FIELDS;
+}
+
 function present(v: unknown): boolean {
   if (v === null || v === undefined) return false;
   if (typeof v === "string") return v.trim().length > 0;
@@ -154,6 +237,12 @@ export function evaluateCondition(facts: WorkflowFacts, c: Condition): boolean {
     const held = (Array.isArray(facts.signals) ? facts.signals : []).map(foldText);
     const has = held.includes(foldText(String(c.value ?? "")));
     return c.operator === "has_signal" ? has : !has;
+  }
+
+  if (c.operator === "has_tag" || c.operator === "not_has_tag") {
+    const held = (Array.isArray(facts.tags) ? facts.tags : []).map(foldText);
+    const has = held.includes(foldText(String(c.value ?? "")));
+    return c.operator === "has_tag" ? has : !has;
   }
 
   if (!present(raw)) return false;
@@ -186,6 +275,17 @@ export const ACTION_TYPES = [
   "remove_signal",
   "move_not_now",
   "notify_user",
+  // Board automations (playbook-v5 P20/5) — these act on the task the trigger
+  // carried, so they are only legal on a task trigger. `validateActions`
+  // enforces that rather than leaving a rule that can never do anything.
+  "set_priority",
+  "set_due_date",
+  "assign_task",
+  "add_tag",
+  "remove_tag",
+  "move_to_section",
+  "create_follow_up",
+  "notify_team",
 ] as const;
 export type ActionType = (typeof ACTION_TYPES)[number];
 
@@ -220,7 +320,54 @@ export const ACTION_DEFS: Record<ActionType, ActionDef> = {
     label: "Notify someone",
     note: "An in-app notification, subject to their own channel preferences.",
   },
+  set_priority: {
+    id: "set_priority",
+    label: "Set the priority",
+    note: "On the task that fired the rule.",
+  },
+  set_due_date: {
+    id: "set_due_date",
+    label: "Set the due date",
+    note: "A number of days from when the rule fires, at 17:00.",
+  },
+  assign_task: {
+    id: "assign_task",
+    label: "Assign it to someone",
+    note: "One accountable owner. Reassignment records who handed it over.",
+  },
+  add_tag: { id: "add_tag", label: "Add a tag", note: "" },
+  remove_tag: { id: "remove_tag", label: "Remove a tag", note: "" },
+  move_to_section: {
+    id: "move_to_section",
+    label: "Move it to a section",
+    note: "To a column on the same board. A move to another board is not this.",
+  },
+  create_follow_up: {
+    id: "create_follow_up",
+    label: "Create a follow-up from a template task",
+    note: "Copies a task off a template board onto this one, with its own due offset.",
+  },
+  notify_team: {
+    id: "notify_team",
+    label: "Notify a team",
+    note: "Everyone currently on the team, subject to their own channel preferences.",
+  },
 };
+
+/** The actions that need a task to act on. */
+export const TASK_ACTIONS = [
+  "set_priority",
+  "set_due_date",
+  "assign_task",
+  "add_tag",
+  "remove_tag",
+  "move_to_section",
+  "create_follow_up",
+] as const;
+
+export function isTaskAction(type: string): boolean {
+  return (TASK_ACTIONS as readonly string[]).includes(type);
+}
 
 export interface Action {
   type: ActionType;
@@ -237,6 +384,18 @@ export interface Action {
   /** notify_user */
   userId?: string;
   message?: string;
+  /** notify_team */
+  teamId?: string;
+  /** set_priority */
+  priority?: string;
+  /** assign_task — the accountable owner, or "" to unassign. */
+  assigneeId?: string;
+  /** add_tag / remove_tag */
+  tag?: string;
+  /** move_to_section */
+  sectionId?: string;
+  /** create_follow_up — a task on a template board. */
+  templateTaskId?: string;
 }
 
 // ---- limits ------------------------------------------------------------------
@@ -298,6 +457,13 @@ export const actionSchema = z.object({
   signal: z.string().trim().max(60).optional(),
   userId: z.string().max(60).optional(),
   message: z.string().trim().max(300).optional(),
+  teamId: z.string().max(60).optional(),
+  priority: z.enum(["none", "low", "medium", "high", "urgent"]).optional(),
+  /** "" means unassign, which is a deliberate outcome and not a missing value. */
+  assigneeId: z.string().max(60).optional(),
+  tag: z.string().trim().max(40).optional(),
+  sectionId: z.string().max(60).optional(),
+  templateTaskId: z.string().max(60).optional(),
 });
 
 export const ruleSchema = z.object({
@@ -307,15 +473,56 @@ export const ruleSchema = z.object({
   conditions: z.array(conditionSchema).max(MAX_CONDITIONS).default([]),
   actions: z.array(actionSchema).min(1).max(MAX_ACTIONS),
   enabled: z.boolean().default(true),
+  /**
+   * Which board this rule watches, or null for the whole workspace
+   * (playbook-v5 P20/5). A board rule is the common case — "on the delivery
+   * board, anything landing in Blocked goes urgent" — and a workspace-wide
+   * rule is the one to write deliberately.
+   */
+  boardId: z.string().max(60).nullable().default(null),
 });
 
 export type RuleInput = z.infer<typeof ruleSchema>;
 
-/** Problems the schema cannot express — an action missing what it needs. */
-export function validateActions(actions: Action[]): string[] {
+/**
+ * Problems the schema cannot express — an action missing what it needs, or
+ * pointed at something the trigger cannot give it.
+ *
+ * The trigger is optional so existing callers keep working; when it is passed,
+ * a task action on a lead trigger is refused. That refusal matters: without it
+ * a rule saves cleanly, fires cleanly, and does nothing for ever, which is the
+ * hardest kind of automation bug to notice.
+ */
+export function validateActions(actions: Action[], trigger?: string): string[] {
   const problems: string[] = [];
   actions.forEach((a, i) => {
     const where = `Action ${i + 1}`;
+    if (trigger && isTaskAction(a.type) && !isTaskTrigger(trigger)) {
+      problems.push(
+        `${where}: “${ACTION_DEFS[a.type]?.label ?? a.type}” acts on a task, so it needs a task trigger.`,
+      );
+    }
+    if (a.type === "set_priority" && !a.priority) {
+      problems.push(`${where}: choose a priority.`);
+    }
+    if (a.type === "set_due_date" && a.dueInDays === undefined) {
+      problems.push(`${where}: say how many days from now.`);
+    }
+    if (a.type === "assign_task" && a.assigneeId === undefined) {
+      problems.push(`${where}: choose who owns it, or choose nobody deliberately.`);
+    }
+    if ((a.type === "add_tag" || a.type === "remove_tag") && !a.tag?.trim()) {
+      problems.push(`${where}: name the tag.`);
+    }
+    if (a.type === "move_to_section" && !a.sectionId) {
+      problems.push(`${where}: choose the section to move it to.`);
+    }
+    if (a.type === "create_follow_up" && !a.templateTaskId) {
+      problems.push(`${where}: choose the template task to copy.`);
+    }
+    if (a.type === "notify_team" && !a.teamId) {
+      problems.push(`${where}: choose the team to notify.`);
+    }
     if (a.type === "create_task" && !a.title?.trim()) {
       problems.push(`${where}: a task needs a title.`);
     }

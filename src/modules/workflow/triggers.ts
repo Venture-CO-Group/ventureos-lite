@@ -12,8 +12,8 @@
  */
 
 import { getWorkspaceClient } from "@/lib/db";
-import { dealFacts, fireWorkflow, leadFacts } from "./engine";
-import type { Trigger } from "./types";
+import { dealFacts, fireWorkflow, leadFacts, taskFacts } from "./engine";
+import { isTaskTrigger, type ChainContext, type Trigger } from "./types";
 
 async function hasRulesFor(workspaceId: string, trigger: Trigger): Promise<boolean> {
   const db = getWorkspaceClient(workspaceId);
@@ -135,6 +135,56 @@ export async function onMeetingOutcome(
  * copy says so: a rule that fires the second a task turns overdue would fire at
  * 17:00:01, which is nobody's idea of "overdue by two days".
  */
+/**
+ * Fire a task trigger (playbook-v5 P20/5).
+ *
+ * One function for all five, because they differ only in the trigger name and
+ * the facts come from the same read. Best-effort like the rest: a rule that
+ * throws must not roll back the drag somebody just made.
+ *
+ * `chain` is passed when the fire was CAUSED by another rule's action, which is
+ * how the self-trigger guard sees a loop.
+ */
+export async function fireTaskTrigger(
+  workspaceId: string,
+  trigger: Trigger,
+  taskId: string,
+  chain?: ChainContext,
+): Promise<number> {
+  try {
+    if (!isTaskTrigger(trigger)) return 0;
+    if (!(await hasRulesFor(workspaceId, trigger))) return 0;
+    const loaded = await taskFacts(workspaceId, taskId);
+    if (!loaded) return 0;
+    return fireWorkflow(workspaceId, {
+      trigger,
+      entityType: "task",
+      entityId: taskId,
+      taskId,
+      leadId: loaded.leadId,
+      facts: loaded.facts,
+      chain,
+    });
+  } catch (e) {
+    return swallow(trigger)(e);
+  }
+}
+
+export const onTaskCreated = (workspaceId: string, taskId: string) =>
+  fireTaskTrigger(workspaceId, "task_created", taskId);
+
+export const onTaskMoved = (workspaceId: string, taskId: string) =>
+  fireTaskTrigger(workspaceId, "task_moved", taskId);
+
+export const onTaskCompleted = (workspaceId: string, taskId: string) =>
+  fireTaskTrigger(workspaceId, "task_completed", taskId);
+
+export const onTaskPriorityChanged = (workspaceId: string, taskId: string) =>
+  fireTaskTrigger(workspaceId, "task_priority_changed", taskId);
+
+export const onTaskAssigneeChanged = (workspaceId: string, taskId: string) =>
+  fireTaskTrigger(workspaceId, "task_assignee_changed", taskId);
+
 export async function processWorkflowOverdueSweep(
   nowMs: number = Date.now(),
 ): Promise<number> {
@@ -148,20 +198,28 @@ export async function processWorkflowOverdueSweep(
       const db = getWorkspaceClient(ws.id);
       const overdue = await db.task.findMany({
         where: { doneAt: null, dueAt: { not: null, lt: new Date(nowMs) } },
-        select: { id: true, entityType: true, entityId: true, dueAt: true, title: true },
+        select: { id: true, dueAt: true },
         take: 500,
       });
 
       for (const task of overdue) {
         const overdueDays = Math.floor((nowMs - task.dueAt!.getTime()) / 86_400_000);
-        const leadId = task.entityType === "lead" ? task.entityId : null;
-        const facts = leadId ? await leadFacts(ws.id, leadId) : null;
+        /**
+         * The sweep now carries the TASK as well (playbook-v5 P20/5), so a
+         * board action can act on it. `entityId` keeps its old meaning — the
+         * lead where there is one — because every run-log row already written
+         * means that, and rewriting the meaning of a log is worse than a
+         * slightly odd field.
+         */
+        const loaded = await taskFacts(ws.id, task.id, { overdueDays });
+        if (!loaded) continue;
         fired += await fireWorkflow(ws.id, {
           trigger: "task_overdue",
-          entityType: "lead",
-          entityId: leadId ?? task.id,
-          leadId,
-          facts: { ...(facts ?? {}), overdueDays, taskTitle: task.title },
+          entityType: loaded.leadId ? "lead" : "task",
+          entityId: loaded.leadId ?? task.id,
+          taskId: task.id,
+          leadId: loaded.leadId,
+          facts: loaded.facts,
         });
       }
     } catch (e) {

@@ -11,10 +11,13 @@ import {
   type RuleView,
   type WorkflowView,
 } from "@/modules/workflow/actions";
+import { PRIORITY_LABEL, TASK_PRIORITIES } from "@/modules/tasks/board-logic";
 import {
   ACTION_DEFS,
   ACTION_TYPES,
-  CONDITION_FIELDS,
+  conditionFieldsFor,
+  isTaskAction,
+  isTaskTrigger,
   CONDITION_OPERATORS,
   MAX_ACTIONS,
   MAX_CONDITIONS,
@@ -66,6 +69,8 @@ interface Draft {
   conditions: Condition[];
   actions: Action[];
   enabled: boolean;
+  /** Which board a task rule watches, or null for the whole workspace. */
+  boardId: string | null;
 }
 
 function blankDraft(): Draft {
@@ -76,7 +81,20 @@ function blankDraft(): Draft {
     conditions: [],
     actions: [{ type: "create_task", title: "", taskType: "todo", dueInDays: 1 }],
     enabled: true,
+    boardId: null,
   };
+}
+
+/**
+ * The sections of the board a rule watches — or of every board, when it
+ * watches every board, prefixed so two "Blocked" columns are distinguishable.
+ */
+function sectionsFor(
+  view: WorkflowView,
+  boardId: string | null,
+): Array<{ id: string; name: string }> {
+  if (boardId) return view.boards.find((b) => b.id === boardId)?.sections ?? [];
+  return view.boards.flatMap((b) => b.sections.map((s) => ({ ...s, name: `${b.name} · ${s.name}` })));
 }
 
 const STATUS_CHIP: Record<string, string> = {
@@ -103,6 +121,7 @@ export function SettingsWorkflows({ view }: { view: WorkflowView }) {
       conditions: rule.conditions,
       actions: rule.actions,
       enabled: rule.enabled,
+      boardId: rule.boardId,
     });
   }
 
@@ -155,6 +174,16 @@ export function SettingsWorkflows({ view }: { view: WorkflowView }) {
                 {!rule.enabled && (
                   <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] font-semibold text-muted">
                     off
+                  </span>
+                )}
+                {/* Which board it watches — the difference between one board
+                    and every board is the whole meaning of a task rule. */}
+                {isTaskTrigger(rule.trigger) && (
+                  <span
+                    data-testid="rule-scope"
+                    className="rounded-full border border-line px-2 py-px text-[10px] text-muted"
+                  >
+                    {view.boards.find((b) => b.id === rule.boardId)?.name ?? "every board"}
                   </span>
                 )}
                 {view.isOwner && (
@@ -230,9 +259,32 @@ export function SettingsWorkflows({ view }: { view: WorkflowView }) {
                       >
                         {run.status.replace("_", " ")}
                       </span>
-                      <span className="min-w-0 flex-1 text-muted">{run.detail}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-muted">{run.detail}</span>
+                        {/**
+                         * Per-action outcomes, so "2 of 3 actions ran" can say
+                         * WHICH one did not — the question the log exists for.
+                         */}
+                        {run.results.length > 1 && (
+                          <span className="mt-0.5 block" data-testid="run-results">
+                            {run.results.map((r, k) => (
+                              <span
+                                key={k}
+                                className={`block text-[10.5px] ${
+                                  r.ok ? "text-muted" : "text-[#FFB3C2]"
+                                }`}
+                              >
+                                {r.ok ? "✓" : "✕"} {r.detail}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                      </span>
                       <span className="text-muted tabular-nums">
-                        v{run.ruleVersion} · {run.at.slice(0, 16).replace("T", " ")}
+                        v{run.ruleVersion}
+                        {/* Depth 0 is the ordinary case and saying so is noise. */}
+                        {run.depth > 0 && ` · chained ${run.depth} deep`} ·{" "}
+                        {run.at.slice(0, 16).replace("T", " ")}
                       </span>
                     </li>
                   ))}
@@ -286,6 +338,9 @@ function RuleEditor({
 }) {
   const def = TRIGGER_DEFS[draft.trigger];
   const set = (patch: Partial<Draft>) => onChange({ ...draft, ...patch });
+  /** Patch one action in place — the same three lines, twelve times over. */
+  const patch = (index: number, fields: Partial<Action>) =>
+    set({ actions: draft.actions.map((x, j) => (j === index ? { ...x, ...fields } : x)) });
 
   return (
     <div className="grid gap-3 rounded-[11px] border border-line p-3" data-testid="rule-editor">
@@ -306,9 +361,21 @@ function RuleEditor({
         <select
           value={draft.trigger}
           data-testid="rule-trigger"
-          onChange={(e) =>
-            set({ trigger: e.target.value as Trigger, triggerConfig: {}, conditions: [] })
-          }
+          onChange={(e) => {
+            const trigger = e.target.value as Trigger;
+            /**
+             * Conditions, the trigger's own config and the board all reset.
+             * A condition on "Lead stage" carried into "a task is created"
+             * would be silently false for ever, and a board on a lead trigger
+             * is refused by the server anyway.
+             */
+            set({
+              trigger,
+              triggerConfig: {},
+              conditions: [],
+              boardId: isTaskTrigger(trigger) ? draft.boardId : null,
+            });
+          }}
           className={FIELD}
         >
           {TRIGGERS.map((t) => (
@@ -375,6 +442,48 @@ function RuleEditor({
             className={FIELD}
           />
         )}
+
+        {/* Board automations (playbook-v5 P20/5). */}
+        {isTaskTrigger(draft.trigger) && (
+          <>
+            <select
+              value={draft.boardId ?? ""}
+              data-testid="rule-board"
+              aria-label="Board"
+              onChange={(e) => set({ boardId: e.target.value || null })}
+              className={FIELD}
+            >
+              <option value="">every board in the workspace</option>
+              {view.boards.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+            {def.config === "section" && (
+              <select
+                value={String(draft.triggerConfig.section ?? "")}
+                data-testid="rule-section"
+                aria-label="Section"
+                onChange={(e) => set({ triggerConfig: { section: e.target.value } })}
+                className={FIELD}
+              >
+                <option value="">any section</option>
+                {sectionsFor(view, draft.boardId).map((sec) => (
+                  <option key={sec.id} value={sec.id}>
+                    {sec.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            {!draft.boardId && (
+              <span className="text-[11px] text-muted">
+                A workspace-wide task rule watches every board, including boards somebody makes
+                next week. Pick a board unless that is what you mean.
+              </span>
+            )}
+          </>
+        )}
       </div>
 
       {/* IF */}
@@ -394,7 +503,7 @@ function RuleEditor({
               }
               className={`${FIELD} w-auto min-w-[130px] flex-1`}
             >
-              {CONDITION_FIELDS.map((f) => (
+              {conditionFieldsFor(draft.trigger).map((f) => (
                 <option key={f.key} value={f.key}>
                   {f.label}
                 </option>
@@ -476,7 +585,14 @@ function RuleEditor({
                 }
                 className={`${FIELD} flex-1`}
               >
-                {ACTION_TYPES.map((t) => (
+                {/**
+                 * A task action is only offered on a task trigger. Offering
+                 * "set the priority" on "a lead reaches a stage" invites a
+                 * rule that saves, fires and does nothing for ever.
+                 */}
+                {ACTION_TYPES.filter(
+                  (t) => !isTaskAction(t) || isTaskTrigger(draft.trigger),
+                ).map((t) => (
                   <option key={t} value={t}>
                     {ACTION_DEFS[t].label}
                   </option>
@@ -627,6 +743,126 @@ function RuleEditor({
                       ),
                     })
                   }
+                  className={FIELD}
+                />
+              </div>
+            )}
+
+            {a.type === "set_priority" && (
+              <select
+                value={a.priority ?? ""}
+                aria-label="Priority"
+                data-testid="action-priority"
+                onChange={(e) => patch(i, { priority: e.target.value })}
+                className={FIELD}
+              >
+                <option value="">choose a priority…</option>
+                {TASK_PRIORITIES.map((p) => (
+                  <option key={p} value={p}>
+                    {PRIORITY_LABEL[p]}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {a.type === "set_due_date" && (
+              <label className="flex items-center gap-1.5 text-[12px] text-muted">
+                <input
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={a.dueInDays ?? 0}
+                  aria-label="Due in days"
+                  data-testid="action-due-days"
+                  onChange={(e) => patch(i, { dueInDays: Number(e.target.value) })}
+                  className={`${FIELD} w-[90px]`}
+                />
+                days from when the rule fires
+              </label>
+            )}
+
+            {a.type === "assign_task" && (
+              <select
+                value={a.assigneeId ?? ""}
+                aria-label="Assign to"
+                data-testid="action-assignee"
+                onChange={(e) => patch(i, { assigneeId: e.target.value })}
+                className={FIELD}
+              >
+                {/* "Nobody" is a deliberate outcome, so it is not the blank. */}
+                <option value="">nobody — leave it unassigned</option>
+                {view.members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {(a.type === "add_tag" || a.type === "remove_tag") && (
+              <input
+                value={a.tag ?? ""}
+                placeholder="Tag"
+                data-testid="action-tag"
+                onChange={(e) => patch(i, { tag: e.target.value })}
+                className={FIELD}
+              />
+            )}
+
+            {a.type === "move_to_section" && (
+              <select
+                value={a.sectionId ?? ""}
+                aria-label="Section"
+                data-testid="action-section"
+                onChange={(e) => patch(i, { sectionId: e.target.value })}
+                className={FIELD}
+              >
+                <option value="">choose a section…</option>
+                {sectionsFor(view, draft.boardId).map((sec) => (
+                  <option key={sec.id} value={sec.id}>
+                    {sec.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {a.type === "create_follow_up" && (
+              <select
+                value={a.templateTaskId ?? ""}
+                aria-label="Template task"
+                data-testid="action-template-task"
+                onChange={(e) => patch(i, { templateTaskId: e.target.value })}
+                className={FIELD}
+              >
+                <option value="">choose a template task…</option>
+                {view.templateTasks.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {a.type === "notify_team" && (
+              <div className="grid gap-1.5">
+                <select
+                  value={a.teamId ?? ""}
+                  aria-label="Team"
+                  data-testid="action-team"
+                  onChange={(e) => patch(i, { teamId: e.target.value })}
+                  className={FIELD}
+                >
+                  <option value="">choose a team…</option>
+                  {view.teams.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={a.message ?? ""}
+                  placeholder="What the notification says"
+                  onChange={(e) => patch(i, { message: e.target.value })}
                   className={FIELD}
                 />
               </div>

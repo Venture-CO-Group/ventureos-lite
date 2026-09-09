@@ -29,11 +29,20 @@ import {
 
 export interface WorkflowEvent {
   trigger: Trigger;
-  /** lead | deal — what the actions act on. */
-  entityType: "lead" | "deal";
+  /** lead | deal | task — what the actions act on. */
+  entityType: "lead" | "deal" | "task";
   entityId: string;
   /** The lead the actions attach to. A deal event carries its lead's id here. */
   leadId: string | null;
+  /**
+   * The task the board actions act on (playbook-v5 P20/5).
+   *
+   * Separate from `entityId` because a task event about a task ON a lead
+   * carries both, and an overdue sweep entry has always carried the lead in
+   * `entityId` — changing that would rewrite the meaning of every existing
+   * run-log row.
+   */
+  taskId?: string | null;
   facts: WorkflowFacts;
   chain?: ChainContext;
 }
@@ -46,6 +55,8 @@ interface LoadedRule {
   triggerConfig: Record<string, unknown>;
   conditions: Condition[];
   actions: Action[];
+  /** Null means the whole workspace (playbook-v5 P20/5). */
+  boardId: string | null;
 }
 
 type Db = ReturnType<typeof getWorkspaceClient>;
@@ -60,6 +71,13 @@ type Db = ReturnType<typeof getWorkspaceClient>;
  */
 function triggerMatches(rule: LoadedRule, event: WorkflowEvent): boolean {
   const config = rule.triggerConfig ?? {};
+
+  /**
+   * A board rule watches one board (playbook-v5 P20/5). Checked before the
+   * trigger's own config, because "wrong board" is not a near miss worth a
+   * no-match entry in the log — the rule was never listening.
+   */
+  if (rule.boardId && rule.boardId !== (event.facts.board ?? null)) return false;
   switch (rule.trigger as Trigger) {
     case "lead_stage_changed":
       return !config.stage || String(config.stage) === String(event.facts.stage ?? "");
@@ -72,6 +90,10 @@ function triggerMatches(rule: LoadedRule, event: WorkflowEvent): boolean {
       const actual = Number(event.facts.overdueDays ?? 0);
       return Number.isFinite(needed) ? actual >= needed : true;
     }
+    case "task_moved":
+      // No section configured means "any move on this board", which is a
+      // legitimate rule and not an unfinished one.
+      return !config.section || String(config.section) === String(event.facts.section ?? "");
     default:
       return true;
   }
@@ -124,10 +146,20 @@ export async function fireWorkflow(
       continue;
     }
 
+    /**
+     * The chain THIS rule's actions run under.
+     *
+     * Computed before the actions rather than after, because a task action can
+     * cause another trigger to fire (setting a priority is a priority change),
+     * and that follow-on fire has to be told this rule already ran or the
+     * self-trigger guard cannot see the loop it exists to catch.
+     */
+    const next = descend(rule, chain);
+
     const results: ActionResult[] = [];
     for (const action of rule.actions ?? []) {
       try {
-        results.push(await runAction(db, workspaceId, event, action));
+        results.push(await runAction(db, workspaceId, event, action, next));
       } catch (e) {
         results.push({ type: action.type, ok: false, detail: (e as Error).message });
       }
@@ -153,10 +185,9 @@ export async function fireWorkflow(
     );
     fired += 1;
 
-    // Anything a rule's actions cause is one level deeper. Descending here
-    // rather than inside each action means the depth counts RULES, which is
-    // what the limit is about.
-    event.chain = descend(rule, chain);
+    // Anything this event goes on to cause is one level deeper. The depth
+    // counts RULES, which is what the limit is about.
+    event.chain = next;
   }
 
   return fired;
@@ -199,6 +230,7 @@ async function runAction(
   workspaceId: string,
   event: WorkflowEvent,
   action: Action,
+  chain: ChainContext,
 ): Promise<ActionResult> {
   switch (action.type) {
     case "create_task":
@@ -212,8 +244,337 @@ async function runAction(
       return runNotNow(db, event);
     case "notify_user":
       return runNotify(workspaceId, event, action);
+    // ---- board automations (playbook-v5 P20/5) ----
+    case "set_priority":
+      return runSetPriority(db, workspaceId, event, action, chain);
+    case "set_due_date":
+      return runSetDueDate(db, event, action);
+    case "assign_task":
+      return runAssign(db, workspaceId, event, action, chain);
+    case "add_tag":
+    case "remove_tag":
+      return runTag(db, event, action);
+    case "move_to_section":
+      return runMoveToSection(db, workspaceId, event, action, chain);
+    case "create_follow_up":
+      return runFollowUp(db, workspaceId, event, action);
+    case "notify_team":
+      return runNotifyTeam(workspaceId, event, action);
     default:
       return { type: action.type, ok: false, detail: "Unknown action." };
+  }
+}
+
+// ---- board automations (playbook-v5 P20/5) -------------------------------------
+
+/**
+ * The task a board action acts on, or the reason there is not one.
+ *
+ * Every one of these actions needs a task, and `validateActions` refuses the
+ * combination that could not have one — this is the runtime half of the same
+ * check, because a rule saved before that validation existed must fail with a
+ * sentence rather than a stack trace.
+ */
+async function actOnTask(
+  db: Db,
+  event: WorkflowEvent,
+  action: Action,
+): Promise<
+  | { ok: true; task: { id: string; boardId: string | null; sectionId: string | null; tags: unknown; priority: string; assigneeId: string | null; entityType: string | null; entityId: string | null; title: string } }
+  | { ok: false; result: ActionResult }
+> {
+  if (!event.taskId) {
+    return {
+      ok: false,
+      result: { type: action.type, ok: false, detail: "This trigger carries no task to act on." },
+    };
+  }
+  const task = await db.task.findUnique({
+    where: { id: event.taskId },
+    select: {
+      id: true,
+      title: true,
+      boardId: true,
+      sectionId: true,
+      tags: true,
+      priority: true,
+      assigneeId: true,
+      entityType: true,
+      entityId: true,
+    },
+  });
+  if (!task) {
+    return {
+      ok: false,
+      result: { type: action.type, ok: false, detail: "That task no longer exists." },
+    };
+  }
+  return { ok: true, task };
+}
+
+async function runSetPriority(
+  db: Db,
+  workspaceId: string,
+  event: WorkflowEvent,
+  action: Action,
+  chain: ChainContext,
+): Promise<ActionResult> {
+  const found = await actOnTask(db, event, action);
+  if (!found.ok) return found.result;
+  const priority = action.priority ?? "none";
+  if (found.task.priority === priority) {
+    // Not a failure, and deliberately not a follow-on event either: a rule
+    // that re-sets a value to what it already was must not wake the engine.
+    return { type: action.type, ok: true, detail: `Priority was already ${priority}` };
+  }
+
+  await db.task.update({ where: { id: found.task.id }, data: { priority } });
+  await refire(workspaceId, "task_priority_changed", found.task.id, chain);
+  return { type: action.type, ok: true, detail: `Set priority to ${priority}` };
+}
+
+async function runSetDueDate(
+  db: Db,
+  event: WorkflowEvent,
+  action: Action,
+): Promise<ActionResult> {
+  const found = await actOnTask(db, event, action);
+  if (!found.ok) return found.result;
+  const due = new Date();
+  due.setDate(due.getDate() + (action.dueInDays ?? 0));
+  due.setHours(17, 0, 0, 0);
+  await db.task.update({ where: { id: found.task.id }, data: { dueAt: due } });
+  return {
+    type: action.type,
+    ok: true,
+    detail: `Due ${due.toISOString().slice(0, 10)} (${action.dueInDays ?? 0}d from the rule firing)`,
+  };
+}
+
+async function runAssign(
+  db: Db,
+  workspaceId: string,
+  event: WorkflowEvent,
+  action: Action,
+  chain: ChainContext,
+): Promise<ActionResult> {
+  const found = await actOnTask(db, event, action);
+  if (!found.ok) return found.result;
+  const assigneeId = action.assigneeId ? action.assigneeId : null;
+
+  if (assigneeId) {
+    const member = await prismaUnsafe.membership.findUnique({
+      where: { userId_workspaceId: { userId: assigneeId, workspaceId } },
+      select: { userId: true },
+    });
+    if (!member) {
+      return { type: action.type, ok: false, detail: "That person is not in this workspace." };
+    }
+  }
+  if (found.task.assigneeId === assigneeId) {
+    return { type: action.type, ok: true, detail: "It was already theirs" };
+  }
+
+  await db.task.update({ where: { id: found.task.id }, data: { assigneeId } });
+  await refire(workspaceId, "task_assignee_changed", found.task.id, chain);
+  return {
+    type: action.type,
+    ok: true,
+    detail: assigneeId ? "Reassigned" : "Left unassigned deliberately",
+  };
+}
+
+async function runTag(db: Db, event: WorkflowEvent, action: Action): Promise<ActionResult> {
+  const found = await actOnTask(db, event, action);
+  if (!found.ok) return found.result;
+  const tag = (action.tag ?? "").trim();
+  if (!tag) return { type: action.type, ok: false, detail: "No tag named." };
+
+  const current = Array.isArray(found.task.tags) ? (found.task.tags as string[]) : [];
+  const next =
+    action.type === "add_tag"
+      ? current.includes(tag)
+        ? current
+        : [...current, tag]
+      : current.filter((t) => t !== tag);
+  if (next.length === current.length && action.type === "add_tag") {
+    return { type: action.type, ok: true, detail: `Tag “${tag}” was already there` };
+  }
+  await db.task.update({ where: { id: found.task.id }, data: { tags: next } });
+  return {
+    type: action.type,
+    ok: true,
+    detail: `${action.type === "add_tag" ? "Added" : "Removed"} tag “${tag}”`,
+  };
+}
+
+async function runMoveToSection(
+  db: Db,
+  workspaceId: string,
+  event: WorkflowEvent,
+  action: Action,
+  chain: ChainContext,
+): Promise<ActionResult> {
+  const found = await actOnTask(db, event, action);
+  if (!found.ok) return found.result;
+  if (!action.sectionId) {
+    return { type: action.type, ok: false, detail: "No section chosen." };
+  }
+
+  const section = await db.taskSection.findUnique({
+    where: { id: action.sectionId },
+    select: { id: true, name: true, boardId: true },
+  });
+  if (!section) {
+    return { type: action.type, ok: false, detail: "That section no longer exists." };
+  }
+  /**
+   * Same board only. Moving a task to a column on another board would take it
+   * off the board somebody is looking at, and "the automation moved it and I
+   * cannot find it" is the worst thing an automation can do.
+   */
+  if (found.task.boardId && section.boardId !== found.task.boardId) {
+    return {
+      type: action.type,
+      ok: false,
+      detail: "That section is on another board — a rule may not move a task off its board.",
+    };
+  }
+  if (found.task.sectionId === section.id) {
+    return { type: action.type, ok: true, detail: `Already in ${section.name}` };
+  }
+
+  await db.task.update({
+    where: { id: found.task.id },
+    data: { sectionId: section.id, boardId: found.task.boardId ?? section.boardId },
+  });
+  await refire(workspaceId, "task_moved", found.task.id, chain);
+  return { type: action.type, ok: true, detail: `Moved to ${section.name}` };
+}
+
+/**
+ * A follow-up copied off a template board.
+ *
+ * A template here is what a template has always been in this product: a board
+ * nobody works in, holding tasks with titles, notes, priorities and RELATIVE
+ * due offsets. Copying one of those tasks is the whole action — there is no
+ * second template model to keep in step.
+ */
+async function runFollowUp(
+  db: Db,
+  workspaceId: string,
+  event: WorkflowEvent,
+  action: Action,
+): Promise<ActionResult> {
+  const found = await actOnTask(db, event, action);
+  if (!found.ok) return found.result;
+  if (!action.templateTaskId) {
+    return { type: action.type, ok: false, detail: "No template task chosen." };
+  }
+
+  const template = await db.task.findUnique({
+    where: { id: action.templateTaskId },
+    select: {
+      title: true,
+      note: true,
+      type: true,
+      priority: true,
+      dueOffsetDays: true,
+      board: { select: { isTemplate: true } },
+    },
+  });
+  if (!template) {
+    return { type: action.type, ok: false, detail: "That template task no longer exists." };
+  }
+  if (!template.board?.isTemplate) {
+    return {
+      type: action.type,
+      ok: false,
+      detail: "That task is not on a template board — pick one that is.",
+    };
+  }
+
+  const offset = template.dueOffsetDays ?? action.dueInDays ?? 1;
+  const due = new Date();
+  due.setDate(due.getDate() + offset);
+  due.setHours(17, 0, 0, 0);
+
+  await db.task.create({
+    data: {
+      workspaceId,
+      title: template.title,
+      note: template.note,
+      type: template.type,
+      priority: template.priority,
+      dueAt: due,
+      // Beside the task that caused it, on the same board and in the same
+      // column, so it is somewhere a person will actually see it.
+      boardId: found.task.boardId,
+      sectionId: found.task.sectionId,
+      entityType: found.task.entityType,
+      entityId: found.task.entityId,
+      source: "workflow",
+    },
+  });
+  return { type: action.type, ok: true, detail: `Created follow-up “${template.title}”` };
+}
+
+async function runNotifyTeam(
+  workspaceId: string,
+  event: WorkflowEvent,
+  action: Action,
+): Promise<ActionResult> {
+  if (!action.teamId) return { type: action.type, ok: false, detail: "No team chosen." };
+  const db = getWorkspaceClient(workspaceId);
+  const team = await db.team.findUnique({
+    where: { id: action.teamId },
+    select: { name: true, archivedAt: true, members: { select: { userId: true } } },
+  });
+  if (!team) return { type: action.type, ok: false, detail: "That team no longer exists." };
+  if (team.archivedAt) {
+    return { type: action.type, ok: false, detail: `Team “${team.name}” is archived.` };
+  }
+  if (team.members.length === 0) {
+    return { type: action.type, ok: false, detail: `Team “${team.name}” has nobody on it.` };
+  }
+
+  await safeDeliver({
+    workspaceId,
+    userIds: team.members.map((m) => m.userId),
+    type: "task_due",
+    title: action.message ?? `A rule fired for ${team.name}`,
+    body: action.message ?? null,
+    href: event.taskId ? `/tasks?task=${event.taskId}` : "/",
+    entityType: event.entityType,
+    entityId: event.entityId,
+    discriminator: `workflow:${event.entityId}:${new Date().toISOString().slice(0, 13)}`,
+  });
+  return { type: action.type, ok: true, detail: `Notified ${team.members.length} on ${team.name}` };
+}
+
+/**
+ * A follow-on trigger caused by a rule's own action (playbook-v5 P20/5).
+ *
+ * This is the honest way to have cycle protection that means something: a rule
+ * whose action is itself a trigger DOES wake the engine again, carrying the
+ * chain, and the guard in `canRun` refuses the second visit and writes the
+ * refusal to the log. If actions quietly fired nothing, loops would be
+ * impossible and so would the evidence that they are prevented.
+ *
+ * Imported lazily to break the cycle between this file and the trigger points.
+ */
+async function refire(
+  workspaceId: string,
+  trigger: Trigger,
+  taskId: string,
+  chain: ChainContext,
+): Promise<void> {
+  try {
+    const { fireTaskTrigger } = await import("./triggers");
+    await fireTaskTrigger(workspaceId, trigger, taskId, chain);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error("[workflow] follow-on trigger failed", e);
   }
 }
 
@@ -449,4 +810,67 @@ export async function dealFacts(
     facts[`cf:${key}`] = value as WorkflowFacts[string];
   }
   return { facts, leadId: deal.leadId };
+}
+
+/**
+ * Everything a rule may look at, for a task (playbook-v5 P20/5).
+ *
+ * One read. The lead's own facts are folded in when the task hangs off a lead,
+ * so a board rule can still say "…and only if the lead's ICP score is at least
+ * four" without a second trigger type.
+ */
+export async function taskFacts(
+  workspaceId: string,
+  taskId: string,
+  extra: WorkflowFacts = {},
+): Promise<{ facts: WorkflowFacts; leadId: string | null } | null> {
+  const db = getWorkspaceClient(workspaceId);
+  const task = await db.task.findUnique({
+    where: { id: taskId },
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      priority: true,
+      tags: true,
+      dueAt: true,
+      doneAt: true,
+      assigneeId: true,
+      boardId: true,
+      sectionId: true,
+      entityType: true,
+      entityId: true,
+      customFields: true,
+      section: { select: { name: true } },
+      board: { select: { name: true } },
+    },
+  });
+  if (!task) return null;
+
+  const leadId = task.entityType === "lead" ? task.entityId : null;
+  const base = leadId ? await leadFacts(workspaceId, leadId) : null;
+
+  const facts: WorkflowFacts = {
+    ...(base ?? {}),
+    taskTitle: task.title,
+    taskType: task.type,
+    priority: task.priority,
+    tags: Array.isArray(task.tags) ? (task.tags as string[]) : [],
+    assigneeId: task.assigneeId,
+    // Ids, not names: a rule written against "Blocked" would break the moment
+    // somebody renamed the column, and the picker stores the id anyway.
+    board: task.boardId,
+    section: task.sectionId,
+    boardName: task.board?.name ?? null,
+    sectionName: task.section?.name ?? null,
+    overdueDays:
+      task.dueAt && !task.doneAt
+        ? Math.floor((Date.now() - task.dueAt.getTime()) / 86_400_000)
+        : 0,
+    ...extra,
+  };
+  for (const [key, value] of Object.entries(readValues(task.customFields))) {
+    facts[`cf:${key}`] = value as WorkflowFacts[string];
+  }
+  return { facts, leadId };
 }

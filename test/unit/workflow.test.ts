@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   ACTION_DEFS,
+  ACTION_TYPES,
   MAX_CHAIN_DEPTH,
   MAX_RULES,
   ROOT_CHAIN,
@@ -11,6 +12,13 @@ import {
   evaluateCondition,
   ruleSchema,
   validateActions,
+  conditionFieldsFor,
+  isTaskAction,
+  isTaskTrigger,
+  TASK_ACTIONS,
+  TASK_TRIGGERS,
+  TRIGGERS,
+  TRIGGER_DEFS,
   type Condition,
   type WorkflowFacts,
 } from "../../src/modules/workflow/types";
@@ -191,5 +199,117 @@ describe("the plain-English summary", () => {
       actions: [{ type: "move_not_now" }],
     });
     expect(text).not.toContain(" if ");
+  });
+});
+
+/**
+ * Board automations (playbook-v5 P20/5).
+ *
+ * The engine's writes are in test/integration/workflow.test.ts. These are the
+ * rules the vocabulary itself has to enforce — above all that a task action
+ * cannot be attached to a trigger that carries no task, because a rule which
+ * saves, fires and does nothing for ever is the hardest failure to notice.
+ */
+describe("task triggers and task actions", () => {
+  it("knows which triggers are about a task", () => {
+    for (const t of TASK_TRIGGERS) expect(isTaskTrigger(t)).toBe(true);
+    expect(isTaskTrigger("lead_stage_changed")).toBe(false);
+    expect(isTaskTrigger("nonsense")).toBe(false);
+    // The overdue sweep counts: it has always carried a task, and now the
+    // board actions can act on it.
+    expect(isTaskTrigger("task_overdue")).toBe(true);
+  });
+
+  it("knows which actions need one", () => {
+    for (const a of TASK_ACTIONS) expect(isTaskAction(a)).toBe(true);
+    expect(isTaskAction("draft_email")).toBe(false);
+    expect(isTaskAction("notify_team")).toBe(false);
+  });
+
+  it("refuses a task action on a lead trigger, and names it", () => {
+    const problems = validateActions(
+      [{ type: "set_priority", priority: "urgent" }],
+      "lead_stage_changed",
+    );
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/needs a task trigger/i);
+  });
+
+  it("allows the same action on a task trigger", () => {
+    expect(
+      validateActions([{ type: "set_priority", priority: "urgent" }], "task_created"),
+    ).toEqual([]);
+  });
+
+  it("still allows a lead action on a lead trigger", () => {
+    expect(validateActions([{ type: "move_not_now" }], "lead_stage_changed")).toEqual([]);
+  });
+
+  it("says what each new action is missing", () => {
+    expect(validateActions([{ type: "set_priority" }], "task_created")[0]).toMatch(/priority/i);
+    expect(validateActions([{ type: "set_due_date" }], "task_created")[0]).toMatch(/days/i);
+    expect(validateActions([{ type: "add_tag", tag: "  " }], "task_created")[0]).toMatch(/tag/i);
+    expect(validateActions([{ type: "move_to_section" }], "task_created")[0]).toMatch(/section/i);
+    expect(validateActions([{ type: "create_follow_up" }], "task_created")[0]).toMatch(
+      /template/i,
+    );
+    expect(validateActions([{ type: "notify_team" }], "task_created")[0]).toMatch(/team/i);
+  });
+
+  it("treats an empty assignee as a choice, not an omission", () => {
+    // "Nobody owns this" is a deliberate outcome, so the empty string passes
+    // and only an absent field is refused.
+    expect(validateActions([{ type: "assign_task", assigneeId: "" }], "task_created")).toEqual(
+      [],
+    );
+    expect(validateActions([{ type: "assign_task" }], "task_created")[0]).toMatch(/owns it/i);
+  });
+
+  it("offers task condition fields on a task trigger and lead fields otherwise", () => {
+    const taskKeys = conditionFieldsFor("task_moved").map((f) => f.key);
+    expect(taskKeys).toContain("section");
+    expect(taskKeys).toContain("priority");
+    expect(taskKeys).not.toContain("icpScore");
+
+    const leadKeys = conditionFieldsFor("lead_created").map((f) => f.key);
+    expect(leadKeys).toContain("icpScore");
+    expect(leadKeys).not.toContain("section");
+  });
+
+  it("has a definition for every trigger and every action", () => {
+    // A trigger with no definition renders as a raw enum value in the builder.
+    for (const t of TRIGGERS) expect(TRIGGER_DEFS[t]?.label, t).toBeTruthy();
+    for (const a of ACTION_TYPES) expect(ACTION_DEFS[a]?.label, a).toBeTruthy();
+  });
+});
+
+describe("tag conditions", () => {
+  it("matches on the task's tags, not on the lead's signals", () => {
+    const facts = { tags: ["blocked", "design"], signals: ["hiring"] };
+    expect(evaluateCondition(facts, { field: "tags", operator: "has_tag", value: "blocked" })).toBe(
+      true,
+    );
+    expect(evaluateCondition(facts, { field: "tags", operator: "has_tag", value: "hiring" })).toBe(
+      false,
+    );
+    expect(
+      evaluateCondition(facts, { field: "tags", operator: "not_has_tag", value: "hiring" }),
+    ).toBe(true);
+  });
+
+  it("folds case and accents, like every other text match here", () => {
+    expect(
+      evaluateCondition(
+        { tags: ["Késésben"] },
+        { field: "tags", operator: "has_tag", value: "kesesben" },
+      ),
+    ).toBe(true);
+  });
+
+  it("is false rather than an error when there are no tags at all", () => {
+    expect(evaluateCondition({}, { field: "tags", operator: "has_tag", value: "x" })).toBe(false);
+    expect(evaluateCondition({}, { field: "tags", operator: "not_has_tag", value: "x" })).toBe(
+      true,
+    );
   });
 });

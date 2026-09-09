@@ -26,6 +26,10 @@
 import { z } from "zod";
 import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
 import { TASK_PRIORITIES } from "./board-logic";
+import {
+  onTaskAssigneeChanged,
+  onTaskPriorityChanged,
+} from "@/modules/workflow/triggers";
 
 export const TASK_INLINE_FIELDS = [
   "title",
@@ -86,7 +90,7 @@ export async function applyTaskInlineEdit(
   const db = getWorkspaceClient(workspaceId);
   const task = await db.task.findUnique({
     where: { id: input.taskId },
-    select: { id: true, dueAt: true, startAt: true },
+    select: { id: true, dueAt: true, startAt: true, priority: true, assigneeId: true },
   });
   if (!task) return { ok: false, error: "Task not found." };
 
@@ -113,6 +117,8 @@ export async function applyTaskInlineEdit(
       return { ok: false, error: "That is not a priority." };
     }
     await db.task.update({ where: { id: task.id }, data: { priority: next } });
+    // Board automations (playbook-v5 P20/5): an inline change is a change.
+    if (next !== task.priority) await onTaskPriorityChanged(workspaceId, task.id);
     return { ok: true, value: next };
   }
 
@@ -158,6 +164,7 @@ export async function applyTaskInlineEdit(
       }
     }
     await db.task.update({ where: { id: task.id }, data: { assigneeId } });
+    if (assigneeId !== task.assigneeId) await onTaskAssigneeChanged(workspaceId, task.id);
     return { ok: true, value: assigneeId };
   }
 
