@@ -36,6 +36,11 @@ const filterSchema = z.object({
   assigneeId: z.string().min(1).max(60).nullable().catch(null),
   priority: z.string().min(1).max(20).nullable().catch(null),
   tag: z.string().min(1).max(40).nullable().catch(null),
+  /** One Owner-defined field (playbook-v5 P20/2). */
+  custom: z
+    .object({ key: z.string().min(1).max(40), value: z.string().min(1).max(200) })
+    .nullable()
+    .catch(null),
   due: z.enum(WORK_BUCKETS).nullable().catch(null),
   completion: z.enum(COMPLETION_FILTERS).catch("open"),
   blocked: z.boolean().nullable().catch(null),

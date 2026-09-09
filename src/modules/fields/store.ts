@@ -7,6 +7,7 @@
  * `"use server"` file resolves its tenant from a cookie a test cannot supply.
  */
 
+import type { Prisma } from "@prisma/client";
 import { getWorkspaceClient } from "@/lib/db";
 import type { WorkspaceClient } from "@/lib/db";
 import {
@@ -250,11 +251,6 @@ export type ValuesResult =
   | { ok: true; values: FieldValues }
   | { ok: false; problems: ValueProblem[] };
 
-const MODEL_FOR: Record<FieldEntity, "lead" | "company" | "deal"> = {
-  lead: "lead",
-  company: "company",
-  deal: "deal",
-};
 
 /**
  * Write a partial patch of custom-field values onto one entity.
@@ -274,22 +270,97 @@ export async function setFieldValues(
   const result = validateValues(defs, patch);
   if (!result.ok) return { ok: false, problems: result.problems };
 
-  const model = MODEL_FOR[entity];
-  const row =
-    model === "lead"
-      ? await db.lead.findUnique({ where: { id: entityId }, select: { customFields: true } })
-      : model === "company"
-        ? await db.company.findUnique({ where: { id: entityId }, select: { customFields: true } })
-        : await db.deal.findUnique({ where: { id: entityId }, select: { customFields: true } });
-  if (!row) return { ok: false, problems: [{ key: "", label: "", message: "not found" }] };
+  const found = await readCustomFields(db, entity, entityId);
+  if (!found) return { ok: false, problems: [{ key: "", label: "", message: "not found" }] };
 
-  const next = mergeValues(readValues(row.customFields), result.values);
-  const data = { customFields: next as object };
-  if (model === "lead") await db.lead.update({ where: { id: entityId }, data });
-  else if (model === "company") await db.company.update({ where: { id: entityId }, data });
-  else await db.deal.update({ where: { id: entityId }, data });
-
+  const next = mergeValues(readValues(found.customFields), result.values);
+  await writeCustomFields(db, entity, entityId, next);
   return { ok: true, values: next };
+}
+
+/**
+ * Read one row's custom-field blob, per entity.
+ *
+ * ── WHY THESE ARE EXHAUSTIVE SWITCHES AND NOT if/else CHAINS ────────────────
+ *
+ * They used to be ternaries ending in `: db.deal…`, so ANY entity the chain
+ * did not name fell through to deals. When `task` was added to FIELD_ENTITIES
+ * (playbook-v5 P20/2) every task field write therefore went looking for a DEAL
+ * with that id, found nothing, and reported "not found" — a silent
+ * cross-entity write waiting to happen if an id had ever collided. An
+ * exhaustive switch with a `never` default makes the next entity a compile
+ * error instead.
+ */
+/**
+ * Returns the ROW (or null when there is none), not the blob.
+ *
+ * Returning the blob collapsed two different answers into one: a row whose
+ * `custom_fields` is null — which every entity starts as — looked exactly like
+ * a row that does not exist, so the first write to any task reported "not
+ * found". Caught by test/integration/task-fields.test.ts.
+ */
+async function readCustomFields(
+  db: WorkspaceClient,
+  entity: FieldEntity,
+  entityId: string,
+): Promise<{ customFields: Prisma.JsonValue } | null> {
+  switch (entity) {
+    case "lead": {
+      return db.lead.findUnique({
+        where: { id: entityId },
+        select: { customFields: true },
+      });
+    }
+    case "company": {
+      return db.company.findUnique({
+        where: { id: entityId },
+        select: { customFields: true },
+      });
+    }
+    case "deal": {
+      return db.deal.findUnique({
+        where: { id: entityId },
+        select: { customFields: true },
+      });
+    }
+    case "task": {
+      return db.task.findUnique({
+        where: { id: entityId },
+        select: { customFields: true },
+      });
+    }
+    default: {
+      const exhaustive: never = entity;
+      throw new Error(`no custom-field model for ${String(exhaustive)}`);
+    }
+  }
+}
+
+async function writeCustomFields(
+  db: WorkspaceClient,
+  entity: FieldEntity,
+  entityId: string,
+  values: FieldValues,
+): Promise<void> {
+  const data = { customFields: values as object };
+  switch (entity) {
+    case "lead":
+      await db.lead.update({ where: { id: entityId }, data });
+      return;
+    case "company":
+      await db.company.update({ where: { id: entityId }, data });
+      return;
+    case "deal":
+      await db.deal.update({ where: { id: entityId }, data });
+      return;
+    case "task":
+      await db.task.update({ where: { id: entityId }, data });
+      return;
+    default: {
+      const exhaustive: never = entity;
+      throw new Error(`no custom-field model for ${String(exhaustive)}`);
+    }
+  }
 }
 
 export async function getFieldValues(
@@ -298,12 +369,6 @@ export async function getFieldValues(
   entityId: string,
 ): Promise<FieldValues> {
   const db = getWorkspaceClient(workspaceId);
-  const model = MODEL_FOR[entity];
-  const row =
-    model === "lead"
-      ? await db.lead.findUnique({ where: { id: entityId }, select: { customFields: true } })
-      : model === "company"
-        ? await db.company.findUnique({ where: { id: entityId }, select: { customFields: true } })
-        : await db.deal.findUnique({ where: { id: entityId }, select: { customFields: true } });
-  return readValues(row?.customFields);
+  const found = await readCustomFields(db, entity, entityId);
+  return readValues(found?.customFields);
 }

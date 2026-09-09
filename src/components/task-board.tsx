@@ -65,6 +65,9 @@ import { TaskCalendar } from "./task-calendar";
 import { TaskTimePanel } from "./task-time";
 import { TimeReport } from "./time-report";
 import { TaskWorkload } from "./task-workload";
+import { TaskFields } from "./task-fields";
+import { getTaskFieldDefs } from "@/modules/tasks/custom-field-actions";
+import type { FieldDef } from "@/modules/fields/types";
 import { BoardViewTabs } from "./board-view-tabs";
 import {
   EMPTY_TASK_FILTER,
@@ -156,6 +159,11 @@ const TASK_VIEW = {
   ),
   /** Grouping is a view concern, so it belongs in the URL like the rest. */
   group: enumField("g", GROUP_BYS, "section"),
+  /**
+   * Which Owner-defined field `g=custom` means (playbook-v5 P20/2). Separate
+   * because the grouping list is a closed set and field keys are not.
+   */
+  customField: idField("cf", "replace"),
   savedView: idField("sv"),
   mine: boolField("mine"),
   done: boolField("done"),
@@ -690,6 +698,13 @@ export function TaskBoards({
   );
   const [taskFilter, setTaskFilter] = useState<TaskFilter>(EMPTY_TASK_FILTER);
   const [savedViews, setSavedViews] = useState<TaskBoardView[]>([]);
+  const [fieldDefs, setFieldDefs] = useState<FieldDef[]>([]);
+
+  useEffect(() => {
+    getTaskFieldDefs()
+      .then(setFieldDefs)
+      .catch(() => setFieldDefs([]));
+  }, []);
 
   const loadViews = useCallback(async () => {
     setSavedViews(await getTaskViews().catch(() => []));
@@ -734,6 +749,11 @@ export function TaskBoards({
     );
   }, [columns, taskFilter]);
 
+  const customDef = useMemo(
+    () => fieldDefs.find((d) => d.key === viewState.customField) ?? null,
+    [fieldDefs, viewState.customField],
+  );
+
   const groupedColumns = useMemo(() => {
     if (groupBy === "section") return [];
     return groupTasksBy(
@@ -743,8 +763,12 @@ export function TaskBoards({
       })),
       groupBy,
       members,
+      new Date(),
+      customDef
+        ? { key: customDef.key, options: customDef.options.map((o) => ({ value: o.value, label: o.label })) }
+        : undefined,
     );
-  }, [filteredTasks, groupBy, members]);
+  }, [filteredTasks, groupBy, members, customDef]);
 
   /**
    * A drop into a derived group.
@@ -756,7 +780,9 @@ export function TaskBoards({
   const onRegroup = useCallback(
     async (taskId: string, groupKey: string) => {
       if (!taskId) return;
-      const res = await attemptAction(regroupTask(taskId, groupBy, groupKey));
+      const res = await attemptAction(
+        regroupTask(taskId, groupBy, groupKey, viewState.customField),
+      );
       if (!res.ok) {
         setError(res.error);
         return;
@@ -764,7 +790,7 @@ export function TaskBoards({
       offerUndo(res.undo);
       await refresh();
     },
-    [groupBy, offerUndo, refresh],
+    [groupBy, offerUndo, refresh, viewState.customField],
   );
 
   const boardTaskCount = useMemo(
@@ -1192,7 +1218,7 @@ export function TaskBoards({
               />
               <div className="mb-3 flex flex-wrap items-center gap-1.5">
                 <span className="text-[11px] uppercase tracking-[0.1em] text-muted">Group by</span>
-                {GROUP_BYS.map((g) => (
+                {GROUP_BYS.filter((g) => g !== "custom" || fieldDefs.length > 0).map((g) => (
                   <button
                     key={g}
                     type="button"
@@ -1206,13 +1232,32 @@ export function TaskBoards({
                     {GROUP_BY_LABEL[g]}
                   </button>
                 ))}
+                {groupBy === "custom" && (
+                  <select
+                    aria-label="Which field"
+                    data-testid="group-by-custom-field"
+                    value={viewState.customField ?? ""}
+                    onChange={(e) => setViewState({ customField: e.target.value || null })}
+                    className="rounded-[8px] border border-line bg-[rgba(0,5,29,0.6)] px-2 py-1 text-[12px] text-ink outline-none"
+                  >
+                    <option value="">Choose a field…</option>
+                    {fieldDefs.map((d) => (
+                      <option key={d.key} value={d.key}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 {groupBy !== "section" && (
                   <span
                     data-testid="grouping-note"
                     className="ml-auto text-[10.5px] text-muted"
                   >
-                    Dragging sets {GROUP_BY_LABEL[groupBy].toLowerCase()} — the columns are
-                    unchanged.
+                    Dragging sets{" "}
+                    {groupBy === "custom"
+                      ? (customDef?.label ?? "the field")
+                      : GROUP_BY_LABEL[groupBy].toLowerCase()}{" "}
+                    — the columns are unchanged.
                   </span>
                 )}
               </div>
@@ -2066,6 +2111,9 @@ function TaskDetail({
           className={`${INPUT} mt-1 resize-y`}
         />
       </label>
+
+      {/* ---------- Owner-defined fields (playbook-v5 P20/2) ---------- */}
+      <TaskFields taskId={taskId} />
 
       {/* ---------- estimate and time (playbook-v5 P20/1) ---------- */}
       <div className="mb-3">

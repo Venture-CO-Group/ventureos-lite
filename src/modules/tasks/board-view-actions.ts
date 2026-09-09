@@ -24,6 +24,11 @@ const filterSchema = z.object({
   assigneeId: z.string().min(1).max(60).nullable(),
   priority: z.string().min(1).max(20).nullable(),
   tag: z.string().min(1).max(40).nullable(),
+  /** One Owner-defined field (playbook-v5 P20/2). */
+  custom: z
+    .object({ key: z.string().min(1).max(40), value: z.string().min(1).max(200) })
+    .nullable()
+    .default(null),
   due: z.enum(WORK_BUCKETS).nullable(),
   completion: z.enum(COMPLETION_FILTERS),
   blocked: z.boolean().nullable(),
@@ -91,6 +96,8 @@ export async function regroupTask(
   taskId: string,
   groupBy: string,
   groupKey: string,
+  /** For `custom`: which Owner-defined field the columns are. */
+  customKey?: string | null,
 ): Promise<{ ok: true; undo: UndoToken | null } | { ok: false; error: string }> {
   const by = z.enum(GROUP_BYS).safeParse(groupBy);
   if (!by.success) return { ok: false, error: "That is not a grouping." };
@@ -98,7 +105,7 @@ export async function regroupTask(
     return { ok: false, error: "Moving between columns is a move, not a regroup." };
   }
 
-  const write = writeForGroup(by.data as GroupBy, groupKey);
+  const write = writeForGroup(by.data as GroupBy, groupKey, customKey ?? undefined);
   if (!write) return { ok: false, error: "Nothing can be dropped into that group." };
 
   const { workspaceId, userId } = await getActiveContext();
@@ -150,6 +157,31 @@ export async function regroupTask(
     data = { dueAt: target };
     inverse = { dueAt: before.dueAt };
     label = `Rescheduled “${before.title}”`;
+  } else if (write.field === "custom") {
+    /**
+     * Through the shared validator, not a direct write.
+     *
+     * A custom field's value has to satisfy the workspace's own definition —
+     * a SELECT cannot hold an option that was removed, a NUMBER cannot hold
+     * text — and that check lives in `setFieldValues`, where every other
+     * entity's writes go. Writing the JSON column here would be a second,
+     * unvalidated path into the same data.
+     */
+    const { setFieldValues } = await import("@/modules/fields/store");
+    const res = await setFieldValues(workspaceId, "task", taskId, {
+      [write.key]: write.value,
+    });
+    if (!res.ok) {
+      const problem = res.problems[0];
+      return {
+        ok: false,
+        error: problem ? `${problem.label} ${problem.message}.` : "That value is not allowed.",
+      };
+    }
+    revalidatePath("/tasks");
+    // No undo entry: the engine restores columns, and a JSON patch inside one
+    // is not something it can put back field by field. Declared, not implied.
+    return { ok: true, undo: null };
   } else {
     const tags = Array.isArray(before.tags) ? (before.tags as string[]) : [];
     if (tags.includes(write.value)) return { ok: true, undo: null };

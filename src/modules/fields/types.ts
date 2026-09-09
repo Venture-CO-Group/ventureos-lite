@@ -27,7 +27,15 @@ export const CUSTOM_FIELD_TYPES = [
 ] as const;
 export type CustomFieldType = (typeof CUSTOM_FIELD_TYPES)[number];
 
-export const FIELD_ENTITIES = ["lead", "company", "deal"] as const;
+/**
+ * What can carry Owner-defined fields.
+ *
+ * `task` was added in playbook-v5 P20/2 by EXTENDING this list rather than
+ * building a second field system — the playbook is explicit about that, and it
+ * means tasks inherit the archived-field behaviour, the value validator, the
+ * filter operators and the GDPR handling that already existed.
+ */
+export const FIELD_ENTITIES = ["lead", "company", "deal", "task"] as const;
 export type FieldEntity = (typeof FIELD_ENTITIES)[number];
 
 export const TYPE_LABELS: Record<CustomFieldType, string> = {
@@ -44,6 +52,7 @@ export const ENTITY_LABELS: Record<FieldEntity, string> = {
   lead: "Lead",
   company: "Company",
   deal: "Deal",
+  task: "Task",
 };
 
 export interface FieldOption {

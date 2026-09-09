@@ -4,6 +4,7 @@ import {
   GROUP_BYS,
   GROUP_BY_LABEL,
   UNASSIGNED,
+  UNSET,
   UNTAGGED,
   filterIsEmpty,
   groupTasksBy,
@@ -184,5 +185,114 @@ describe("filtering a board", () => {
     // "open" IS the default, so it does not count as a filter.
     expect(filterIsEmpty({ ...EMPTY_TASK_FILTER, completion: "open" })).toBe(true);
     expect(filterIsEmpty({ ...EMPTY_TASK_FILTER, completion: "all" })).toBe(false);
+  });
+});
+
+/**
+ * Grouping by an Owner-defined field (playbook-v5 P20/2).
+ *
+ * The key travels separately from the grouping name, because the grouping list
+ * is a closed set the URL codec validates against while a workspace's field
+ * keys are not knowable in advance.
+ */
+describe("grouping by a custom field", () => {
+  const options = [
+    { value: "smb", label: "SMB" },
+    { value: "enterprise", label: "Enterprise" },
+  ];
+
+  const withField = (value: unknown) =>
+    ({ ...task(), customFields: { segment: value } }) as GroupableTask;
+
+  it("takes its columns from the DEFINITION, in order, not from the data", () => {
+    const groups = groupTasksBy([withField("smb")], "custom", MEMBERS, NOW, {
+      key: "segment",
+      options,
+    });
+    expect(groups.map((g) => g.key)).toEqual(["smb", "enterprise", UNSET]);
+    // An option nobody has chosen is still a column — it is somewhere to drop,
+    // and deriving columns from the data would rearrange the board as work
+    // moved through it.
+    expect(groups.find((g) => g.key === "enterprise")!.tasks).toHaveLength(0);
+  });
+
+  it("collects the blanks into Not set", () => {
+    const groups = groupTasksBy(
+      [withField("smb"), withField(null), task() as GroupableTask],
+      "custom",
+      MEMBERS,
+      NOW,
+      { key: "segment", options },
+    );
+    expect(groups.find((g) => g.key === UNSET)!.tasks).toHaveLength(2);
+  });
+
+  it("puts a multi-select task in every column it holds", () => {
+    const groups = groupTasksBy([withField(["smb", "enterprise"])], "custom", MEMBERS, NOW, {
+      key: "segment",
+      options,
+    });
+    expect(groups.find((g) => g.key === "smb")!.tasks).toHaveLength(1);
+    expect(groups.find((g) => g.key === "enterprise")!.tasks).toHaveLength(1);
+  });
+
+  /**
+   * A free-text field's columns ARE the values in use, and they cannot be drop
+   * targets: dropping would have to invent the exact string, and "roughly this
+   * text" is not a value.
+   */
+  it("derives columns for a field with no options, and refuses drops", () => {
+    const groups = groupTasksBy(
+      [withField("zeta"), withField("alpha")],
+      "custom",
+      MEMBERS,
+      NOW,
+      { key: "segment", options: [] },
+    );
+    expect(groups.map((g) => g.key)).toEqual(["alpha", "zeta", UNSET]);
+    expect(groups.every((g) => !g.droppable)).toBe(true);
+  });
+
+  it("renders nothing when no field was named", () => {
+    expect(groupTasksBy([withField("smb")], "custom", MEMBERS, NOW)).toEqual([]);
+  });
+
+  describe("what a drop writes", () => {
+    it("sets the field, and clears it for Not set", () => {
+      expect(writeForGroup("custom", "smb", "segment")).toEqual({
+        field: "custom",
+        key: "segment",
+        value: "smb",
+      });
+      expect(writeForGroup("custom", UNSET, "segment")).toEqual({
+        field: "custom",
+        key: "segment",
+        value: null,
+      });
+    });
+
+    it("does nothing without a field key", () => {
+      expect(writeForGroup("custom", "smb")).toBeNull();
+    });
+
+    /** And still never sectionId — the rule holds for the new grouping too. */
+    it("never writes sectionId", () => {
+      const write = writeForGroup("custom", "smb", "segment");
+      expect(write && write.field).not.toBe("sectionId");
+    });
+  });
+
+  it("filters on one field value, including a multi-select", () => {
+    const filter = { ...EMPTY_TASK_FILTER, custom: { key: "segment", value: "smb" } };
+    expect(matchesTaskFilter(withField("smb"), filter, NOW)).toBe(true);
+    expect(matchesTaskFilter(withField(["enterprise", "smb"]), filter, NOW)).toBe(true);
+    expect(matchesTaskFilter(withField("enterprise"), filter, NOW)).toBe(false);
+    expect(matchesTaskFilter(task() as GroupableTask, filter, NOW)).toBe(false);
+  });
+
+  it("counts a custom filter as filtering something", () => {
+    expect(
+      filterIsEmpty({ ...EMPTY_TASK_FILTER, custom: { key: "segment", value: "smb" } }),
+    ).toBe(false);
   });
 });

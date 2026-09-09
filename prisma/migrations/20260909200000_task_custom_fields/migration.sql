@@ -1,0 +1,12 @@
+-- Custom fields on tasks (playbook-v5 P20/2).
+--
+-- ── THE EXISTING SYSTEM, EXTENDED ───────────────────────────────────────────
+--
+-- The playbook is explicit: extend the CustomField system that already serves
+-- leads, companies and deals — do not create a second field system. So there
+-- is no new table here. `custom_field_defs.entity` gains "task" as a value it
+-- can hold, which needs no migration at all, and tasks gain the same
+-- `custom_fields` JSON column the other three carry.
+--
+-- One column, one shape, one validator, one GDPR path.
+ALTER TABLE "tasks" ADD COLUMN "custom_fields" JSONB;

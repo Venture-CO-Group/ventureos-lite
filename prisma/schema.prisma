@@ -1433,6 +1433,12 @@ model Task {
   /// parent may instead have its estimate computed from its subtasks.
   estimateMinutes Int?   @map("estimate_minutes")
 
+  /// Owner-defined fields (playbook-v5 P20/2), in the same shape leads,
+  /// companies and deals use — `{ "<key>": value }` validated against
+  /// `CustomFieldDef` rows with `entity = "task"`. One column, one validator,
+  /// one GDPR path; not a second field system.
+  customFields    Json?  @map("custom_fields")
+
   timeEntries TimeEntry[]
 
   board       TaskBoard?       @relation(fields: [boardId], references: [id], onDelete: SetNull)

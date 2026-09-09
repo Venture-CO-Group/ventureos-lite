@@ -18,7 +18,15 @@
 import { WORK_BUCKETS, WORK_BUCKET_LABEL, workBucketOf, type TaskLike } from "./logic";
 import { PRIORITY_LABEL, TASK_PRIORITIES, type TaskPriority } from "./board-logic";
 
-export const GROUP_BYS = ["section", "assignee", "priority", "due", "tag"] as const;
+/**
+ * `custom` is grouping by an Owner-defined field (playbook-v5 P20/2).
+ *
+ * The KEY travels separately rather than becoming part of this list, because
+ * the list is a closed set the URL codec validates against — and a workspace's
+ * field keys are not knowable in advance. So the URL says `g=custom&cf=segment`
+ * and the key is validated against the live definitions.
+ */
+export const GROUP_BYS = ["section", "assignee", "priority", "due", "tag", "custom"] as const;
 export type GroupBy = (typeof GROUP_BYS)[number];
 
 export const GROUP_BY_LABEL: Record<GroupBy, string> = {
@@ -27,6 +35,7 @@ export const GROUP_BY_LABEL: Record<GroupBy, string> = {
   priority: "Priority",
   due: "Due",
   tag: "Tag",
+  custom: "Your field",
 };
 
 export function isGroupBy(value: string): value is GroupBy {
@@ -39,6 +48,7 @@ export type GroupWrite =
   | { field: "assigneeId"; value: string | null }
   | { field: "dueBucket"; value: string }
   | { field: "tag"; value: string }
+  | { field: "custom"; key: string; value: string | null }
   | null;
 
 /**
@@ -48,8 +58,14 @@ export type GroupWrite =
  * an ordinary move rather than an attribute change — the two go down different
  * paths on purpose.
  */
-export function writeForGroup(by: GroupBy, groupKey: string): GroupWrite {
+export function writeForGroup(by: GroupBy, groupKey: string, customKey?: string): GroupWrite {
   if (by === "section") return null;
+  if (by === "custom") {
+    if (!customKey) return null;
+    // The "not set" column is a real destination: clearing a field is as
+    // ordinary as setting it.
+    return { field: "custom", key: customKey, value: groupKey === UNSET ? null : groupKey };
+  }
   if (by === "priority") {
     return (TASK_PRIORITIES as readonly string[]).includes(groupKey)
       ? { field: "priority", value: groupKey }
@@ -68,9 +84,10 @@ export function writeForGroup(by: GroupBy, groupKey: string): GroupWrite {
   return groupKey === UNTAGGED ? null : { field: "tag", value: groupKey };
 }
 
-/** The key for work nobody owns, and for work with no tags. */
+/** The keys for work nobody owns, work with no tags, and a field left blank. */
 export const UNASSIGNED = "__unassigned__";
 export const UNTAGGED = "__untagged__";
+export const UNSET = "__unset__";
 
 export interface GroupableTask extends TaskLike {
   sectionId: string | null;
@@ -78,6 +95,8 @@ export interface GroupableTask extends TaskLike {
   assigneeName: string | null;
   priority: string;
   tags: string[];
+  /** Owner-defined field values, in the same shape every other entity uses. */
+  customFields?: Record<string, unknown> | null;
 }
 
 export interface TaskGroup<T> {
@@ -99,7 +118,52 @@ export function groupTasksBy<T extends GroupableTask>(
   by: Exclude<GroupBy, "section">,
   members: { id: string; name: string }[],
   now: Date = new Date(),
+  /** For `custom`: which field, and its options in their defined order. */
+  custom?: { key: string; options: { value: string; label: string }[] },
 ): TaskGroup<T>[] {
+  if (by === "custom") {
+    if (!custom) return [];
+    const valueOf = (t: T) => {
+      const raw = (t.customFields ?? {})[custom.key];
+      if (raw === null || raw === undefined || raw === "") return null;
+      return Array.isArray(raw) ? raw.map(String) : [String(raw)];
+    };
+    /**
+     * Columns come from the DEFINITION's options, in their defined order —
+     * not from the values in use. An option nobody has chosen is still a
+     * column, because it is somewhere to drop; deriving them from the data
+     * would make the board rearrange itself as work moved.
+     */
+    const groups: TaskGroup<T>[] = custom.options.map((option) => ({
+      key: option.value,
+      label: option.label,
+      tasks: tasks.filter((t) => valueOf(t)?.includes(option.value) ?? false),
+      droppable: true,
+    }));
+    // Free-text and number fields have no options, so their columns ARE the
+    // values in use — sorted, so the board is stable between renders.
+    if (custom.options.length === 0) {
+      const seen = [...new Set(tasks.flatMap((t) => valueOf(t) ?? []))].sort();
+      for (const value of seen) {
+        groups.push({
+          key: value,
+          label: value,
+          tasks: tasks.filter((t) => valueOf(t)?.includes(value) ?? false),
+          // A free-text column cannot be a drop target: dropping would have to
+          // invent the exact string, and "roughly this text" is not a value.
+          droppable: false,
+        });
+      }
+    }
+    groups.push({
+      key: UNSET,
+      label: "Not set",
+      tasks: tasks.filter((t) => valueOf(t) === null),
+      droppable: custom.options.length > 0,
+    });
+    return groups;
+  }
+
   if (by === "priority") {
     // Highest first, and every priority shown even when empty: an empty
     // "Urgent" column is information, and it is also somewhere to drop.
@@ -172,6 +236,8 @@ export interface TaskFilter {
   assigneeId: string | null;
   priority: string | null;
   tag: string | null;
+  /** One Owner-defined field, as `{ key, value }`. */
+  custom: { key: string; value: string } | null;
   /** A work bucket, or null for any. */
   due: string | null;
   completion: CompletionFilter;
@@ -183,6 +249,7 @@ export const EMPTY_TASK_FILTER: TaskFilter = {
   assigneeId: null,
   priority: null,
   tag: null,
+  custom: null,
   due: null,
   completion: "open",
   blocked: null,
@@ -193,6 +260,7 @@ export function filterIsEmpty(filter: TaskFilter): boolean {
     filter.assigneeId === null &&
     filter.priority === null &&
     filter.tag === null &&
+    filter.custom === null &&
     filter.due === null &&
     filter.completion === "open" &&
     filter.blocked === null
@@ -212,6 +280,11 @@ export function matchesTaskFilter<T extends GroupableTask & { blockedCount?: num
   }
   if (filter.priority !== null && (task.priority ?? "none") !== filter.priority) return false;
   if (filter.tag !== null && !task.tags.includes(filter.tag)) return false;
+  if (filter.custom !== null) {
+    const raw = (task.customFields ?? {})[filter.custom.key];
+    const held = raw === null || raw === undefined ? [] : Array.isArray(raw) ? raw.map(String) : [String(raw)];
+    if (!held.includes(filter.custom.value)) return false;
+  }
   if (filter.due !== null && workBucketOf(task, now) !== filter.due) return false;
   if (filter.blocked !== null) {
     const isBlocked = (task.blockedCount ?? 0) > 0;
