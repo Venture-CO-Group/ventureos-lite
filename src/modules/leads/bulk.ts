@@ -16,43 +16,24 @@ import {
 } from "@/modules/fields/types";
 
 /**
- * How many leads one server round trip touches.
- *
- * Small enough that the progress bar moves and a failure loses little work,
- * large enough that moving 500 leads is ten calls rather than five hundred.
+ * The generic half of a bulk action now lives in `@/lib/bulk` — five more
+ * surfaces need the same contract (playbook-v5 P17/1) and it was
+ * lead-specific only by location. Re-exported so every existing import of
+ * `modules/leads/bulk` keeps working.
  */
-export const BULK_BATCH_SIZE = 50;
+export {
+  BULK_BATCH_SIZE,
+  chunk,
+  mergeBulkResults,
+  summarizeBulk,
+  groupSkipped,
+  EMPTY_BULK_RESULT,
+} from "@/lib/bulk";
+export type { BulkResult, SkippedRow } from "@/lib/bulk";
 
-export interface SkippedLead {
-  id: string;
-  reason: string;
-}
-
-export interface BulkResult {
-  applied: number;
-  skipped: SkippedLead[];
-  /**
-   * The toast's undo handle (P7/2). Present per BATCH, so a 500-lead action
-   * produces ten of them and the bar keeps the last — undoing the whole thing
-   * would mean one transaction across ten round trips, which is precisely the
-   * shape the batching exists to avoid.
-   */
-  undoId?: string | null;
-  undoLabel?: string | null;
-}
-
-export function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
-
-export function mergeBulkResults(results: BulkResult[]): BulkResult {
-  return {
-    applied: results.reduce((n, r) => n + r.applied, 0),
-    skipped: results.flatMap((r) => r.skipped),
-  };
-}
+/** The lead-specific alias the leads module already uses for a skipped row. */
+import type { SkippedRow } from "@/lib/bulk";
+export type SkippedLead = SkippedRow;
 
 // ---- stage changes --------------------------------------------------------
 

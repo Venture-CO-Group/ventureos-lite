@@ -1595,6 +1595,10 @@ model EmailThread {
   lastMessageAt    DateTime @map("last_message_at")
   messageCount     Int      @default(0) @map("message_count")
   unread           Boolean  @default(false)
+  /// Put away rather than deleted (playbook-v5 P17/1). A matched thread is
+  /// correspondence with a real lead, so archiving hides it from the list
+  /// while keeping it; NULL means it is still in the inbox.
+  archivedAt       DateTime? @map("archived_at")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
@@ -1604,6 +1608,7 @@ model EmailThread {
   @@unique([accountId, providerThreadId])
   @@index([workspaceId, lastMessageAt])
   @@index([leadId])
+  @@index([workspaceId, archivedAt])
   @@map("email_threads")
 }
 

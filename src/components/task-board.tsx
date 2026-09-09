@@ -58,6 +58,18 @@ import {
   type InlineValue,
 } from "./inline-edit";
 import { editTaskField } from "@/modules/tasks/inline-actions";
+import { BulkBar, type BulkAction } from "./bulk-bar";
+import { useBulkSelection, type BulkSelection } from "./use-bulk-selection";
+import {
+  bulkTasksAssign,
+  bulkTasksComplete,
+  bulkTasksDelete,
+  bulkTasksDue,
+  bulkTasksPriority,
+  bulkTasksSection,
+  bulkTasksTag,
+  resolveBoardTaskIds,
+} from "@/modules/tasks/bulk-actions";
 import { useViewState } from "./use-view-state";
 import { boolField, enumField, idField } from "@/lib/client/view-state";
 
@@ -128,6 +140,8 @@ function Card({
   onDragStart,
   onEdit,
   onMove,
+  selected,
+  onSelect,
   dragging,
 }: {
   task: TaskCardView;
@@ -138,6 +152,8 @@ function Card({
   onEdit: (field: string, value: InlineValue) => Promise<InlineSaveResult>;
   /** Keyboard movement. Arrow keys on the handle, one move per press. */
   onMove: (direction: "left" | "right" | "up" | "down") => void;
+  selected: boolean;
+  onSelect: () => void;
   dragging: boolean;
 }) {
   const due = dueLabel(task.dueAt);
@@ -161,6 +177,24 @@ function Card({
       } ${task.doneAt ? "opacity-60" : ""}`}
     >
       <div className="flex items-start gap-2">
+        {/**
+         * The selection box, shown once something is selected or on hover.
+         *
+         * Hidden at rest deliberately: a checkbox on every card at all times
+         * turns a board into a form, and the board's job is to be readable.
+         */}
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onSelect}
+          onClick={(e) => e.stopPropagation()}
+          data-testid="task-select"
+          aria-label={`Select ${task.title}`}
+          style={{ accentColor: "#7427C6" }}
+          className={`mt-[2px] flex-none transition-opacity ${
+            selected ? "opacity-100" : "opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+          }`}
+        />
         <button
           onClick={onToggle}
           aria-label={task.doneAt ? "Reopen" : "Complete"}
@@ -586,6 +620,157 @@ export function TaskBoards({
     [columns],
   );
 
+  /**
+   * Bulk selection, and the actions the bar offers (playbook-v5 P17/1).
+   *
+   * The count passed in is what "everything matching" means here: the tasks
+   * this board's current filters would show. It is resolved on the SERVER when
+   * an action runs — see `resolveBoardTaskIds` — because a count taken in the
+   * browser is already stale if a colleague added a card.
+   */
+  const boardTaskCount = useMemo(
+    () => columns.reduce((n, c) => n + c.tasks.length, 0),
+    [columns],
+  );
+  const selection = useBulkSelection(boardTaskCount);
+
+  const bulkActions = useMemo<BulkAction<unknown>[]>(() => {
+    const noun = "task";
+    const sections = columns.filter((c) => c.id !== "__none__");
+    return [
+      {
+        key: "complete",
+        label: "Complete",
+        noun,
+        verb: "completed",
+        run: (ids) => bulkTasksComplete(ids, true),
+      },
+      {
+        key: "assign",
+        label: "Assign to",
+        noun,
+        verb: "reassigned",
+        initial: "" as unknown,
+        form: (state, set) => (
+          <select
+            aria-label="Assignee"
+            data-testid="bulk-assignee-value"
+            value={String(state ?? "")}
+            onChange={(e) => set(e.target.value)}
+            className="rounded-[8px] border border-line bg-[rgba(0,5,29,0.6)] px-2 py-1 text-[12px] text-ink outline-none"
+          >
+            <option value="">Nobody</option>
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        ),
+        run: (ids, state) => bulkTasksAssign(ids, (String(state ?? "") || null) as string | null),
+      },
+      {
+        key: "priority",
+        label: "Set priority",
+        noun,
+        initial: "high" as unknown,
+        form: (state, set) => (
+          <select
+            aria-label="Priority"
+            data-testid="bulk-priority-value"
+            value={String(state ?? "high")}
+            onChange={(e) => set(e.target.value)}
+            className="rounded-[8px] border border-line bg-[rgba(0,5,29,0.6)] px-2 py-1 text-[12px] text-ink outline-none"
+          >
+            {TASK_PRIORITIES.map((p) => (
+              <option key={p} value={p}>
+                {PRIORITY_LABEL[p]}
+              </option>
+            ))}
+          </select>
+        ),
+        run: (ids, state) => bulkTasksPriority(ids, String(state ?? "high")),
+      },
+      {
+        key: "due",
+        label: "Set due date",
+        noun,
+        verb: "rescheduled",
+        initial: "" as unknown,
+        form: (state, set) => (
+          <input
+            type="date"
+            aria-label="Due date"
+            data-testid="bulk-due-value"
+            value={String(state ?? "")}
+            onChange={(e) => set(e.target.value)}
+            className="rounded-[8px] border border-line bg-[rgba(0,5,29,0.6)] px-2 py-1 text-[12px] text-ink outline-none"
+          />
+        ),
+        run: (ids, state) => bulkTasksDue(ids, String(state ?? "") || null),
+      },
+      {
+        key: "tag",
+        label: "Add tag",
+        noun,
+        verb: "tagged",
+        initial: "" as unknown,
+        validate: (state) => (String(state ?? "").trim() ? null : "Give the tag a name."),
+        form: (state, set) => (
+          <input
+            aria-label="Tag"
+            data-testid="bulk-tag-value"
+            placeholder="tag"
+            value={String(state ?? "")}
+            onChange={(e) => set(e.target.value)}
+            className="w-[120px] rounded-[8px] border border-line bg-[rgba(0,5,29,0.6)] px-2 py-1 text-[12px] text-ink outline-none"
+          />
+        ),
+        run: (ids, state) => bulkTasksTag(ids, String(state ?? ""), "add"),
+      },
+      ...(sections.length > 0
+        ? [
+            {
+              key: "section",
+              label: "Move to column",
+              noun,
+              verb: "moved",
+              initial: sections[0]!.id as unknown,
+              form: (state: unknown, set: (next: unknown) => void) => (
+                <select
+                  aria-label="Column"
+                  data-testid="bulk-section-value"
+                  value={String(state ?? sections[0]!.id)}
+                  onChange={(e) => set(e.target.value)}
+                  className="rounded-[8px] border border-line bg-[rgba(0,5,29,0.6)] px-2 py-1 text-[12px] text-ink outline-none"
+                >
+                  {sections.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              ),
+              run: (ids: string[], state: unknown) =>
+                bulkTasksSection(ids, String(state ?? sections[0]!.id)),
+            } as BulkAction<unknown>,
+          ]
+        : []),
+      {
+        key: "delete",
+        label: "Delete",
+        noun,
+        verb: "deleted",
+        destructive: true,
+        // Typed, not just a dialog: deletion takes subtasks, comments,
+        // attachments and dependency links with it and cannot be undone
+        // (modules/undo/contract.ts).
+        confirmWord: "DELETE",
+        run: (ids) => bulkTasksDelete(ids),
+      },
+    ];
+  }, [columns, members]);
+
   const listTasks = useMemo(() => {
     if (!board) return [];
     const all = [...board.sections.flatMap((s) => s.tasks), ...board.unsectioned];
@@ -888,6 +1073,22 @@ export function TaskBoards({
           </div>
 
           {/**
+           * The bulk bar. One instance for the board, sticky at the bottom, so
+           * it is reachable whichever column you scrolled to.
+           */}
+          <BulkBar
+            selection={selection}
+            actions={bulkActions}
+            resolveAll={() =>
+              resolveBoardTaskIds(board.id, {
+                includeDone: showDone,
+                assigneeId: mineOnly ? currentUserId : null,
+              })
+            }
+            onDone={() => void refresh()}
+          />
+
+          {/**
            * Where a keyboard move is announced.
            *
            * The only other feedback is the card appearing somewhere else,
@@ -924,6 +1125,7 @@ export function TaskBoards({
                   onDrop={onDrop}
                   onEditField={editField}
                   onMoveByKeyboard={moveByKeyboard}
+                  selection={selection}
                   onAdd={(title) =>
                     guard(() =>
                       createBoardTask({
@@ -1225,6 +1427,7 @@ function Column({
   onDelete,
   onEditField,
   onMoveByKeyboard,
+  selection,
   canEditSection,
 }: {
   boardId: string;
@@ -1249,6 +1452,7 @@ function Column({
     taskId: string,
     direction: "left" | "right" | "up" | "down",
   ) => Promise<void>;
+  selection: BulkSelection;
   canEditSection: boolean;
 }) {
   const [adding, setAdding] = useState(false);
@@ -1341,6 +1545,8 @@ function Column({
               onDragStart={() => onDragStart(t.id)}
               onEdit={(field, value) => onEditField(t.id, field, value)}
               onMove={(direction) => void onMoveByKeyboard(t.id, direction)}
+              selected={selection.isSelected(t.id)}
+              onSelect={() => selection.toggle(t.id)}
             />
           </div>
         ))}
