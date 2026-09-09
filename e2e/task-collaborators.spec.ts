@@ -16,6 +16,21 @@ let runnerId = "";
 
 test.describe.configure({ mode: "serial" });
 
+/**
+ * Set a checkbox, idempotently.
+ *
+ * `check()` clicks once and then asserts, which fails outright when the click
+ * lands before React has hydrated — the box is a controlled input, so a click
+ * nothing is listening for changes nothing. Clicking only when the state is
+ * wrong makes the retry safe: a second attempt cannot toggle it back.
+ */
+async function setToggle(box: import("@playwright/test").Locator, on: boolean) {
+  await expect(async () => {
+    if ((await box.isChecked()) !== on) await box.click();
+    expect(await box.isChecked()).toBe(on);
+  }).toPass({ timeout: 45_000 });
+}
+
 test.beforeAll(async () => {
   const ws = await prisma.workspace.findFirst({ orderBy: { createdAt: "asc" } });
   workspaceId = ws!.id;
@@ -158,6 +173,13 @@ test("handing the task over records who did it", async ({ page }) => {
 });
 
 test("My Work shows what I own, and what I am helping with only when asked", async ({ page }) => {
+  /**
+   * Generous, because the first visit to this view in a `next dev` run
+   * compiles it: the toggle is a controlled checkbox, so a click that lands
+   * before hydration changes nothing, and the wait is for the bundle rather
+   * than for anything the product does slowly.
+   */
+  test.setTimeout(120_000);
   await page.goto(`/tasks?board=${boardId}&v=mine`);
   const work = page.getByTestId("my-work");
   await expect(work).toBeVisible({ timeout: 20_000 });
@@ -166,14 +188,14 @@ test("My Work shows what I own, and what I am helping with only when asked", asy
   // nothing on this board — but the helping task must not be here either.
   await expect(work).not.toContainText(`Helping task ${RUN}`);
 
-  await work.getByTestId("my-work-collaborating").check();
+  await setToggle(work.getByTestId("my-work-collaborating"), true);
   const row = work.getByTestId("my-work-row").filter({ hasText: `Helping task ${RUN}` });
   await expect(row).toBeVisible({ timeout: 20_000 });
   // And it says somebody else owns it, rather than reading as work I owe.
   await expect(row.getByTestId("my-work-collaborator")).toContainText("helping");
 
   // Off again, and it goes.
-  await work.getByTestId("my-work-collaborating").uncheck();
+  await setToggle(work.getByTestId("my-work-collaborating"), false);
   await expect(
     work.getByTestId("my-work-row").filter({ hasText: `Helping task ${RUN}` }),
   ).toHaveCount(0);

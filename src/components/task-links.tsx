@@ -27,9 +27,16 @@ import { useToast } from "./toast";
  */
 const KINDS: EntityKind[] = ["lead", "company", "deal", "project"];
 
-export function TaskLinks({ taskId }: { taskId: string }) {
+export function TaskLinks({
+  taskId,
+  initial,
+}: {
+  taskId: string;
+  /** Already read with the rest of the panel — see `getTaskExtras`. */
+  initial: { kind: EntityKind; id: string; label: string }[];
+}) {
   const toast = useToast();
-  const [links, setLinks] = useState<{ kind: EntityKind; id: string; label: string }[]>([]);
+  const [links, setLinks] = useState(initial);
   const [adding, setAdding] = useState(false);
   const [kind, setKind] = useState<EntityKind>("company");
   const [query, setQuery] = useState("");
@@ -41,8 +48,8 @@ export function TaskLinks({ taskId }: { taskId: string }) {
   }, [taskId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    setLinks(initial);
+  }, [initial]);
 
   /** Debounced, because it runs on a keystroke and it is a database query. */
   useEffect(() => {

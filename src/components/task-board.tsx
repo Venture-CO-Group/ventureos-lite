@@ -68,6 +68,7 @@ import { TaskWorkload } from "./task-workload";
 import { TaskFields } from "./task-fields";
 import { TaskChecklist } from "./task-checklist";
 import { TaskLinks } from "./task-links";
+import { getTaskExtras, type TaskExtras } from "@/modules/tasks/detail-extras";
 import { TaskPeople } from "./task-people";
 import { getTaskFieldDefs } from "@/modules/tasks/custom-field-actions";
 import type { FieldDef } from "@/modules/fields/types";
@@ -1956,9 +1957,29 @@ function TaskDetail({
   const [candidates, setCandidates] = useState<
     Array<{ id: string; title: string; doneAt: Date | null }>
   >([]);
+  const [extras, setExtras] = useState<TaskExtras>({
+    checklist: [],
+    links: [],
+    collaborators: [],
+    trail: [],
+  });
 
+  /**
+   * The task, and the three newer sections' data, in two calls rather than six
+   * (playbook-v5 P20). Each of the checklist, the links and the people arrived
+   * with its own mount-time fetch — the natural way to build them and the
+   * wrong way to open a task, because whatever the person did next queued
+   * behind all of them. `getTaskExtras` is one call for the three.
+   */
   const load = useCallback(async () => {
-    setTask(await getTaskDetail(taskId).catch(() => null));
+    const [detail, more] = await Promise.all([
+      getTaskDetail(taskId).catch(() => null),
+      getTaskExtras(taskId).catch(
+        () => ({ checklist: [], links: [], collaborators: [], trail: [] }) as TaskExtras,
+      ),
+    ]);
+    setTask(detail);
+    setExtras(more);
   }, [taskId]);
 
   useEffect(() => {
@@ -2182,6 +2203,7 @@ function TaskDetail({
       {/* ---------- checklist (playbook-v5 P20/3) ---------- */}
       <TaskChecklist
         taskId={taskId}
+        initial={extras.checklist}
         onPromoted={() => {
           // A promoted step is now a subtask, so the detail's own subtask list
           // and the board's progress counts both have to reload.
@@ -2195,12 +2217,13 @@ function TaskDetail({
         taskId={taskId}
         assigneeId={task.assigneeId}
         members={members}
+        initial={{ collaborators: extras.collaborators, trail: extras.trail }}
         delegatedByName={task.delegatedByName}
         onChanged={() => void load()}
       />
 
       {/* ---------- extra entity links (playbook-v5 P20/4) ---------- */}
-      <TaskLinks taskId={taskId} />
+      <TaskLinks taskId={taskId} initial={extras.links} />
 
       {/* ---------- Owner-defined fields (playbook-v5 P20/2) ---------- */}
       <TaskFields taskId={taskId} />

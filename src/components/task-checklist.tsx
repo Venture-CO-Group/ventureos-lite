@@ -36,20 +36,32 @@ import { InlineEdit } from "./inline-edit";
  * subtasks, for the same reason: deciding the work is finished belongs to
  * whoever can see whether the last step was real.
  */
-export function TaskChecklist({ taskId, onPromoted }: { taskId: string; onPromoted: () => void }) {
+export function TaskChecklist({
+  taskId,
+  initial,
+  onPromoted,
+}: {
+  taskId: string;
+  /**
+   * The steps, already read with the rest of the detail panel. Passing them in
+   * is what keeps opening a task to one round trip instead of six — see
+   * `getTaskExtras`. Its own `load()` still exists for after a change here.
+   */
+  initial: { id: string; text: string; doneAt: string | null; position: number }[];
+  onPromoted: () => void;
+}) {
   const toast = useToast();
-  const [items, setItems] = useState<
-    { id: string; text: string; doneAt: string | null; position: number }[]
-  >([]);
+  const [items, setItems] = useState(initial);
   const [draft, setDraft] = useState("");
 
   const load = useCallback(async () => {
     setItems(await getChecklist(taskId).catch(() => []));
   }, [taskId]);
 
+  // Re-seeded when the panel reloads the task, not fetched again on mount.
   useEffect(() => {
-    void load();
-  }, [load]);
+    setItems(initial);
+  }, [initial]);
 
   const progress = progressOf(items.map((i) => ({ doneAt: i.doneAt ? new Date(i.doneAt) : null })));
   const label = progressLabel(progress);

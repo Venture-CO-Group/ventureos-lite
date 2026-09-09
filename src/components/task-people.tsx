@@ -27,19 +27,22 @@ export function TaskPeople({
   taskId,
   assigneeId,
   members,
+  initial,
   delegatedByName,
   onChanged,
 }: {
   taskId: string;
   assigneeId: string | null;
   members: WorkspaceMemberOption[];
+  /** Already read with the rest of the panel — see `getTaskExtras`. */
+  initial: TaskPeopleView;
   /** Who handed this over, when somebody did. */
   delegatedByName: string | null;
   /** So the assignee picker's groups reload with the new collaborator. */
   onChanged: () => void;
 }) {
   const toast = useToast();
-  const [people, setPeople] = useState<TaskPeopleView | null>(null);
+  const [people, setPeople] = useState<TaskPeopleView | null>(initial);
   const [adding, setAdding] = useState("");
   const [showTrail, setShowTrail] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -49,8 +52,8 @@ export function TaskPeople({
   }, [taskId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    setPeople(initial);
+  }, [initial]);
 
   const collaboratorIds = new Set((people?.collaborators ?? []).map((c) => c.userId));
   /** The assignee is not offered: they already own it. */
