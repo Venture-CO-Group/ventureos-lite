@@ -14,6 +14,41 @@ import { test, expect, type Page } from "@playwright/test";
  */
 test.describe.configure({ mode: "serial" });
 
+/**
+ * Every view this file creates is removed at the end, whatever happened.
+ *
+ * ── WHY THIS MATTERS MORE THAN IT LOOKS ─────────────────────────────────────
+ *
+ * `deleteView` runs through the UI, which is the point — it is what the tests
+ * are proving. But a test that FAILS before reaching it leaves its view
+ * behind, and the tab strip is a horizontal row that grows without bound. Runs
+ * accumulated seven "Update <timestamp>" tabs over an afternoon, at which
+ * point the newest tab's delete button sits past the right-hand edge and the
+ * click stops landing — so the file started failing for a reason that had
+ * nothing to do with saved views, and the failure produced one more tab each
+ * time it ran.
+ *
+ * A shared surface that grows has to be swept by id, not by hoping the happy
+ * path ran.
+ */
+const CREATED_PREFIXES = ["Researched ", "Highlight ", "Columns ", "Twice ", "Shared ", "Update ", "Temporary "];
+
+test.afterAll(async () => {
+  const { PrismaClient } = await import("@prisma/client");
+  const db = new PrismaClient();
+  try {
+    const views = await db.savedView.findMany({ select: { id: true, name: true } });
+    const mine = views.filter((v) => CREATED_PREFIXES.some((p) => v.name.startsWith(p)));
+    if (mine.length > 0) {
+      const ids = mine.map((v) => v.id);
+      await db.scheduledExport.deleteMany({ where: { viewId: { in: ids } } });
+      await db.savedView.deleteMany({ where: { id: { in: ids } } });
+    }
+  } finally {
+    await db.$disconnect();
+  }
+});
+
 async function addStageFilter(page: Page, stage: string) {
   await page.getByTestId("filter-toggle").click();
   await page.getByTestId("filter-add").click();
@@ -46,6 +81,16 @@ async function saveCurrentView(page: Page, name: string, shared = false) {
  * the thing being asserted, so the check goes back to the server for it.
  */
 async function deleteView(page: Page, name: string) {
+  /**
+   * Wait for the page to have finished streaming before clicking.
+   *
+   * `/leads` renders its body behind a `<Suspense>` (playbook-v5 P16/2), so a
+   * navigation replaces the content when the data lands. A click issued in the
+   * gap can be dispatched against a node React is in the middle of replacing,
+   * and it simply never runs — which is how this helper started failing only
+   * when it was called straight after clicking a tab.
+   */
+  await expect(page.getByTestId("skeleton")).toHaveCount(0, { timeout: 30_000 });
   const tab = page.getByTestId("view-tab").filter({ hasText: name });
   if ((await tab.count()) === 0) return;
   await page.getByLabel(`Delete view ${name}`).click();
