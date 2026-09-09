@@ -143,6 +143,7 @@ export function Inbox({
               New reply
             </div>
             <select
+              aria-label="Lead this reply belongs to"
               value={newLead}
               onChange={(e) => setNewLead(e.target.value)}
               className="rounded-[7px] border border-line bg-[rgba(0,5,29,0.5)] px-2 py-1.5 text-[12px] text-ink outline-none focus:border-accent"

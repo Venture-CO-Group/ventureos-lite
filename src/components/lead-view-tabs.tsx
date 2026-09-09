@@ -218,6 +218,7 @@ export function LeadViewTabs({
           <div className="mb-3 flex items-center">
             <h3 className="font-display text-lg font-bold lowercase">save this view</h3>
             <button
+              aria-label="Close"
               onClick={() => setSaveOpen(false)}
               className="ml-auto text-muted hover:text-ink"
             >

@@ -392,7 +392,7 @@ export function LeadBulkBar({
               {action === "export" && "export leads"}
               {action === "field" && "set a field"}
             </h3>
-            <button onClick={close} className="ml-auto text-muted hover:text-ink">
+            <button aria-label="Close" onClick={close} className="ml-auto text-muted hover:text-ink">
               ✕
             </button>
           </div>

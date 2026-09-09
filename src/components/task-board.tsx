@@ -109,6 +109,7 @@ function Card({
   onToggle,
   onDragStart,
   onEdit,
+  onMove,
   dragging,
 }: {
   task: TaskCardView;
@@ -117,6 +118,8 @@ function Card({
   onDragStart: () => void;
   /** One field, committed to the server, which answers with what it stored. */
   onEdit: (field: string, value: InlineValue) => Promise<InlineSaveResult>;
+  /** Keyboard movement. Arrow keys on the handle, one move per press. */
+  onMove: (direction: "left" | "right" | "up" | "down") => void;
   dragging: boolean;
 }) {
   const due = dueLabel(task.dueAt);
@@ -159,8 +162,16 @@ function Card({
          * must not take it: a title that turned into a text input on every
          * click would break the common action to serve the rarer one. The
          * tooltip says so, and Enter on the focused title still edits.
+         *
+         * The click handler sits on a PRESENTATIONAL div — no role, no
+         * tabIndex. axe does not flag a bare div with onClick, which is
+         * exactly why it is worth saying: the keyboard route in is the inline
+         * control's own button (Enter edits) and the Open button beside it, so
+         * nothing here depends on clicking a div. Giving this div role="button"
+         * would nest it around the inline control and reproduce the
+         * nested-interactive fault the pipeline card had.
          */}
-        <div className="min-w-0 flex-1" onClick={onOpen}>
+        <div className="min-w-0 flex-1" onClick={onOpen} role="presentation">
           <InlineEdit
             kind="text"
             label="title"
@@ -186,6 +197,40 @@ function Card({
             {initials(task.assigneeName)}
           </span>
         )}
+
+        {/**
+         * THE KEYBOARD ROUTE ACROSS THE BOARD (playbook-v5 P16/4).
+         *
+         * Dragging was the only way to move a card, which means the board was
+         * unusable without a pointer. This is the standard accessible
+         * alternative: a named handle, arrow keys to move, one commit per
+         * press — no "grab mode" to enter and remember, because a mode you can
+         * be stuck in is its own accessibility problem. The move is announced
+         * in the board's live region, since the card itself moving is the only
+         * other feedback and a screen reader cannot see that.
+         */}
+        <button
+          type="button"
+          data-testid="card-move-handle"
+          aria-label={`Move ${task.title}. Arrow keys move it between columns and positions.`}
+          title="Arrow keys move this card"
+          onKeyDown={(e) => {
+            const map = {
+              ArrowLeft: "left",
+              ArrowRight: "right",
+              ArrowUp: "up",
+              ArrowDown: "down",
+            } as const;
+            const direction = map[e.key as keyof typeof map];
+            if (!direction) return;
+            e.preventDefault();
+            e.stopPropagation();
+            onMove(direction);
+          }}
+          className="mt-[1px] flex-none rounded-[4px] px-1 text-[11px] leading-none text-muted opacity-0 transition-opacity hover:text-ink focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-accent group-hover:opacity-100"
+        >
+          ⠿
+        </button>
       </div>
 
       {(due.text || priority !== "none" || task.tags.length > 0) && (
@@ -391,6 +436,89 @@ export function TaskBoards({
     }
     return cols;
   }, [board]);
+
+  /**
+   * Move a card with the keyboard (playbook-v5 P16/4).
+   *
+   * Left and right cross columns and land at the TOP of the target, which is
+   * both predictable and the position somebody moving work usually wants. Up
+   * and down step within the column. Each press is one committed move, so
+   * there is no mode to be stuck in — and `afterId` is the card that should
+   * end up above it, which is what the store's ranking expects.
+   */
+  const [moveAnnouncement, setMoveAnnouncement] = useState("");
+  /**
+   * One move at a time.
+   *
+   * `columns` comes from the last refresh, so a second press that arrives
+   * before the first has come back computes from stale positions — on a
+   * three-column board that means the card moves to column two twice and the
+   * keystroke is silently lost. Holding presses until the move lands costs a
+   * beat and never lies about where the card went.
+   */
+  const moving = useRef(false);
+
+  const moveByKeyboard = useCallback(
+    async (taskId: string, direction: "left" | "right" | "up" | "down") => {
+      if (moving.current) return;
+      const ci = columns.findIndex((c) => c.tasks.some((t) => t.id === taskId));
+      if (ci < 0) return;
+      const column = columns[ci]!;
+      const ti = column.tasks.findIndex((t) => t.id === taskId);
+
+      if (direction === "left" || direction === "right") {
+        const target = columns[ci + (direction === "left" ? -1 : 1)];
+        if (!target) {
+          setMoveAnnouncement(
+            direction === "left" ? "Already in the first column." : "Already in the last column.",
+          );
+          return;
+        }
+        moving.current = true;
+        try {
+          await guard(() =>
+            moveBoardTask({
+              id: taskId,
+              sectionId: target.id === "__none__" ? null : target.id,
+              afterId: null,
+            }),
+          );
+        } finally {
+          moving.current = false;
+        }
+        setMoveAnnouncement(`Moved to ${target.name}, first position.`);
+        return;
+      }
+
+      const to = ti + (direction === "up" ? -1 : 1);
+      if (to < 0 || to >= column.tasks.length) {
+        setMoveAnnouncement(
+          direction === "up" ? "Already at the top." : "Already at the bottom.",
+        );
+        return;
+      }
+      const afterId =
+        direction === "up" ? (column.tasks[to - 1]?.id ?? null) : column.tasks[to]!.id;
+      moving.current = true;
+      try {
+        await guard(() =>
+          moveBoardTask({
+            id: taskId,
+            sectionId: column.id === "__none__" ? null : column.id,
+            afterId,
+          }),
+        );
+      } finally {
+        moving.current = false;
+      }
+      setMoveAnnouncement(
+        `Moved to position ${to + 1} of ${column.tasks.length} in ${column.name}.`,
+      );
+    },
+    // `guard` is stable enough for this: it closes over setters and refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [columns],
+  );
 
   const listTasks = useMemo(() => {
     if (!board) return [];
@@ -691,6 +819,18 @@ export function TaskBoards({
             </div>
           </div>
 
+          {/**
+           * Where a keyboard move is announced.
+           *
+           * The only other feedback is the card appearing somewhere else,
+           * which a screen reader cannot see. One region for the board rather
+           * than one per card, so moving three cards in a row does not
+           * re-announce all of them.
+           */}
+          <div aria-live="polite" className="sr-only" data-testid="board-live">
+            {moveAnnouncement}
+          </div>
+
           {/* ---------- board view ---------- */}
           {view === "board" && (
             <div className="flex snap-x gap-3 overflow-x-auto pb-3">
@@ -715,6 +855,7 @@ export function TaskBoards({
                   }}
                   onDrop={onDrop}
                   onEditField={editField}
+                  onMoveByKeyboard={moveByKeyboard}
                   onAdd={(title) =>
                     guard(() =>
                       createBoardTask({
@@ -750,6 +891,7 @@ export function TaskBoards({
                     className="flex items-center gap-2.5 border-b border-line px-3.5 py-2.5 last:border-b-0"
                   >
                     <button
+                      aria-label={t.doneAt ? `Reopen ${t.title}` : `Complete ${t.title}`}
                       onClick={async () => {
                         const res = await setTaskDone(t.id, !t.doneAt);
                         offerUndo(res.undo ?? null);
@@ -1014,6 +1156,7 @@ function Column({
   onRename,
   onDelete,
   onEditField,
+  onMoveByKeyboard,
   canEditSection,
 }: {
   boardId: string;
@@ -1034,6 +1177,10 @@ function Column({
     field: string,
     value: InlineValue,
   ) => Promise<InlineSaveResult>;
+  onMoveByKeyboard: (
+    taskId: string,
+    direction: "left" | "right" | "up" | "down",
+  ) => Promise<void>;
   canEditSection: boolean;
 }) {
   const [adding, setAdding] = useState(false);
@@ -1125,6 +1272,7 @@ function Column({
               onToggle={() => void onToggle(t)}
               onDragStart={() => onDragStart(t.id)}
               onEdit={(field, value) => onEditField(t.id, field, value)}
+              onMove={(direction) => void onMoveByKeyboard(t.id, direction)}
             />
           </div>
         ))}
@@ -1303,7 +1451,7 @@ function TaskDetail({
           data-testid="detail-title"
           className="min-w-0 flex-1 rounded-[8px] border border-transparent bg-transparent px-1 py-1 font-display text-[19px] font-bold text-ink outline-none hover:border-line focus:border-accent"
         />
-        <button onClick={onClose} className="text-muted hover:text-ink">
+        <button aria-label="Close" onClick={onClose} className="text-muted hover:text-ink">
           ✕
         </button>
       </div>
@@ -1452,6 +1600,7 @@ function TaskDetail({
               {s.title}
             </span>
             <button
+              aria-label={`Delete subtask ${s.title}`}
               onClick={() => void run(() => deleteTask(s.id))}
               className="ml-auto text-[12px] text-muted hover:text-[#FFB3C2]"
             >
@@ -1495,6 +1644,7 @@ function TaskDetail({
               {b.doneAt ? "✓" : "⏳"} {b.title}
             </span>
             <button
+              aria-label={`Remove the dependency on ${b.title}`}
               onClick={() => void run(() => removeDependency({ taskId, blockedById: b.id }))}
               className="ml-auto text-[12px] text-muted hover:text-[#FFB3C2]"
             >
@@ -1597,6 +1747,7 @@ function TaskDetail({
               {Math.max(1, Math.round(a.sizeBytes / 1024))} KB
             </span>
             <button
+              aria-label={`Remove ${a.filename}`}
               onClick={() => void run(() => deleteAttachment(a.id))}
               className="text-[12px] text-muted hover:text-[#FFB3C2]"
             >

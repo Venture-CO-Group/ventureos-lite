@@ -53,7 +53,7 @@ export function InvoiceButton({ certificateId }: { certificateId: string }) {
           <div onClick={(e) => e.stopPropagation()} className="max-h-[85vh] w-full max-w-[560px] overflow-auto rounded-card border border-line bg-[rgba(6,11,38,0.98)] p-5 backdrop-blur">
             <div className="mb-1 flex items-center gap-2">
               <b className="text-[14px]">Confirm invoice — Számlázz.hu</b>
-              <button onClick={() => setPreview(null)} className="ml-auto text-muted hover:text-ink">✕</button>
+              <button aria-label="Close" onClick={() => setPreview(null)} className="ml-auto text-muted hover:text-ink">✕</button>
             </div>
             <p className="mb-3 text-[11.5px] text-muted">
               This is exactly what will be submitted. Nothing is sent until you confirm.

@@ -384,6 +384,7 @@ export function SettingsDataQuality({ view }: { view: DataQualityView }) {
                 Merge {preview.loserLabel} into {preview.survivorLabel}
               </b>
               <button
+                aria-label="Close"
                 onClick={() => setPreview(null)}
                 className="ml-auto text-muted hover:text-ink"
               >

@@ -172,7 +172,9 @@ export function PipelineBoard({
         <span aria-hidden>·</span>
         <span>
           <b className="font-semibold text-ink">Qualified onward</b> is money, and lives on{" "}
-          <Link href="/deals" className="text-accent-ink underline-offset-2 hover:underline">
+          {/* Always underlined, not just on hover: a link inside a sentence has
+              to be distinguishable without relying on colour (WCAG 1.4.1). */}
+          <Link href="/deals" className="text-accent-ink underline underline-offset-2">
             Deals
           </Link>
           .
@@ -231,12 +233,20 @@ export function PipelineBoard({
               </div>
 
               {list.map((c) => (
+                /**
+                 * NOT role="button".
+                 *
+                 * It was, with tabIndex and an aria-label, and it contains a
+                 * Move-to menu, a Close-deal button and a deal link — which
+                 * axe reports as nested-interactive, nine nodes of it: a
+                 * screen reader is told "button" and then finds three more
+                 * controls inside, and the whole card lands in the tab order
+                 * as one opaque stop. The keyboard route to opening a card is
+                 * now the title button below, which is a real button.
+                 */
                 <div
                   key={c.id}
                   draggable
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Open ${c.name}`}
                   data-testid="pipeline-card"
                   onDragStart={() => {
                     draggedRef.current = true;
@@ -261,15 +271,17 @@ export function PipelineBoard({
                     }
                     setDetailFor(c.id);
                   }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setDetailFor(c.id);
-                    }
-                  }}
-                  className="mb-2.5 cursor-pointer rounded-[11px] border border-line bg-panel-2 p-3 transition-shadow hover:border-accent-soft hover:shadow-[0_0_16px_rgba(116,39,198,0.25)] focus:outline-none focus-visible:border-accent"
+                  className="mb-2.5 cursor-pointer rounded-[11px] border border-line bg-panel-2 p-3 transition-shadow hover:border-accent-soft hover:shadow-[0_0_16px_rgba(116,39,198,0.25)] focus-within:border-accent"
                 >
-                  <b className="block text-[13px]">{c.name}</b>
+                  <b className="block text-[13px]">
+                    <button
+                      type="button"
+                      onClick={() => setDetailFor(c.id)}
+                      className="w-full rounded-[4px] text-left focus-visible:ring-1 focus-visible:ring-accent"
+                    >
+                      {c.name}
+                    </button>
+                  </b>
                   <span className="mb-2 mt-0.5 block text-[11.5px] text-muted">{c.company}</span>
                   {c.invoiceStatus && (
                     <span className={`mb-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${INVOICE_CHIP[c.invoiceStatus] ?? "bg-panel text-muted"}`}>
@@ -365,7 +377,7 @@ export function PipelineBoard({
           >
             <div className="mb-2 flex items-center">
               <b className="text-[13px]">Move {moveFor.name} to…</b>
-              <button onClick={() => setMoveFor(null)} className="ml-auto text-muted hover:text-ink">
+              <button aria-label="Close" onClick={() => setMoveFor(null)} className="ml-auto text-muted hover:text-ink">
                 ✕
               </button>
             </div>
@@ -430,7 +442,7 @@ function ReasonDialog({
       <div className="w-full max-w-[440px] rounded-card border border-line bg-[rgba(6,11,38,0.98)] p-5 backdrop-blur">
         <div className="mb-2 flex items-center">
           <b className="text-[13px]">Disqualify {name}</b>
-          <button onClick={onClose} className="ml-auto text-muted hover:text-ink">
+          <button aria-label="Close" onClick={onClose} className="ml-auto text-muted hover:text-ink">
             ✕
           </button>
         </div>
@@ -502,7 +514,7 @@ function CloseDialog({
       <div className="w-full max-w-[460px] rounded-card border border-line bg-[rgba(6,11,38,0.98)] p-5 backdrop-blur">
         <div className="mb-2 flex items-center">
           <b className="text-[13px]">Close deal · {card.name}</b>
-          <button onClick={onClose} className="ml-auto text-muted hover:text-ink">
+          <button aria-label="Close" onClick={onClose} className="ml-auto text-muted hover:text-ink">
             ✕
           </button>
         </div>

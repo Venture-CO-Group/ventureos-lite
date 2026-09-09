@@ -86,7 +86,7 @@ export function AddSubscriptionDialog({ onClose }: { onClose: () => void }) {
     <Modal onClose={onClose}>
       <div className="mb-3 flex items-center">
         <h3 className="font-display text-lg font-bold lowercase">add subscription</h3>
-        <button onClick={onClose} className="ml-auto text-muted hover:text-ink">
+        <button aria-label="Close" onClick={onClose} className="ml-auto text-muted hover:text-ink">
           ✕
         </button>
       </div>
@@ -233,7 +233,7 @@ export function ChurnDialog({
     <Modal onClose={onClose}>
       <div className="mb-3 flex items-center">
         <h3 className="font-display text-lg font-bold lowercase">end subscription</h3>
-        <button onClick={onClose} className="ml-auto text-muted hover:text-ink">
+        <button aria-label="Close" onClick={onClose} className="ml-auto text-muted hover:text-ink">
           ✕
         </button>
       </div>

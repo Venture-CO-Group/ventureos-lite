@@ -206,6 +206,7 @@ export function QuoteBuilder({
                 {formatHuf(computeLineTotal(items[i].baseNet, r.preset))}
               </b>
               <button
+                aria-label="Remove this line"
                 onClick={() => setRows((rs) => rs.filter((_, idx) => idx !== i))}
                 disabled={!canCreate || rows.length === 1}
                 className="text-muted hover:text-ink disabled:opacity-40"

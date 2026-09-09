@@ -183,6 +183,7 @@ function NewTask({
         className="min-w-[160px] flex-1 rounded-[10px] border border-line bg-[rgba(0,5,29,0.5)] px-3 py-1.5 text-[12.5px] text-ink outline-none focus:border-accent"
       />
       <select
+        aria-label="Task type"
         value={type}
         onChange={(e) => setType(e.target.value as TaskType)}
         className="rounded-[10px] border border-line bg-[rgba(0,5,29,0.5)] px-2 py-1.5 text-[12px] text-ink outline-none focus:border-accent"
@@ -194,6 +195,7 @@ function NewTask({
         ))}
       </select>
       <select
+        aria-label="Due in"
         value={days}
         onChange={(e) => setDays(Number(e.target.value))}
         className="rounded-[10px] border border-line bg-[rgba(0,5,29,0.5)] px-2 py-1.5 text-[12px] text-ink outline-none focus:border-accent"

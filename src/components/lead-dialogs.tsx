@@ -54,7 +54,7 @@ export function EnrichDialog({
     <Modal>
       <div className="mb-3 flex items-center">
         <h3 className="font-display text-lg font-bold lowercase">registry enrichment</h3>
-        <button onClick={onClose} className="ml-auto text-muted hover:text-ink">
+        <button aria-label="Close" onClick={onClose} className="ml-auto text-muted hover:text-ink">
           ✕
         </button>
       </div>
@@ -124,7 +124,7 @@ export function OverrideDialog({
     <Modal>
       <div className="mb-3 flex items-center">
         <h3 className="font-display text-lg font-bold lowercase">override icp score</h3>
-        <button onClick={onClose} className="ml-auto text-muted hover:text-ink">
+        <button aria-label="Close" onClick={onClose} className="ml-auto text-muted hover:text-ink">
           ✕
         </button>
       </div>

@@ -313,7 +313,7 @@ function ComposerModal({
     <Modal>
       <div className="mb-3 flex items-center">
         <h3 className="font-display text-lg font-bold lowercase">send document</h3>
-        <button onClick={onClose} className="ml-auto text-muted hover:text-ink">✕</button>
+        <button aria-label="Close" onClick={onClose} className="ml-auto text-muted hover:text-ink">✕</button>
       </div>
       {msg && <p className="mb-2 text-[12px] text-[#FFB3C2]">{msg}</p>}
       <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="Recipient email" className={`${FIELD} mb-2`} />
@@ -406,7 +406,7 @@ function ContractModal({
     <Modal>
       <div className="mb-3 flex items-center">
         <h3 className="font-display text-lg font-bold lowercase">generate contract</h3>
-        <button onClick={onClose} className="ml-auto text-muted hover:text-ink">✕</button>
+        <button aria-label="Close" onClick={onClose} className="ml-auto text-muted hover:text-ink">✕</button>
       </div>
       <p className="mb-2 text-[12px] text-muted">
         Pre-filled from the accepted quote + registry party data. Edit before generating.
@@ -467,7 +467,7 @@ function CertificateModal({
     <Modal>
       <div className="mb-3 flex items-center">
         <h3 className="font-display text-lg font-bold lowercase">generate certificate</h3>
-        <button onClick={onClose} className="ml-auto text-muted hover:text-ink">✕</button>
+        <button aria-label="Close" onClick={onClose} className="ml-auto text-muted hover:text-ink">✕</button>
       </div>
       <p className="mb-2 text-[12px] text-muted">
         Deliverables default to the contract scope — leave blank to use it as-is.

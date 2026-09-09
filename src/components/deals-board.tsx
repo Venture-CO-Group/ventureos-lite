@@ -417,6 +417,7 @@ export function DealsBoard({
             <div className="mb-2 flex items-center">
               <b className="text-[13px]">Move {moveFor.title} to…</b>
               <button
+                aria-label="Close"
                 onClick={() => setMoveFor(null)}
                 className="ml-auto text-muted hover:text-ink"
               >
@@ -471,7 +472,7 @@ function LostDialog({
       <div className="w-full max-w-[440px] rounded-card border border-line bg-[rgba(6,11,38,0.98)] p-5 backdrop-blur">
         <div className="mb-2 flex items-center">
           <b className="text-[13px]">Mark {title} lost</b>
-          <button onClick={onClose} className="ml-auto text-muted hover:text-ink">
+          <button aria-label="Close" onClick={onClose} className="ml-auto text-muted hover:text-ink">
             ✕
           </button>
         </div>

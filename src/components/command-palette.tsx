@@ -374,7 +374,7 @@ function ShortcutOverlay({
           <h3 className="font-display text-[18px] lowercase tracking-display">
             keyboard shortcuts
           </h3>
-          <button onClick={onClose} className="ml-auto text-muted hover:text-ink">
+          <button aria-label="Close" onClick={onClose} className="ml-auto text-muted hover:text-ink">
             ✕
           </button>
         </div>
