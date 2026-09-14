@@ -430,7 +430,6 @@ export function LeadsTable(props: LeadsTableProps) {
         filters={filters}
         matchingTotal={total}
         pageIds={pageIds}
-        columns={columns}
         facets={facets}
         canDelete={canDelete}
         canExport={canExport}

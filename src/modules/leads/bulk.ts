@@ -7,13 +7,8 @@
  */
 
 import { foldText } from "../search/fuzzy";
-import { columnDef } from "./columns";
-import {
-  customFieldKey,
-  formatValue,
-  isCustomFieldRef,
-  type FieldDef,
-} from "@/modules/fields/types";
+import { cellText, exportColumns, type ExportLead } from "./export-columns";
+import type { FieldDef } from "@/modules/fields/types";
 
 /**
  * The generic half of a bulk action now lives in `@/lib/bulk` — five more
@@ -119,115 +114,52 @@ export function removeSignals(existing: string[], toRemove: string[]): string[] 
 
 // ---- CSV ------------------------------------------------------------------
 
-export interface CsvLead {
-  id: string;
-  contactName?: string | null;
-  title?: string | null;
-  company?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  industry?: string | null;
-  city?: string | null;
-  icpScore?: number | null;
-  stage?: string | null;
-  signals?: string[];
-  source?: string | null;
-  ownerName?: string | null;
-  lastActivityAt?: Date | string | null;
-  createdAt?: Date | string | null;
-  /** Owner-defined field values, keyed by definition key (P5/1). */
-  customFields?: Record<string, unknown>;
-}
+/**
+ * One lead, flattened for export.
+ *
+ * The shape itself now lives with the column registry that reads it
+ * (`export-columns.ts`), so a field cannot be added to the row without the
+ * column that carries it being visible in the same file. Re-exported under its
+ * historical name because half the leads module imports it.
+ */
+export type CsvLead = ExportLead;
 
 /**
- * One cell, formatted the way the table formats it.
+ * RFC 4180: quote when the value contains a comma, a quote or a newline.
  *
- * Exported because CSV is no longer the only way a lead list leaves: the XLSX
- * and the branded PDF read through this same function, so a column cannot mean
- * one thing on screen and another in the file somebody sends on.
+ * The newline case is not theoretical — a person summary and a notes field both
+ * hold prose somebody typed with Enter in it, and an unquoted line break turns
+ * one lead into two malformed rows for every row after it.
  */
-export function leadCellValue(
-  lead: CsvLead,
-  column: string,
-  customFields: FieldDef[] = [],
-): string {
-  // Owner-defined fields (P5/1). Formatted the same way the table cell is, so
-  // an export reads like the screen it came from rather than like the JSON
-  // underneath it.
-  if (isCustomFieldRef(column)) {
-    const key = customFieldKey(column);
-    const def = customFields.find((d) => d.key === key);
-    if (!def) return "";
-    return formatValue(def, lead.customFields?.[key] as never);
-  }
-  const date = (v: Date | string | null | undefined) =>
-    v ? new Date(v).toISOString().slice(0, 10) : "";
-  switch (column) {
-    case "contact":
-      return lead.contactName ?? "";
-    case "company":
-      return lead.company ?? "";
-    case "title":
-      return lead.title ?? "";
-    case "email":
-      return lead.email ?? "";
-    case "phone":
-      return lead.phone ?? "";
-    case "industry":
-      return lead.industry ?? "";
-    case "city":
-      return lead.city ?? "";
-    case "icpScore":
-      return lead.icpScore == null ? "" : String(lead.icpScore);
-    case "stage":
-      return lead.stage ?? "";
-    // Semicolons, not JSON: a spreadsheet is the destination, and `["a","b"]`
-    // in a cell helps nobody.
-    case "signals":
-      return (lead.signals ?? []).join("; ");
-    case "source":
-      return lead.source ?? "";
-    case "owner":
-      return lead.ownerName ?? "";
-    case "lastActivity":
-      return date(lead.lastActivityAt);
-    case "created":
-      return date(lead.createdAt);
-    default:
-      return "";
-  }
-}
-
-/** RFC 4180: quote when the value contains a comma, a quote or a newline. */
 function escapeCsv(value: string): string {
   if (!/[",\n\r]/.test(value)) return value;
   return `"${value.replace(/"/g, '""')}"`;
 }
 
 /**
- * Export exactly the columns on screen, in the order they are on screen — the
- * point of exporting a filtered, arranged table is to get that table.
+ * The whole lead record as CSV, in the registry's order.
+ *
+ * No column list argument: an export carries the record, not whatever subset of
+ * it the table happened to be showing. That was the bug — a default table of
+ * five columns produced a five-column file, and the other fifteen things we
+ * know about a lead silently did not leave the building.
+ *
+ * Rows are joined with CRLF, which is what RFC 4180 specifies and what keeps a
+ * quoted multi-line cell unambiguous for the stricter readers.
  */
-/**
- * The heading a column carries, built-in or Owner-defined. Shared with the
- * other export formats for the same reason `leadCellValue` is.
- */
-export function leadColumnLabel(key: string, customFields: FieldDef[] = []): string {
-  return isCustomFieldRef(key)
-    ? (customFields.find((d) => d.key === customFieldKey(key))?.label ?? customFieldKey(key))
-    : (columnDef(key)?.label ?? key);
+export function buildLeadsCsv(leads: CsvLead[], customFields: FieldDef[] = []): string {
+  const defs = exportColumns("csv", customFields);
+  const header = defs.map((d) => escapeCsv(d.label)).join(",");
+  const lines = leads.map((lead) =>
+    defs.map((d) => escapeCsv(cellText(d, lead))).join(","),
+  );
+  return [header, ...lines].join("\r\n");
 }
 
-export function buildLeadsCsv(
-  leads: CsvLead[],
-  columns: string[],
-  customFields: FieldDef[] = [],
-): string {
-  const header = columns
-    .map((key) => escapeCsv(leadColumnLabel(key, customFields)))
-    .join(",");
-  const lines = leads.map((lead) =>
-    columns.map((key) => escapeCsv(leadCellValue(lead, key, customFields))).join(","),
-  );
-  return [header, ...lines].join("\n");
+/** The BOM Excel needs before it will read UTF-8 accents correctly. */
+export const CSV_BOM = "\ufeff";
+
+/** The CSV as bytes, BOM included — the one place that decision is made. */
+export function leadsCsvBuffer(leads: CsvLead[], customFields: FieldDef[] = []): Buffer {
+  return Buffer.from(CSV_BOM + buildLeadsCsv(leads, customFields), "utf8");
 }

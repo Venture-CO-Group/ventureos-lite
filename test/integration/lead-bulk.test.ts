@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { csvCell, parseCsv } from "../helpers/csv";
 import { prismaUnsafe } from "../../src/lib/db";
 import {
   applyOwner,
@@ -274,17 +275,17 @@ describe("bulk delete", () => {
 });
 
 describe("bulk CSV export", () => {
-  it("exports the selected leads with the chosen columns", async () => {
+  it("exports the selected leads, whole record", async () => {
     const ids = await seedLeads();
-    const csv = await exportLeadsCsv(wsA, [ids.high], ["contact", "icpScore"]);
-    expect(csv.split("\n")[0]).toBe("Lead,ICP score");
-    expect(csv).toContain("High,5");
+    const csv = await exportLeadsCsv(wsA, [ids.high]);
+    expect(csvCell(csv, "Name")).toBe("High");
+    expect(csvCell(csv, "ICP score")).toBe("5");
   });
 
   it("never exports a lead from another workspace", async () => {
-    const csv = await exportLeadsCsv(wsA, [bLeadId], ["contact"]);
+    const csv = await exportLeadsCsv(wsA, [bLeadId]);
     expect(csv).not.toContain("Bravo Secret");
     // Header only.
-    expect(csv.split("\n")).toHaveLength(1);
+    expect(parseCsv(csv)).toHaveLength(1);
   });
 });

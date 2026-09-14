@@ -4,15 +4,21 @@ import { resolveSendingIdentity } from "@/modules/mail/identity";
 import { brandEmail, brandEmailText } from "@/modules/mail/layout";
 import { brandFrom } from "@/modules/workspaces/brand";
 import { isRecipientSuppressed } from "@/modules/mail/suppression";
-import { parseFilterSet, parseColumns, parseSort } from "./view-params";
-import { columnKeysWithCustom } from "./columns";
+import { parseFilterSet, parseSort } from "./view-params";
 import { listFieldDefs } from "@/modules/fields/store";
 import { resolveSelection, loadLeadsForExport } from "./bulk-store";
-import { buildLeadsCsv } from "./bulk";
-import { buildLeadsXlsx, buildLeadsPdfHtml, MAX_EXPORT_ROWS } from "./export-formats";
+import { leadsCsvBuffer } from "./bulk";
+import {
+  MAX_EXPORT_ROWS,
+  MAX_PDF_ROWS,
+  PDF_FOOTER_TEMPLATE,
+  PDF_MARGIN,
+  buildLeadsPdfHtml,
+  buildLeadsXlsx,
+} from "./export-formats";
 import { renderHtmlToPdf } from "@/lib/pdf";
 import { nextRunAt, type ExportCadence } from "./schedule-logic";
-import type { FilterSet } from "./filters";
+import { describeFilters, type FilterSet } from "./filters";
 
 /**
  * The sweep that sends scheduled exports (P2/2.1).
@@ -92,19 +98,16 @@ type Row = Awaited<ReturnType<typeof prismaUnsafe.scheduledExport.findMany>>[num
 async function sendOne(row: Row, now: Date): Promise<void> {
   const workspaceId = row.workspaceId;
 
-  // The view IS the specification: its filter, its columns, its sort. Parsed
-  // through the same functions the page uses, so a schedule and the tab it was
-  // made from cannot disagree.
+  // The view IS the specification — but only its FILTER now. Its column list no
+  // longer decides what the file contains: an export carries the lead record,
+  // and a saved view showing five columns used to mean a file with five.
   const customFields = await listFieldDefs(workspaceId, "lead");
   const filters = parseFilterSet(JSON.stringify(row.view.filters), customFields);
-  const columnList = Array.isArray(row.view.columns) ? (row.view.columns as string[]) : [];
-  const columns = parseColumns(
-    columnList.length > 0 ? columnList.join(",") : undefined,
-    columnKeysWithCustom(customFields),
-  );
   // Sort is not used by the export itself (rows come back newest-first), but
   // parsing it keeps this honest about what a view carries.
   parseSort(row.view.sort ? JSON.stringify(row.view.sort) : undefined);
+
+  const filterSummary = `${row.view.name} — ${describeFilters(filters, customFields)}`;
 
   const ids = await resolveSelection(workspaceId, filters as FilterSet);
   if (ids.length === 0) {
@@ -147,37 +150,55 @@ async function sendOne(row: Row, now: Date): Promise<void> {
   if (row.format === "csv") {
     attachment = {
       filename: `${slug}-${date}.csv`,
-      content: Buffer.from("﻿" + buildLeadsCsv(leads, columns, defs), "utf8"),
+      content: leadsCsvBuffer(leads, defs),
       contentType: "text/csv; charset=utf-8",
     };
   } else if (row.format === "pdf") {
-    const html = buildLeadsPdfHtml(leads, columns, defs, brand, {
-      subtitle: `${capped.length} leads · ${row.view.name}`,
+    // A document holds far fewer rows than a spreadsheet, so a scheduled PDF
+    // of a wide view carries the first page of it and the email says so below.
+    const forPdf = leads.slice(0, MAX_PDF_ROWS);
+    const html = buildLeadsPdfHtml(forPdf, defs, brand, {
+      subtitle: `${forPdf.length} leads · ${row.view.name}`,
+      filterSummary,
       exportedAt: now,
       exportedBy: owner?.name ?? "scheduled",
+      totalRows: ids.length,
     });
     attachment = {
       filename: `${slug}-${date}.pdf`,
-      content: await renderHtmlToPdf(html),
+      content: await renderHtmlToPdf(html, {
+        preferCssPageSize: true,
+        footerTemplate: PDF_FOOTER_TEMPLATE,
+        margin: PDF_MARGIN,
+      }),
       contentType: "application/pdf",
     };
   } else {
     attachment = {
       filename: `${slug}-${date}.xlsx`,
-      content: await buildLeadsXlsx(leads, columns, defs, {
+      content: await buildLeadsXlsx(leads, defs, {
         workspaceName: ws?.name ?? "Leads",
         exportedAt: now,
+        filterSummary,
       }),
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     };
   }
 
   const truncated = ids.length > capped.length;
+  // A PDF is capped again, well below the spreadsheet, so say so separately
+  // rather than letting a 500-row document pass as the whole view.
+  const pdfTruncated = row.format === "pdf" && capped.length > MAX_PDF_ROWS;
   const paragraphs = [
     `The saved view “${row.view.name}” has ${ids.length} lead${ids.length === 1 ? "" : "s"} in it today.`,
     truncated
       ? `The attachment holds the first ${capped.length} of them — the export limit. Narrow the view if you need the rest.`
-      : "The attachment holds all of them, with the columns the view is set to show.",
+      : "The attachment holds all of them, with the full lead record on each row.",
+    ...(pdfTruncated
+      ? [
+          `A document holds ${MAX_PDF_ROWS} leads, so this one carries the first ${MAX_PDF_ROWS}. Switch the schedule to Excel for the whole view.`,
+        ]
+      : []),
     "This arrived because somebody set up a scheduled export. You can change or stop it in the Lead Engine.",
   ];
   const subject = `${row.view.name} — ${ids.length} lead${ids.length === 1 ? "" : "s"} · ${date}`;

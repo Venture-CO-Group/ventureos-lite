@@ -1,11 +1,27 @@
 import { chromium } from "playwright";
 
+export interface PdfOptions {
+  /**
+   * Let the document's own `@page` rule decide the sheet size and orientation.
+   *
+   * Without this Playwright's `format` wins and a template that asks for
+   * landscape prints portrait anyway — the lead list was doing exactly that,
+   * asking for `A4 landscape` in its CSS and getting a portrait page with its
+   * right-hand columns walked off the edge.
+   */
+  preferCssPageSize?: boolean;
+  /** Printed at the foot of every page. Chrome's template syntax. */
+  footerTemplate?: string;
+  /** Needed for a footer to have anywhere to print. */
+  margin?: { top: string; bottom: string; left: string; right: string };
+}
+
 /**
  * The one headless-Chrome print pipeline (CLAUDE.md): HTML template -> PDF.
  * Reused for audits now, and quotes/contracts/certificates later. Worker-only
  * (never imported by the web process).
  */
-export async function renderHtmlToPdf(html: string): Promise<Buffer> {
+export async function renderHtmlToPdf(html: string, opts: PdfOptions = {}): Promise<Buffer> {
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
@@ -25,7 +41,17 @@ export async function renderHtmlToPdf(html: string): Promise<Buffer> {
     return await page.pdf({
       format: "A4",
       printBackground: true,
-      margin: { top: "0", bottom: "0", left: "0", right: "0" },
+      preferCSSPageSize: opts.preferCssPageSize ?? false,
+      margin: opts.margin ?? { top: "0", bottom: "0", left: "0", right: "0" },
+      ...(opts.footerTemplate
+        ? {
+            displayHeaderFooter: true,
+            // An empty header still has to be declared, or Chrome prints its
+            // own default one (the document title and the URL) above ours.
+            headerTemplate: "<span></span>",
+            footerTemplate: opts.footerTemplate,
+          }
+        : {}),
     });
   } finally {
     await browser.close();

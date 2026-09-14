@@ -1,7 +1,7 @@
 "use server";
 
-import { stat } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { Stage } from "@prisma/client";
@@ -26,7 +26,15 @@ import {
   type StageChangeResult,
 } from "./bulk-store";
 import type { FilterSet } from "./filters";
-import { EXPORT_FORMATS, buildLeadsXlsx } from "./export-formats";
+import {
+  EXPORT_FORMATS,
+  FILE_DELIVERY_THRESHOLD,
+  MAX_EXPORT_ROWS,
+  MAX_PDF_ROWS,
+  buildLeadsXlsx,
+  leadsCsvBuffer,
+  pdfRowCapMessage,
+} from "./export-formats";
 import { enqueueLeadsPdf } from "../audit/enqueue";
 
 /**
@@ -43,6 +51,17 @@ import { enqueueLeadsPdf } from "../audit/enqueue";
  */
 
 const idsSchema = z.array(z.string().min(1)).max(500);
+
+/**
+ * The export's own id cap, which is the export's own limit.
+ *
+ * `idsSchema` caps at 500 because that is a sensible ceiling on a bulk MUTATION
+ * — 500 stage changes in one action is already a lot to undo. An export is a
+ * read, and its limit is `MAX_EXPORT_ROWS`. Sharing the mutation's cap meant
+ * every export above 500 rows was rejected by the schema and came back as
+ * "Nothing to export.", while the UI cheerfully offered ten thousand.
+ */
+const exportIdsSchema = z.array(z.string().min(1)).max(MAX_EXPORT_ROWS);
 
 /**
  * "Select all matching" resolves HERE, from the filter, not from a list the
@@ -219,11 +238,18 @@ export async function bulkSetCustomField(
 }
 
 const formatExportSchema = z.object({
-  ids: idsSchema,
-  columns: z.array(z.string()).max(30),
+  ids: exportIdsSchema,
   format: z.enum(EXPORT_FORMATS),
   /** How the selection was described, for the PDF's subtitle line. */
   subtitle: z.string().trim().max(200).optional(),
+  /**
+   * The filters that produced these rows, already in words.
+   *
+   * Passed in rather than re-derived because the client is what knows whether
+   * the rows came from the filter bar, a saved view or a hand-picked selection
+   * — and the answer belongs on the document and in the audit log.
+   */
+  filterSummary: z.string().trim().max(500).optional(),
 });
 
 
@@ -244,14 +270,48 @@ const formatExportSchema = z.object({
  * two more log lines would quietly halve what the audit log knows.
  */
 export type BulkExportResult =
+  /** Small enough to hand straight back; the browser saves the bytes. */
   | { ok: true; kind: "inline"; filename: string; mime: string; base64: string; rows: number }
+  /** Written to the files volume and served through the authenticated route. */
+  | { ok: true; kind: "file"; rel: string; rows: number }
+  /** Rendering in the worker; the caller polls `exportReady`. */
   | { ok: true; kind: "queued"; rel: string; rows: number }
   | { ok: false; error: string };
+
+const FILES_DIR = process.env.FILES_DIR ?? "/data/files";
+
+/**
+ * Hand a big export over as a FILE rather than as a base64 string.
+ *
+ * A server action's return value is serialised into the RSC payload, so an
+ * inline export is held in memory as bytes, again as base64 (a third bigger),
+ * and again in the response — for every concurrent export. Ten thousand leads
+ * of the full record is tens of megabytes of that. Past the threshold it is
+ * written to the same volume the PDFs use and served through the same
+ * authenticated route, which streams it and costs one path in the reply.
+ *
+ * The filename must start `<workspaceId>-` — `resolveFileWorkspace` reads the
+ * owner out of that prefix, and a name it cannot parse is served to nobody.
+ */
+async function deliverAsFile(
+  workspaceId: string,
+  stamp: Date,
+  ext: string,
+  bytes: Buffer,
+  rows: number,
+): Promise<BulkExportResult> {
+  const rel = `exports/${workspaceId}-leads-${stamp.getTime()}.${ext}`;
+  const abs = join(FILES_DIR, rel);
+  await mkdir(dirname(abs), { recursive: true });
+  await writeFile(abs, bytes);
+  return { ok: true, kind: "file", rel, rows };
+}
+
 
 export async function bulkExport(raw: unknown): Promise<BulkExportResult> {
   const parsed = formatExportSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Nothing to export." };
-  const { ids, columns, format, subtitle } = parsed.data;
+  const { ids, format, subtitle, filterSummary } = parsed.data;
 
   try {
     await requireGrant("exports.run");
@@ -259,29 +319,47 @@ export async function bulkExport(raw: unknown): Promise<BulkExportResult> {
     return { ok: false, error: "You need the exports.run grant to export leads." };
   }
 
+  // A document is capped far below the spreadsheet, and the refusal names the
+  // format that does hold it rather than just saying no.
+  if (format === "pdf" && ids.length > MAX_PDF_ROWS) {
+    return { ok: false, error: pdfRowCapMessage(ids.length) };
+  }
+
   const { workspaceId, userId } = await getActiveContext();
   const stamp = new Date();
   const date = stamp.toISOString().slice(0, 10);
 
+  // Written BEFORE the file is built: this is personal data leaving the system
+  // (hard rule #8), and a log line that only appears when the render succeeds
+  // is a log line missing for every export somebody cancelled halfway.
   await prismaUnsafe.auditLog.create({
     data: {
       workspaceId,
       actorUserId: userId,
       action: "export.run",
-      meta: { kind: `leads.${format}`, rows: ids.length, columns },
+      meta: {
+        kind: `leads.${format}`,
+        format,
+        rows: ids.length,
+        filters: filterSummary ?? null,
+      },
     },
   });
 
   if (format === "csv") {
-    const csv = await exportLeadsCsv(workspaceId, ids, columns);
+    const { leads, customFields } = await loadLeadsForExport(workspaceId, ids);
+    // The BOM goes on inside `leadsCsvBuffer`, so every caller gets a file
+    // Hungarian Excel reads correctly rather than each remembering to add it.
+    const buf = leadsCsvBuffer(leads, customFields);
+    if (ids.length > FILE_DELIVERY_THRESHOLD) {
+      return deliverAsFile(workspaceId, stamp, "csv", buf, ids.length);
+    }
     return {
       ok: true,
       kind: "inline",
       filename: `leads-${date}.csv`,
       mime: "text/csv;charset=utf-8",
-      // The BOM goes on HERE rather than in the browser, so every caller of
-      // this action gets a file Hungarian Excel reads correctly.
-      base64: Buffer.from("\ufeff" + csv, "utf8").toString("base64"),
+      base64: buf.toString("base64"),
       rows: ids.length,
     };
   }
@@ -292,10 +370,14 @@ export async function bulkExport(raw: unknown): Promise<BulkExportResult> {
       where: { id: workspaceId },
       select: { name: true },
     });
-    const buf = await buildLeadsXlsx(leads, columns, customFields, {
+    const buf = await buildLeadsXlsx(leads, customFields, {
       workspaceName: ws?.name ?? "Leads",
       exportedAt: stamp,
+      filterSummary,
     });
+    if (ids.length > FILE_DELIVERY_THRESHOLD) {
+      return deliverAsFile(workspaceId, stamp, "xlsx", buf, ids.length);
+    }
     return {
       ok: true,
       kind: "inline",
@@ -316,9 +398,9 @@ export async function bulkExport(raw: unknown): Promise<BulkExportResult> {
     workspaceId,
     rel,
     ids,
-    columns,
     meta: {
       subtitle: subtitle ?? `${ids.length} lead${ids.length === 1 ? "" : "s"}`,
+      filterSummary,
       exportedAt: stamp.toISOString(),
       exportedBy: user?.name ?? "",
     },
@@ -339,7 +421,7 @@ export async function exportReady(rel: string): Promise<{ ready: boolean }> {
     return { ready: false };
   }
   try {
-    await stat(join(process.env.FILES_DIR ?? "/data/files", rel));
+    await stat(join(FILES_DIR, rel));
     return { ready: true };
   } catch {
     return { ready: false };

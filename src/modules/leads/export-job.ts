@@ -4,7 +4,12 @@ import { renderHtmlToPdf } from "@/lib/pdf";
 import { prismaUnsafe } from "@/lib/db";
 import { brandFrom } from "@/modules/workspaces/brand";
 import { loadLeadsForExport } from "./bulk-store";
-import { buildLeadsPdfHtml, type LeadsPdfMeta } from "./export-formats";
+import {
+  PDF_FOOTER_TEMPLATE,
+  PDF_MARGIN,
+  buildLeadsPdfHtml,
+  type LeadsPdfMeta,
+} from "./export-formats";
 
 /**
  * Worker side of the branded lead-list PDF.
@@ -25,8 +30,13 @@ export interface LeadsPdfJobData {
   /** Relative path under FILES_DIR. */
   rel: string;
   ids: string[];
-  columns: string[];
-  meta: { subtitle: string; exportedAt: string; exportedBy: string };
+  meta: {
+    subtitle: string;
+    /** The filters that produced these rows, in words, for the header. */
+    filterSummary?: string;
+    exportedAt: string;
+    exportedBy: string;
+  };
 }
 
 export async function processLeadsPdf(data: LeadsPdfJobData): Promise<void> {
@@ -59,11 +69,20 @@ export async function processLeadsPdf(data: LeadsPdfJobData): Promise<void> {
 
   const meta: LeadsPdfMeta = {
     subtitle: data.meta.subtitle,
+    filterSummary: data.meta.filterSummary,
     exportedAt: new Date(data.meta.exportedAt),
     exportedBy: data.meta.exportedBy,
+    totalRows: leads.length,
   };
-  const html = buildLeadsPdfHtml(leads, data.columns, customFields, brand, meta);
-  const pdf = await renderHtmlToPdf(html);
+  const html = buildLeadsPdfHtml(leads, customFields, brand, meta);
+  // Landscape and page numbers come from the template's own `@page` rule and
+  // Chrome's footer; both need saying here, or the document prints portrait
+  // with no numbering however the CSS asks.
+  const pdf = await renderHtmlToPdf(html, {
+    preferCssPageSize: true,
+    footerTemplate: PDF_FOOTER_TEMPLATE,
+    margin: PDF_MARGIN,
+  });
 
   const abs = join(FILES_DIR, data.rel);
   await mkdir(dirname(abs), { recursive: true });

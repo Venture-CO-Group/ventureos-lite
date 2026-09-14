@@ -72,6 +72,9 @@ test("CSV downloads with the BOM Hungarian Excel needs", async ({ page }) => {
   // Without the BOM, Hungarian Excel renders these as mojibake.
   expect(text.charCodeAt(0)).toBe(0xfeff);
   expect(text).toContain("Tükörfúrógép");
+  // The seeded lead's email is not a column the table shows by default; its
+  // presence is what proves the export carries the record rather than the view.
+  expect(text).toContain("export@pelda.hu");
 });
 
 test("XLSX downloads as a workbook a real reader can open", async ({ page }) => {
@@ -90,9 +93,19 @@ test("XLSX downloads as a workbook a real reader can open", async ({ page }) => 
   // The check that matters: a file Excel would refuse is a file this refuses.
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(asExcelBuffer(buf));
-  const sheet = wb.getWorksheet("Leads");
+  // The sheet is named for the day it was taken, so a folder of these is
+  // readable months later.
+  const sheet = wb.worksheets[0];
   expect(sheet).toBeDefined();
-  expect(sheet!.getRow(1).getCell(1).value).toBe("Lead");
+  expect(sheet!.name).toMatch(/^Leads \d{4}-\d{2}-\d{2}$/);
+
+  // The whole record leaves, not the columns that happened to be on screen.
+  const header = sheet!.getRow(1).values as unknown[];
+  const labels = header.map((v) => String(v ?? ""));
+  expect(labels).toContain("Name");
+  expect(labels).toContain("Person summary");
+  expect(labels).toContain("Tax number");
+  expect(labels).toContain("Last contacted");
 
   const names = sheet!.getColumn(1).values.map((v) => String(v ?? ""));
   expect(names.some((n) => n.includes("Tükörfúrógép"))).toBe(true);

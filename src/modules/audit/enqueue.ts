@@ -1,3 +1,4 @@
+import type { LeadsPdfJobData } from "../leads/export-job";
 import { auditsQueue, pdfsQueue } from "../../lib/queue";
 
 /**
@@ -69,13 +70,15 @@ export async function enqueueAnalyticsPdf(data: AnalyticsPdfJobData): Promise<vo
  * its own; the worker re-reads them from the database, which costs one query
  * and keeps erasure meaning what it says.
  */
-export interface LeadsPdfEnqueueData {
-  workspaceId: string;
-  rel: string;
-  ids: string[];
-  columns: string[];
-  meta: { subtitle: string; exportedAt: string; exportedBy: string };
-}
+/**
+ * The worker's own payload type, not a second copy of it.
+ *
+ * It was a copy, and a copy of a job payload drifts silently: the producer adds
+ * a field, the consumer never reads it, and nothing fails until somebody
+ * notices the document is missing something. `import type` keeps this side free
+ * of the worker's Playwright import.
+ */
+export type LeadsPdfEnqueueData = LeadsPdfJobData;
 
 export async function enqueueLeadsPdf(data: LeadsPdfEnqueueData): Promise<void> {
   await pdfsQueue().add("leads-pdf", data, {

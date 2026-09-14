@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { csvCell } from "../helpers/csv";
 import { prismaUnsafe, getWorkspaceClient } from "../../src/lib/db";
 import {
   createFieldDef,
@@ -266,11 +267,9 @@ describe("the table, the filter and the export", () => {
     const l = await lead();
     await setFieldValues(wsA, "lead", l.id, { segment: "horeca" });
 
-    const csv = await exportLeadsCsv(wsA, [l.id], ["contact", "cf:segment"]);
-    const [header, row] = csv.split("\n");
-    expect(header).toBe("Lead,Segment");
+    const csv = await exportLeadsCsv(wsA, [l.id]);
     // The stored value is `horeca`; the export shows what a person reads.
-    expect(row).toContain("HoReCa");
+    expect(csvCell(csv, "Segment")).toBe("HoReCa");
   });
 });
 

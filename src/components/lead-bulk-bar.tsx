@@ -19,11 +19,14 @@ import {
   FORMAT_HINT,
   MAX_EXPORT_ROWS,
   type ExportFormat,
+  EXPORT_PROGRESS_THRESHOLD,
+  MAX_PDF_ROWS,
+  pdfRowCapMessage,
 } from "@/modules/leads/export-formats";
 import { BULK_BATCH_SIZE, chunk, mergeBulkResults, type BulkResult } from "@/modules/leads/bulk";
 import { useToast } from "./toast";
 import { STAGE_LABELS } from "@/modules/pipeline/transitions";
-import type { FilterSet } from "@/modules/leads/filters";
+import { describeFilters, type FilterSet } from "@/modules/leads/filters";
 import type { LeadFacets } from "@/modules/leads/table";
 import { isBlank, type FieldDef } from "@/modules/fields/types";
 import { Modal } from "./modal";
@@ -61,7 +64,6 @@ export function LeadBulkBar({
   filters,
   matchingTotal,
   pageIds,
-  columns,
   facets,
   canDelete,
   canExport,
@@ -75,7 +77,6 @@ export function LeadBulkBar({
   filters: FilterSet;
   matchingTotal: number;
   pageIds: string[];
-  columns: string[];
   facets: LeadFacets;
   canDelete: boolean;
   canExport: boolean;
@@ -189,12 +190,27 @@ export function LeadBulkBar({
         );
         return;
       }
+      // Refused here as well as on the server, so the operator is told before
+      // waiting for a render that was never going to happen.
+      if (format === "pdf" && targets.length > MAX_PDF_ROWS) {
+        setError(pdfRowCapMessage(targets.length));
+        return;
+      }
 
-      setProgress({ done: 0, total: targets.length });
+      // A small export finishes before a progress bar would finish appearing;
+      // a large one looks broken without it.
+      if (targets.length >= EXPORT_PROGRESS_THRESHOLD) {
+        setProgress({ done: 0, total: targets.length });
+      }
       const subtitle = allMatching
         ? `${targets.length} leads · all matching the current filter`
         : `${targets.length} selected lead${targets.length === 1 ? "" : "s"}`;
-      const res = await bulkExport({ ids: targets, columns, format, subtitle });
+      // What the rows were chosen BY, for the document header and the audit
+      // log. A hand-picked selection is not a filter, and says so.
+      const filterSummary = allMatching
+        ? describeFilters(filters, customFields)
+        : `Hand-picked selection of ${targets.length} lead${targets.length === 1 ? "" : "s"}`;
+      const res = await bulkExport({ ids: targets, format, subtitle, filterSummary });
       if (!res.ok) {
         setError(res.error);
         return;
@@ -203,6 +219,12 @@ export function LeadBulkBar({
       if (res.kind === "inline") {
         saveBase64(res.base64, res.filename, res.mime);
         setProgress({ done: targets.length, total: targets.length });
+      } else if (res.kind === "file") {
+        // Already written — a large export goes to the files volume rather than
+        // back through the action payload, and is fetched from the same
+        // authenticated route the PDFs use.
+        setProgress({ done: targets.length, total: targets.length });
+        window.open(`/api/files/${res.rel}`, "_blank", "noopener");
       } else {
         // The PDF is rendered by the worker (Chromium lives only there), so we
         // wait for the file rather than for the response.
@@ -557,8 +579,8 @@ export function LeadBulkBar({
                 </button>
               ))}
               <p className="text-[11.5px] leading-relaxed text-muted">
-                Exports the columns currently on screen, in the order they are on
-                screen. Every export is recorded in the audit log.
+                Exports the full lead record — every field we hold, not just the
+                columns on screen. Every export is recorded in the audit log.
               </p>
             </div>
           )}

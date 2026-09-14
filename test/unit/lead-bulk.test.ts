@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { csvCell, parseCsvRow } from "../helpers/csv";
 import {
   BULK_BATCH_SIZE,
   addSignals,
@@ -149,43 +150,52 @@ describe("CSV export", () => {
     },
   ];
 
-  it("writes a header row from the chosen columns, in that order", () => {
-    const csv = buildLeadsCsv(rows, ["contact", "icpScore", "stage"]);
-    expect(csv.split("\n")[0]).toBe("Lead,ICP score,Stage");
+  it("writes the whole record's header, in the registry's order", () => {
+    const header = parseCsvRow(buildLeadsCsv(rows).split("\r\n")[0]!);
+    // The first five are the identity of a lead, and they lead the file.
+    expect(header.slice(0, 5)).toEqual(["Name", "Job title", "Company", "Email", "Phone"]);
+    // And the record is the whole record, not the table's default five.
+    expect(header).toContain("Person summary");
+    expect(header).toContain("Tax number");
+    expect(header).toContain("Last contacted");
   });
 
-  it("exports only the chosen columns", () => {
-    const csv = buildLeadsCsv(rows, ["contact"]);
-    expect(csv).not.toContain("anna@danubia.hu");
+  it("exports every field it holds, not a chosen subset", () => {
+    // The bug this replaced: a caller passed ["contact"] and the email never
+    // left the building.
+    expect(buildLeadsCsv(rows)).toContain("anna@danubia.hu");
   });
 
   it("joins multi-valued cells readably rather than as JSON", () => {
-    const csv = buildLeadsCsv(rows, ["signals"]);
-    expect(csv).toContain("hiring; outdated website");
+    const csv = buildLeadsCsv(rows);
+    expect(csvCell(csv, "Signals")).toBe("hiring, outdated website");
     expect(csv).not.toContain("[");
   });
 
   it("quotes a value containing the delimiter", () => {
-    const csv = buildLeadsCsv(
-      [{ ...rows[0], company: "Danubia, Kft" }],
-      ["company"],
-    );
+    const csv = buildLeadsCsv([{ ...rows[0]!, company: "Danubia, Kft" }]);
     expect(csv).toContain('"Danubia, Kft"');
+    expect(csvCell(csv, "Company")).toBe("Danubia, Kft");
   });
 
   it("escapes embedded quotes by doubling them", () => {
-    const csv = buildLeadsCsv([{ ...rows[0], company: 'The "Big" Co' }], ["company"]);
+    const csv = buildLeadsCsv([{ ...rows[0]!, company: 'The "Big" Co' }]);
     expect(csv).toContain('"The ""Big"" Co"');
+    expect(csvCell(csv, "Company")).toBe('The "Big" Co');
   });
 
   it("keeps a value with a newline inside one quoted field", () => {
-    const csv = buildLeadsCsv([{ ...rows[0], company: "Line1\nLine2" }], ["company"]);
+    const csv = buildLeadsCsv([{ ...rows[0]!, notes: "Line1\nLine2" }]);
     expect(csv).toContain('"Line1\nLine2"');
+    expect(csvCell(csv, "Notes")).toBe("Line1\nLine2");
   });
 
   it("writes an empty cell for a missing value, not the word null", () => {
-    const csv = buildLeadsCsv([{ ...rows[0], email: null }], ["email"]);
-    expect(csv.split("\n")[1]).toBe("");
+    const csv = buildLeadsCsv([{ ...rows[0]!, email: null, phone: null }]);
+    expect(csvCell(csv, "Email")).toBe("");
+    expect(csvCell(csv, "Phone")).toBe("");
     expect(csv).not.toContain("null");
+    expect(csv).not.toContain("undefined");
+    expect(csv).not.toContain("N/A");
   });
 });

@@ -594,3 +594,50 @@ export function paginate<T>(
     pageSize: size,
   };
 }
+
+/**
+ * A filter set in words, for the top of an export.
+ *
+ * An exported lead list is personal data leaving the building, and a list with
+ * no statement of what it is a list OF cannot be checked by the person who
+ * receives it or by the person who later has to explain it. So every format
+ * carries this line: the spreadsheet in its header note, the document under its
+ * title, the audit log in its meta.
+ *
+ * Deliberately prose rather than the JSON the filter set already is — the
+ * audience is a colleague reading a PDF, not a parser.
+ */
+export function describeFilters(
+  filters: FilterSet | null | undefined,
+  customFields: ReadonlyArray<CustomFieldSpec & { label?: string }> = [],
+): string {
+  const conditions = filters?.conditions ?? [];
+  if (conditions.length === 0) return "No filters — every lead in the workspace.";
+
+  const parts = conditions.map((c) => describeCondition(c, customFields));
+  // "and"/"or" spelled out: "match: any" is how the filter set stores it and
+  // means nothing to somebody reading a document.
+  return parts.join(filters?.match === "any" ? " or " : " and ");
+}
+
+function describeCondition(
+  c: FilterCondition,
+  customFields: ReadonlyArray<CustomFieldSpec & { label?: string }>,
+): string {
+  const field = labelForField(c.field, customFields);
+  const op = OPERATOR_LABELS[c.operator] ?? c.operator;
+
+  // Operators that are complete on their own — "Has email: yes" reads wrong as
+  // "Has email yes ''".
+  if (c.operator === "is_set" || c.operator === "is_not_set") return `${field} ${op}`;
+  if (c.operator === "is_true" || c.operator === "is_false") return `${field}: ${op}`;
+  if (c.operator === "between") return `${field} ${op} ${c.min ?? ""}–${c.max ?? ""}`;
+
+  const value =
+    c.values && c.values.length > 0
+      ? c.values.join(", ")
+      : c.value === null || c.value === undefined
+        ? ""
+        : String(c.value);
+  return value ? `${field} ${op} ${value}` : `${field} ${op}`;
+}

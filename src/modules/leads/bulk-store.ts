@@ -29,6 +29,7 @@ import { applyFilters, type FilterSet } from "./filters";
 import {
   addSignals,
   buildLeadsCsv,
+  chunk,
   planStageChange,
   type BulkResult,
   type CsvLead,
@@ -357,6 +358,17 @@ export async function deleteLeadsBulk(
 // ---- export --------------------------------------------------------------
 
 /**
+ * How many leads are read from the database in one go.
+ *
+ * An export may name ten thousand ids, and `WHERE id IN (...)` with ten
+ * thousand bound parameters is a query some drivers refuse outright and the
+ * rest plan badly. Reading in batches also means the row objects for a finished
+ * batch can be collected while the next is in flight, rather than the whole
+ * export sitting in memory as one array of fully-joined leads.
+ */
+export const EXPORT_BATCH_SIZE = 500;
+
+/**
  * The rows an export is built from, and the field definitions that give the
  * Owner-defined columns their labels.
  *
@@ -364,12 +376,47 @@ export async function deleteLeadsBulk(
  * destination: the spreadsheet and the branded PDF need exactly these rows,
  * and fetching them three slightly different ways is how three exports of the
  * same selection end up disagreeing with each other.
+ *
+ * ── WHAT IT LOADS ───────────────────────────────────────────────────────────
+ *
+ * The whole record the column registry can resolve, joins included: the
+ * company's domain, city and adószám, the latest completed audit, and the last
+ * outbound touch. Anything the registry knows how to print, this loads — which
+ * is the invariant that stops a column being added and quietly exporting blank.
+ *
+ * The person summary is READ from `personBrief`. Nothing here calls Claude: an
+ * export is not a research trigger, and a lead without a brief exports an empty
+ * cell rather than acquiring one (CLAUDE.md rule #3).
  */
 export async function loadLeadsForExport(
   workspaceId: string,
   ids: string[],
 ): Promise<{ leads: CsvLead[]; customFields: Awaited<ReturnType<typeof listFieldDefsWith>> }> {
   const db = getWorkspaceClient(workspaceId);
+
+  // The workspace's own fields, so an exported custom column carries its label
+  // and its formatted value rather than an empty cell (P5/1).
+  const customFields = await listFieldDefsWith(db, "lead");
+
+  const leads: CsvLead[] = [];
+  for (const batch of chunk(ids, EXPORT_BATCH_SIZE)) {
+    leads.push(...(await loadExportBatch(db, batch)));
+  }
+
+  // The batches came back newest-first individually; the whole export is sorted
+  // once so a file's order does not depend on how the ids happened to chunk.
+  leads.sort((a, b) => dateMs(b.createdAt) - dateMs(a.createdAt));
+
+  return { leads, customFields };
+}
+
+function dateMs(v: Date | string | null | undefined): number {
+  return v ? new Date(v).getTime() : 0;
+}
+
+type GuardedClient = ReturnType<typeof getWorkspaceClient>;
+
+async function loadExportBatch(db: GuardedClient, ids: string[]): Promise<CsvLead[]> {
   const rows = await db.lead.findMany({
     where: { id: { in: ids } },
     orderBy: { createdAt: "desc" },
@@ -379,60 +426,176 @@ export async function loadLeadsForExport(
       title: true,
       email: true,
       phone: true,
+      linkedinUrl: true,
+      locationRaw: true,
       icpScore: true,
+      scoreBreakdown: true,
       stage: true,
       signals: true,
       source: true,
       ownerId: true,
+      personBrief: true,
+      notes: true,
       lastActivityAt: true,
       createdAt: true,
       customFields: true,
-      company: { select: { name: true, industry: true, city: true } },
+      companyId: true,
+      company: {
+        select: {
+          name: true,
+          industry: true,
+          city: true,
+          domain: true,
+          website: true,
+          taxId: true,
+          registry: { select: { taxId: true } },
+        },
+      },
     },
   });
-  // The workspace's own fields, so an exported custom column carries its label
-  // and its formatted value rather than an empty cell (P5/1).
-  const customFields = await listFieldDefsWith(db, "lead");
 
-  const ownerIds = [...new Set(rows.map((r) => r.ownerId).filter((v): v is string => !!v))];
-  const owners = ownerIds.length
-    ? await prismaUnsafe.user.findMany({
-        where: { id: { in: ownerIds } },
-        select: { id: true, name: true },
-      })
-    : [];
-  const ownerNames = new Map(owners.map((o) => [o.id, o.name]));
+  const ownerNames = await loadOwnerNames(rows.map((r) => r.ownerId));
+  const audits = await loadLatestAudits(
+    db,
+    rows.map((r) => r.companyId),
+  );
+  const contacted = await loadLastContacted(db, ids);
 
-  return {
-    leads: rows.map((r) => ({
+  return rows.map((r) => {
+    const audit = r.companyId ? audits.get(r.companyId) : undefined;
+    return {
       id: r.id,
       contactName: r.contactName,
       title: r.title,
       email: r.email,
       phone: r.phone,
+      linkedinUrl: r.linkedinUrl,
       company: r.company?.name ?? null,
+      // A domain is what we prefer to show; a website is what we fall back to
+      // when the prospector only ever saw a full URL.
+      domain: r.company?.domain ?? r.company?.website ?? null,
       industry: r.company?.industry ?? null,
-      city: r.company?.city ?? null,
+      // The company's city, falling back to the location line LinkedIn showed —
+      // which is all we have for a lead captured before its company existed.
+      city: r.company?.city ?? r.locationRaw ?? null,
+      // The registry value is the enriched one and outranks whatever was typed.
+      taxId: r.company?.registry?.taxId ?? r.company?.taxId ?? null,
       icpScore: r.icpScore,
+      scoreBreakdown: r.scoreBreakdown,
       stage: r.stage,
       signals: Array.isArray(r.signals) ? (r.signals as string[]) : [],
       source: r.source,
       ownerName: r.ownerId ? (ownerNames.get(r.ownerId) ?? null) : null,
+      auditScore: audit?.score ?? null,
+      auditAt: audit?.createdAt ?? null,
+      personBrief: r.personBrief,
+      notes: r.notes,
       customFields: readValues(r.customFields),
-      lastActivityAt: r.lastActivityAt,
       createdAt: r.createdAt,
-    })),
-    customFields,
-  };
+      lastActivityAt: r.lastActivityAt,
+      lastContactedAt: contacted.get(r.id) ?? null,
+    };
+  });
 }
 
-export async function exportLeadsCsv(
-  workspaceId: string,
-  ids: string[],
-  columns: string[],
-): Promise<string> {
+/**
+ * Owner display names.
+ *
+ * Through the unguarded client because users are global rather than
+ * tenant-scoped — the same reason `Lead.ownerId` is a plain column and not a
+ * foreign key. Only ids that came back from a guarded lead read are looked up,
+ * so this cannot be steered at another workspace's people.
+ */
+async function loadOwnerNames(ids: (string | null)[]): Promise<Map<string, string | null>> {
+  const unique = [...new Set(ids.filter((v): v is string => !!v))];
+  if (unique.length === 0) return new Map();
+  const users = await prismaUnsafe.user.findMany({
+    where: { id: { in: unique } },
+    select: { id: true, name: true },
+  });
+  return new Map(users.map((u) => [u.id, u.name]));
+}
+
+/**
+ * The latest finished audit per company.
+ *
+ * Ordered newest-first and kept only on first sight of a company, which is one
+ * query for the batch rather than one per lead. Unfinished and failed runs are
+ * excluded: a queued audit has a score of 0, and exporting that as the
+ * company's score would read as a verdict rather than as an absence.
+ */
+async function loadLatestAudits(
+  db: GuardedClient,
+  companyIds: (string | null)[],
+): Promise<Map<string, { score: number; createdAt: Date }>> {
+  const unique = [...new Set(companyIds.filter((v): v is string => !!v))];
+  if (unique.length === 0) return new Map();
+
+  const rows = await db.auditResult.findMany({
+    where: { companyId: { in: unique }, status: "done" },
+    orderBy: { createdAt: "desc" },
+    select: { companyId: true, score: true, createdAt: true },
+  });
+
+  const out = new Map<string, { score: number; createdAt: Date }>();
+  for (const r of rows) {
+    if (!r.companyId || out.has(r.companyId)) continue;
+    out.set(r.companyId, { score: r.score, createdAt: r.createdAt });
+  }
+  return out;
+}
+
+/**
+ * When we last reached OUT to each lead.
+ *
+ * There is no `lastContactedAt` column, and adding one would mean a value kept
+ * correct by every send path forever. It is derived instead from the three
+ * things that ARE a contact: a message actually sent, a logged email, and a
+ * call. Inbound messages are excluded — a reply is them contacting us, and
+ * counting it would make "last contacted" say we followed up when we did not.
+ */
+async function loadLastContacted(
+  db: GuardedClient,
+  leadIds: string[],
+): Promise<Map<string, Date>> {
+  const out = new Map<string, Date>();
+  const keep = (leadId: string | null, at: Date | null) => {
+    if (!leadId || !at) return;
+    const prev = out.get(leadId);
+    if (!prev || at > prev) out.set(leadId, at);
+  };
+
+  const [messages, emails, calls] = await Promise.all([
+    db.message.findMany({
+      where: { leadId: { in: leadIds }, direction: "OUTBOUND", sentAt: { not: null } },
+      select: { leadId: true, sentAt: true },
+    }),
+    db.emailLog.findMany({
+      where: { leadId: { in: leadIds } },
+      select: { leadId: true, at: true },
+    }),
+    db.call.findMany({
+      where: { leadId: { in: leadIds } },
+      select: { leadId: true, at: true },
+    }),
+  ]);
+
+  for (const m of messages) keep(m.leadId, m.sentAt);
+  for (const e of emails) keep(e.leadId, e.at);
+  for (const c of calls) keep(c.leadId, c.at);
+  return out;
+}
+
+/**
+ * The CSV for a selection — the whole lead record, not a column subset.
+ *
+ * The `columns` argument is gone on purpose. It was how the on-screen column
+ * selection decided what a file contained, so a table showing five columns
+ * exported five columns and the rest of the record never left.
+ */
+export async function exportLeadsCsv(workspaceId: string, ids: string[]): Promise<string> {
   const { leads, customFields } = await loadLeadsForExport(workspaceId, ids);
-  return buildLeadsCsv(leads, columns, customFields);
+  return buildLeadsCsv(leads, customFields);
 }
 
 /** Re-exported so the actions layer has one import for the whole feature. */
