@@ -149,12 +149,12 @@ Prospector finds businesses whose owners answer phones, not LinkedIn.
 - Calls are first-class activities: they feed the funnel, Signal Engine, and win/loss the same as messages.
 
 ### 4.18 Referral Tracking — NEW
-- Every lead carries a source (`prospector / linkedin / manual / referral / cold_email`); referral source links to a **Referrer** (person or company, can itself be a client).
+- Every lead carries a source (`prospector / linkedin / manual / referral / cold_email / outbound_engine`); referral source links to a **Referrer** (person or company, can itself be a client).
 - Referrer view: who has sent what, what it converted to, revenue attributed through the chain.
 - Weekly digest and analytics surface top referrers — the network is a measurable channel, not folklore.
 
 ### 4.19 Company Registry Enrichment & Dedupe — NEW
-- Integration with a Hungarian company-data provider (**Opten or Céginformáció API** — select on price at build time): lookup by name or adószám → legal name, tax ID, registration number, headcount band, revenue band, status (active/under proceedings).
+- Integration with a Hungarian company-data provider — **selected: Cégadat API, Haladó plan** (v6; previously "Opten or Céginformáció, select on price"): lookup by name or adószám → legal name, tax ID, registration number, headcount, revenue, status (active/under proceedings). Detail lookups are a metered monthly budget shared with the Outbound Motor — quota, caching and pause-on-exhaustion rules in §4.43.4 apply to interactive lookups too.
 - On lead/company creation: automatic candidate match → confirm → enrich; **adószám becomes the dedupe key** (far stronger than name/domain matching).
 - Enrichment feeds ICP scoring (size/revenue criteria become factual, not guessed) and pre-fills contract party data — typo-free legal documents.
 - Red flags surface automatically: company under liquidation/enforcement → warning chip on the lead and on quote generation.
@@ -335,8 +335,107 @@ A small rule engine over §4.35's quote measurements. Three seeded rules with ed
 ### 4.42 Post-meeting follow-up kit — v4 (P13/2)
 Logging an outcome assembles a kit: a thank-you draft (one Sonnet call, human-edited before sending), the audit PDF worth attaching, quote lines drawn deterministically from the workspace's own service catalogue for whatever was ticked as discussed, and a follow-up task at +3 days. It is a checklist, not an outbox — each line's done-state is read from the draft, the quote and the task themselves.
 
+### 4.43 Outbound Motor — v6 (F1–F6)
+Product-led lead generation with approval-gated sending. Full design and rationale: `docs/outbound-motor-spec.md` (v1.1, approved 2026-10-01); build order: `docs/10_ClaudeCode_Playbook_v6_Outbound.md`. This section is the binding summary; where it and the design doc disagree, raise it rather than pick one.
+
+**Purpose.** Fanni stops searching and typing and starts *deciding*: every weekday morning 15–25 finished, company-specific messages wait in one queue, she reviews them in 10–15 minutes, approves or rejects each, and approved mail leaves from her own Gmail mailbox. The motor builds on the existing modules — Prospector (§4.3), Website Auditor (§4.4), Registry (§4.19), Email verification (§4.36), Email sync (§4.30), Inbox (§4.7), Cold Email suppression and compliance gate (§4.16), Signal Engine (§4.13) — and adds no parallel copies of them. An approved message creates an ordinary `Lead` with `source = outbound_engine` (§4.18).
+
+**What it does not do.** It never sends without an explicit human approval of the visible text; there is no auto-approve switch. It never automates LinkedIn. It never invents data — a message without a grounded company fact is not written (hook gate, below).
+
+#### 4.43.1 Product
+The portfolio as data (8–10 sellable offers: own services and Uzbek partner solutions), so the system knows what it is targeting for. Fields: name, slug, category (`own_service | partner_solution`), partner (supplier, nullable), problemSolved (1–2 sentences), valueProps[] (3–5 claims, each with its evidence), proofPoints[] (real only), priceBand (an order of magnitude — the quote itself stays with the Owner, §4.9), assets[] (one-pager, deck, demo links), status (`active | paused | retired`), language (`HU | EN`, the outreach default).
+
+**References carry `isClient`.** Every reference company on a Product is flagged either as a true client or as a targeting pattern only. **Only a true client may be named in outbound copy**; a pattern reference shapes targeting and never appears in a message. This is enforced in the data layer by a typed accessor the draft generator must use (e.g. `nameableReferences()`), not left to prompt discipline (CLAUDE.md hard rule 13).
+
+#### 4.43.2 ICPProfile
+Belongs to a Product (one product may have several, weighted). Three targeting layers, each sufficient on its own:
+- **(a) Segments in plain language**, never TEÁOR codes in the UI. A seeded, workspace-editable taxonomy of 19: insurers, banks & financial institutions, private clinics & healthcare, pharmacies, logistics & haulage, manufacturing, wholesale, construction, hospitality, retail, IT & software, consulting & accounting, law firms, real estate, education, travel & tourism, automotive, energy, agriculture. Each segment carries a TEÁOR include/exclude set, a **name-fragment set** (10–25 Hungarian words that genuinely occur in company names), an optional **curated seed list**, and a `sourcingHint` (`name_harvest_strong | name_harvest_weak | seed_list | places`) that the segment card displays with its measured yield.
+- **(b) Size band** by EU definition on `employeeCount`: Micro 1–9, Small 10–49, Medium 50–249, Large 250+, several selectable. Missing headcount → net revenue decides against the band's ceiling; both missing → "size unknown", included only when the profile's `includeUnknownSize` is set, and always flagged and queued last.
+- **(c) Reference companies** ("find companies like these"): 1–5 companies whose datasheets are fetched and whose common pattern (principal TEÁOR codes, size band, legal form, region) pre-fills an editable profile draft — never auto-saved, each suggested filter showing which references produced it. Reference *naming* in copy follows the `isClient` rule above.
+- **(d) Fine filters** (optional): county/city, legal form, founded before/after, status (default *Aktív*), requires website, audit-score range, required signals, named contact required vs generic address acceptable, exclude existing clients, and the profile's daily quota (§4.43.10).
+
+Editing is Owner-only; BDR may view. All mutations are tenant-guarded and audit-logged.
+
+#### 4.43.3 Sourcing — four channels into one pool
+The Cégadat `/v1/search` endpoint searches only by name, tax number or registry number — **it cannot query a segment** (no TEÁOR, revenue, county or headcount filter). The motor is therefore two-phase: cheap candidate sourcing, then metered enrichment with filtering done locally (§4.43.5). All channels converge on one persistent per-segment **candidate pool**, deduplicated on tax number (domain + name where no tax number is known), with a last-seen timestamp; a harvest refreshes the pool rather than rebuilding it.
+
+1. **Name-fragment harvesting — the primary, free engine.** `/v1/search` is **unlimited on every plan**. Hungarian company names usually state the activity ("… Fogászati Kft.", "… Biztosító Zrt."), so each fragment of each selected segment is searched with partial matching (`sensitivity=1`), `businessType=company`, active status, paged to a configurable depth, politely rate-limited and resumable. Each candidate records the fragment that produced it — the raw data for fragment-effectiveness measurement (§4.43.10). Fragment sets are first-class, versioned content, editable in Settings, seeded for all 19 segments.
+2. **Curated seed lists** for finite-universe segments (~30 banks, ~25 insurers in Hungary): maintained per segment as names or tax numbers, resolved to tax numbers through `/v1/search`. The primary source for large-enterprise and financial targeting, and for segments whose companies carry fantasy names (IT, consulting, manufacturing — `name_harvest_weak`).
+3. **Google Places** — the existing Prospector (§4.3) feeds the pool for location-bound small-business segments (restaurants, trades, dentists) where names are not telling.
+4. **CSV import** — through the existing CSV Import v2 (§4.28) mapping and validation, landing in the pool rather than directly as leads.
+
+Per approved decision 2, no purchased segment database is used; harvesting and seed lists carry the motor, so their quality is the main lever. **Pool exhaustion is a normal state, not an error** (§4.43.10).
+
+#### 4.43.4 Cégadat API provider and the detail quota
+The registry provider for §4.19 is **Cégadat API** (`cegadatapi.hu`, Haladó plan), implemented behind the existing `RegistryProvider` interface with a fixture-driven mock. Contract to verify at build time and record in `docs/integrations/cegadat.md`; the published test key with six real companies allows F1–F4 to be built and tested before subscribing.
+- `/v1/search` — summary rows (full name, short name, tax number, status); unlimited; cached 7 days per query + params.
+- `/v1/detail?vatNumber=` — the full datasheet (legal form, seat, founded, status, TEÁOR principal + list, net revenue and financials, **employee count**, owners, **managers[]**, sites, website, phone, email); **metered at 5,000 per month**. Mapped onto `Company` / `RegistryData`. NAV taxpayer verification remains the authoritative path for legal-document party data.
+- **Quota is a finite budget** (CLAUDE.md hard rule 12): a per-workspace monthly ledger records every detail call, its purpose and the candidate it served, with cache hits recorded separately and never charged. Before every detail call the consumer checks the **daily allocation** = remaining monthly quota ÷ remaining days in the month, less a configurable reserve (default 15%) held back for interactive lookups so a nightly run can never starve a user. Detail responses are **cached 90 days** per tax number, the fetch date shown in the UI; a manual "refresh" bypasses the cache, spends exactly one unit, and asks first. On allocation exhaustion or the provider's limit response (error code 7 / HTTP 429) the caller gets a typed `QuotaExhausted` result and **pauses** — the run resumes the next night; it never errors out. A quota meter appears in Settings → Integrations and on every run screen, and each run shows its quota estimate before it starts.
+
+#### 4.43.5 Pre-filter, enrichment and local filtering
+**Free pre-filter before any quota is spent**, in order: already in the CRM by tax number → drop; on the suppression list (§4.16) → drop; `FILTERED_OUT` for the same profile within 90 days → drop; legal form implausible for the size bands (a *Bt.* as a large enterprise) → deprioritise; name clearly out of segment → deprioritise. The remainder is scored (fragment strength, legal-form fit, prior-run learning, freshness) and **detail calls are spent best-first** until the requested count is met or the daily allocation runs out. The pool persists, so one good harvest serves several nights.
+
+**Local filtering** then applies the ICPProfile to the downloaded datasheet: segment via TEÁOR, size band via the resolver in §4.43.2, revenue, region, legal form, status, founded date. Every exclusion is logged with a typed reason *and the measured value* ("net revenue 42M < profile min 300M"), because the reason distribution is how sourcing and profiles get fixed.
+
+**Audit.** Survivors are batch-audited by the existing engine (§4.4, §4.4b), honouring its cache and rate limits; the profile's audit-score range and required signals apply afterwards. A company with no website skips the audit and the missing website *is* its hook.
+
+#### 4.43.6 Contact-resolution waterfall
+In order, first hit wins, the source of every datum recorded:
+1. **Cégadat datasheet** — `emailAddress`, `phoneNumber`, and the managers' **names** from `managers[]` (coverage is partial, hence the waterfall).
+2. **Impresszum extraction** from the company website, reusing the existing site-fetch code — name, email, phone, represented-by line.
+3. **Existing CRM contact** at the same company.
+4. **Named manager + generic company address** — personal greeting, general mailbox as recipient.
+5. **Generic address only** — the draft switches to the "please forward to the right person" variant.
+6. **Nothing usable** → the candidate goes to the **LinkedIn queue** with the manager's name, for Fanni's manual outreach through the Outreach Studio (§4.6) under its unchanged rules, including the mandatory human edit.
+
+Every address passes Email verification (§4.36) before drafting; an invalid address falls through to the next waterfall step instead of failing the candidate.
+
+#### 4.43.7 Draft generation and the hook gate
+One **Sonnet** call per contact-resolved candidate through the budget middleware (§6), logged to `ClaudeUsage`; projected ~25 drafts/day ≈ USD 3–8/month (enrichment and audit are not AI). Inputs: the Product (problem, value props with evidence, **nameable references only** via the typed accessor), the ICPProfile and matched segment, registry data, audit findings, contact name and role, language. Output is zod-validated JSON: subject (< 60 chars, referencing the finding), plain-text body, and `personalisationPoints[]` naming the stored facts used. Prompt rules: open with the company fact, not with us; one evidenced claim; one low-friction ask (a 15-minute call); no attachments, no pricing, no marketing adjectives. Variants: named contact / generic mailbox. Templates are versioned per Product and measured by the Signal Engine (§4.13).
+
+**Hook gate** (CLAUDE.md hard rule 10): no draft may be generated or queued without at least one concrete, company-specific fact — an audit finding or a registry data point. It is enforced in code by checking that every `personalisationPoint` references a real stored value on the candidate; a candidate that cannot be grounded leaves as `FILTERED_OUT(NO_HOOK)` and is never sent with generic copy. Prompts live in `src/lib/ai/prompts/` like every other prompt.
+
+#### 4.43.8 Approval queue
+The centre of gravity of the motor — one screen built for batch review:
+- **Keyboard-first:** `J/K` move, `A` approve, `E` edit in place, `X` reject, `L` route to the LinkedIn queue; visible legend. Target: 20 items in 10 minutes.
+- **Every card shows the message exactly as it will be sent, signature included**, plus the recipient and how the address was resolved, the company with key registry facts, the audit score and the finding used, the Product and the ICPProfile that produced it — i.e. *why this company*. Personalisation points are highlighted inline.
+- **Reject requires a typed reason** (wrong targeting / weak copy / wrong contact / bad timing / already in contact / other + note). No reason, no rejection.
+- In-place edits record that the draft was edited and keep the original for comparison.
+- Header shows today's approvals against quota with the per-product breakdown ("14 / 25 approved today").
+- Bulk approve is limited to cards the reviewer has actually opened, so it cannot become a blind "approve all".
+
+**Approval of the visible text is the human-control act on this path** — it replaces the mandatory-edit requirement here and nowhere else (CLAUDE.md hard rule 6). Approving creates or links the `Lead` (`source = outbound_engine`) with the company, audit, signals, hook, Product and the draft attached; rejection creates no lead but keeps the candidate for learning and 90-day re-suppression. The candidate state machine, every transition carrying a reason and timestamp:
+
+`SOURCED → ENRICHED → FILTERED_IN / FILTERED_OUT(reason) → AUDITED → CONTACT_RESOLVED / NO_CONTACT → DRAFTED → PENDING_APPROVAL → APPROVED / REJECTED(reason) → SENT → REPLIED`
+
+**Two campaign modes** share the machinery and differ in quota, step count and approval depth: *volume* (Hungarian SMEs, web/marketing, 200–500 candidates per run, one contact, batch approval, audit hook) and *account* (large enterprises, Uzbek IT solutions, 30–80 hand-picked, 2–4 decision makers, email + LinkedIn + phone, individual approval by Fanni and the Owner together). Launch product: website development (volume mode); healthtech and the Uzbek solutions follow in account mode.
+
+#### 4.43.9 Sending from Fanni's Gmail, follow-ups and replies
+- **Identity:** cold outbound sends **only** from `fanni.viragh@ventureco.agency` — a separate Google Workspace account — via the **Gmail API**, so mail sits in her Sent folder and replies arrive in her real mailbox. `mg.ventureco.group` stays transactional-only and `cold.ventureco.agency` stays the Mailgun bulk channel of §4.16 (CLAUDE.md hard rule 11). The send path asserts at send time that the from-address is on the cold sending domain; a `.group` from-address is a refusal, not a warning. The connection is a separate sending identity in Settings → Email, built on the existing Gmail integration (§4.30), with `gmail.send` + `gmail.settings.basic` scopes.
+- **Signature:** the Gmail API does not attach it — the `sendAs` signature is fetched, cached and composed into the body, with a configured fallback block when none exists. The approval card previews it (§4.43.8).
+- **Guardrails:** per-mailbox daily cap with warm-up ramp, enforced server-side; sends spaced with jitter; mandatory unsubscribe line with one-click suppression that applies across all campaigns and to every contact at that company (shared suppression list, §4.16); bounce/complaint circuit breaker pausing the mailbox and notifying the Owner, on the same thresholds as §4.16. The counsel sign-off is recorded in the existing compliance gate (who / when / scope) and the motor's sending path sits behind it.
+- **Follow-ups:** at most two touches, stop-on-reply; **every follow-up is generated and enters the same approval queue** — nothing leaves unreviewed — and must add something (a second finding, a resource), never merely bump.
+- **Replies:** through Email sync (§4.30) into the Inbox (§4.7) on the lead timeline, with the existing intent/objection analysis and price-mention escalation; a reply stops the sequence and moves the lead to Replied. From there the existing flow takes over: qualification → meeting → Owner.
+
+#### 4.43.10 Nightly scheduler, morning briefing and measurement
+**Per-product settings:** daily lead quota, one or more weighted ICPProfiles, run days (default Monday–Friday nights). A **workspace-level total cap** applies — 15/day at launch, 25 after two weeks — distributed by product priority when product quotas exceed it.
+
+**Nightly run** (BullMQ, workspace schedule, default 03:00, timezone-aware):
+1. Count drafts still unreviewed from earlier runs and produce **only the difference** — the goal is a queue held at target, never stacked.
+2. Run the pipeline (pool → pre-filter → detail → local filter → audit → contact → draft) until the target is met, the pool is exhausted, or the day's detail allocation runs out (then pause, §4.43.4).
+3. Isolate failures: an API outage or audit timeout parks that candidate with a reason for retry next night; no single failure aborts the run. The job is idempotent and resumable — a restart never double-spends quota.
+4. On **pool exhaustion**: schedule a fragment harvest for the next run, reallocate the unused quota to other products, and report it with concrete suggestions (extend fragments, widen size band, neighbouring counties, switch to a seed list per the segment's `sourcingHint`).
+
+**Morning briefing** on the Dashboard (§4.1) and as the first section of the Weekly Digest (§4.22): drafts awaiting approval by product, drop counts by reason, the month's Cégadat quota position, segments nearing exhaustion, and *why* any product missed its target; one click to the queue.
+
+**Measurement:** funnel per product, profile, segment and name fragment — sourced → pre-filtered → enriched → qualified → drafted → approved → sent → opened → replied → meeting. The **approval rate** (targeting quality) and the **rejection-reason distribution** are the headline metrics. Per-fragment yield drives a maintenance view (retire weak fragments, model new ones on strong ones). Cost per meeting per product (detail calls + Claude spend ÷ meetings) decides next month's quota split. Outbound data joins the weekly Signal Engine run as Owner-approved proposals only (template promotion, score weights, fragment retirement) — nothing self-modifies.
+
+**GDPR:** legitimate interest with a documented balancing test; unsubscribe in every message; `managers[]` names and email addresses are personal data and join the erasure cascade, including candidates that never became leads; candidate data without meaningful interaction is removed after 12 months.
+
 ### 4.24 Settings / Admin
 ICP & score weights, gate threshold, targets, frame library, template management, **workspace management (§7), user & grant management,** Mailgun config (transactional + cold domains), **cold-email compliance gate & counsel sign-off record,** booking-page config, Számlázz.hu Agent keys, registry API keys, API keys, **Claude budget caps,** data retention, audit log, feature flags.
+
+Added in v6: **Products & ICP profiles** (§4.43.1–2), **Segments** — taxonomy, TEÁOR sets, name-fragment sets and seed lists, versioned (§4.43.2–3), **Outbound** — per-product quotas, workspace total cap, run schedule, warm-up ramp, cold Gmail sending identity (§4.43.9–10), and the **Cégadat quota meter and reserve** under Integrations (§4.43.4).
 
 Added in v2: **Fields** (§4.26), **Data quality** — duplicate candidates, merge history and import batches (§4.27, §4.28), **Automation** (§4.29), **Branding** (white-label letterhead), **Security** — active sessions with per-device revoke, and **Notifications** — the per-type channel matrix.
 
@@ -353,10 +452,13 @@ Added in v2: **Fields** (§4.26), **Data quality** — duplicate candidates, mer
 | Signal Engine | Sonnet 4.6 | Weekly cron | — |
 | Daily insight | Haiku 4.5 | Daily cron | — |
 | Document scope paragraph | Haiku 4.5 | Manual, optional | — |
+| Outbound draft + follow-up (§4.43.7) | Sonnet 4.6 | Nightly scheduler or manual run, only after the hook gate passes; one call per candidate | Per candidate + template version |
 
 **v2 added no Claude call sites.** Deals, custom fields, merge, import v2, rate limiting, performance, inline editing, undo, the command palette, onboarding and workflow-lite are all deterministic. The quarterly stage-probability recalibration in particular is arithmetic on purpose: asking a model to compute a win rate is how a probability becomes a guess.
 
 All calls server-side; prompt registry versioned in repo; JSON-schema-validated structured outputs with repair-retry; **Anthropic prompt caching** on the long static system prompts (ICP definition, brand voice) to cut input costs further. Verify model names/pricing at docs.claude.com at build time.
+
+**v6 adds one call site:** the outbound draft. It is the only scheduled per-recipient Sonnet call in the system; it runs only for candidates that survived every deterministic step (pre-filter, enrichment, ICP filter, audit, contact resolution, hook check), so the model is never asked to decide *whether* to write.
 
 ## 6. Credit-minimization strategy (hard requirement)
 
@@ -439,6 +541,29 @@ WorkflowRun(id, workspace_id, rule_id, rule_version, trigger,
             entity_type, entity_id, status, detail, results, depth, at)
   -- Workspace gains deals_config; User gains lock_count, tour_seen_at,
   -- checklist_hidden_at
+
+-- v6 (outbound motor, §4.43)
+Product(id, workspace_id, name, slug, category, partner, problem_solved,
+        value_props, proof_points, price_band, assets, status, language)
+ProductReference(id, product_id, company_name, tax_number, is_client, note)
+Segment(id, workspace_id, key, name, teaor_include, teaor_exclude,
+        sourcing_hint, version)  -- + SegmentFragment, SegmentSeed
+ICPProfile(id, workspace_id, product_id, segments, size_bands,
+           include_unknown_size, revenue_min, revenue_max, filters,
+           contact_requirement, weight, daily_quota)
+CandidatePool(id, workspace_id, segment_id, tax_number, name, source,
+              fragment, last_seen_at)
+SourcingRun(id, workspace_id, product_id, profile_id, channel, started_at,
+            finished_at, counters, quota_used, status)
+ProspectCandidate(id, workspace_id, run_id, pool_id, company_id, state,
+                  reason, contact_source, lead_id)  -- + CandidateEvent trail
+OutreachDraft(id, workspace_id, candidate_id, product_id, template_version,
+              step, subject, body, original_body, personalisation_points,
+              decision[approved|rejected], reject_reason, decided_by,
+              decided_at, gmail_message_id, gmail_thread_id)
+RegistryQuotaLedger(id, workspace_id, month, tax_number, purpose,
+                    candidate_id, cache_hit, at)
+  -- RegistryData gains the full Cégadat datasheet fields + fetched_at (90-day cache)
 -- v1.0 entities (Company, Lead, Activity, Message, Frame, Meeting, Insight,
 -- Target, User, AuditLog) all gain workspace_id.
 ```
@@ -450,8 +575,9 @@ WorkflowRun(id, workspace_id, rule_id, rule_version, trigger,
 | Google Places API | Core (Prospector) | Text Search + Details; budgeted, cached |
 | Google PageSpeed Insights | Core (Auditor) | Free API |
 | Headless renderer | Auditor screenshots | Playwright server-side |
-| Mailgun | Transactional + cold email | EU region, **two domains: mg.ventureco.group (transactional) and cold.ventureco.agency (cold)** — reputation fully isolated; routes for inbound replies, webhooks |
-| Opten / Céginformáció API | Registry enrichment & dedupe | Adószám as dedupe key; subscription cost to be priced at build |
+| Mailgun | Transactional + cold email | EU region, **two domains: mg.ventureco.group (transactional) and cold.ventureco.agency (cold bulk)**; the Outbound Motor does not send through Mailgun — reputation fully isolated; routes for inbound replies, webhooks |
+| Cégadat API (Haladó) | Registry enrichment, dedupe, outbound sourcing | `/v1/search` unlimited; `/v1/detail` 5,000/month — daily allocation, 15% interactive reserve, 90-day cache, pause on exhaustion (§4.43.4) |
+| Gmail API (outbound) | Cold outbound sending | Only `fanni.viragh@ventureco.agency` (separate Workspace account); `gmail.send` + `gmail.settings.basic`; signature via `sendAs`; replies via Email sync (§4.30, §4.43.9) |
 | Számlázz.hu Számla Agent | Invoice handoff | Per-workspace key, human confirm before submit |
 | LinkedIn | Assistive only | Extension reads user-viewed pages; deep links; no scraping/sending |
 | Google Calendar | Meetings | Event + brief |
@@ -489,3 +615,17 @@ WorkflowRun(id, workspace_id, rule_id, rule_version, trigger,
 18. Booking a slot on the public booking page creates the meeting, the brief, and confirmations without manual steps.
 19. The Monday digest arrives per user per workspace and reflects that workspace's data only.
 20. From an acknowledged certificate, "Prepare invoice" submits to Számlázz.hu only after explicit confirmation, and the returned invoice number appears on the document chain.
+
+## 12. Acceptance criteria (v6 — Outbound Motor)
+
+1. A name-fragment harvest fills the candidate pool without consuming any detail quota; a CRM duplicate and a suppressed company are dropped before any detail call.
+2. A detail-cache hit consumes no quota and is ledgered as a hit; with a daily allocation of 100, the 101st call returns `QuotaExhausted` and the run pauses and resumes the next night without double-spending; the interactive reserve survives a batch that used its share.
+3. Every local-filter exclusion names its reason and the measured value.
+4. The contact waterfall resolves from `managers[]` + impresszum, falls through to generic-address and LinkedIn-queue outcomes correctly, and an invalid address falls to the next step rather than failing the candidate.
+5. A candidate with no company-specific fact ends `FILTERED_OUT(NO_HOOK)` with no draft; a `personalisationPoint` that does not match stored data fails validation.
+6. A non-client Product reference never appears in generated copy (tested with a product carrying both kinds).
+7. The approval queue is fully keyboard-operable, shows the message with its signature, and refuses a rejection without a reason; approval creates a lead with `source = outbound_engine`.
+8. An approved draft sends from `fanni.viragh@ventureco.agency` and appears in Sent; any attempt to send cold outbound from a `.group` address is refused by the send-time guard; the warm-up cap blocks the first over-cap send.
+9. Unsubscribe suppresses the whole company across all campaigns; a reply stops the follow-up and moves the lead to Replied; every follow-up passes through the approval queue.
+10. With 12 unreviewed drafts and a target of 15 the nightly run produces exactly 3; a failing candidate is parked and retried while the run completes; the morning briefing reconciles with the funnel data.
+11. Every new v6 table is tenant-guarded (and RLS-protected on Postgres) and covered by the isolation test.
