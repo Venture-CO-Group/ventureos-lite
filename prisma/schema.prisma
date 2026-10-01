@@ -3331,3 +3331,170 @@ model TaskChecklistItem {
   @@index([workspaceId, taskId, position])
   @@map("task_checklist_items")
 }
+
+// ---------------------------------------------------------------------------
+// Outbound Motor (playbook-v6, spec §4.43)
+// ---------------------------------------------------------------------------
+
+enum ProductCategory {
+  OWN_SERVICE
+  PARTNER_SOLUTION
+}
+
+enum ProductStatus {
+  ACTIVE
+  PAUSED
+  RETIRED
+}
+
+/// Which sourcing channel actually carries a segment (spec §4.43.2, §9bis).
+/// Shown on the segment chip so nobody expects a name harvest to find
+/// fantasy-named IT companies.
+enum SourcingHint {
+  NAME_HARVEST_STRONG
+  NAME_HARVEST_WEAK
+  SEED_LIST
+  PLACES
+}
+
+enum ContactRequirement {
+  NAMED_CONTACT
+  GENERIC_OK
+}
+
+/// Volume (SMEs, batch approval) or account (enterprises, individual
+/// approval, several decision makers) — spec §4.43.8.
+enum CampaignMode {
+  VOLUME
+  ACCOUNT
+}
+
+/// The portfolio as data (spec §4.43.1). Without it the motor has nothing to
+/// target FOR — every other outbound table hangs off a product.
+model Product {
+  id            String          @id @default(cuid())
+  workspaceId   String          @map("workspace_id")
+  name          String
+  slug          String
+  category      ProductCategory @default(OWN_SERVICE)
+  /// Supplier name for a partner solution; null for our own services.
+  partner       String?
+  problemSolved String          @map("problem_solved") @db.Text
+  /// [{ claim, evidence }] — a claim with no evidence is not a value prop.
+  valueProps    Json            @default("[]") @map("value_props")
+  /// string[] — real numbers and outcomes only.
+  proofPoints   Json            @default("[]") @map("proof_points")
+  /// An order of magnitude. The quote itself is still the Owner's (§4.9).
+  priceBand     String?         @map("price_band")
+  /// [{ label, url }] — one-pager, deck, demo video.
+  assets        Json            @default("[]")
+  status        ProductStatus   @default(ACTIVE)
+  language      Lang            @default(HU)
+  /// Who gets quota first when the workspace cap is smaller than the sum of
+  /// the product quotas (spec §4.43.10). Higher wins.
+  priority      Int             @default(0)
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  references ProductReference[]
+  profiles   IcpProfile[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+  @@map("products")
+}
+
+/// A reference company on a product (spec §4.43.1, CLAUDE.md hard rule 13).
+///
+/// `isClient` is load-bearing: a true client may be NAMED in outbound copy, a
+/// targeting pattern never may. Drafting reads references only through
+/// `nameableReferences()` (src/modules/outbound/references.ts), never this
+/// table directly.
+model ProductReference {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  productId   String   @map("product_id")
+  companyName String   @map("company_name")
+  taxNumber   String?  @map("tax_number")
+  isClient    Boolean  @default(false) @map("is_client")
+  note        String?  @db.Text
+  position    Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([productId])
+  @@map("product_references")
+}
+
+/// The segment taxonomy (spec §4.43.2a), seeded with 19 and editable per
+/// workspace. A person picks "private clinics", not TEÁOR 8622.
+model Segment {
+  id           String       @id @default(cuid())
+  workspaceId  String       @map("workspace_id")
+  /// Stable key ("private_clinics"); profiles reference segments by it.
+  key          String
+  name         String
+  /// string[] of TEÁOR codes or prefixes ("8622", "86").
+  teaorInclude Json         @default("[]") @map("teaor_include")
+  teaorExclude Json         @default("[]") @map("teaor_exclude")
+  /// string[] — words that genuinely occur in Hungarian company names.
+  fragments    Json         @default("[]")
+  /// [{ name?, taxNumber? }] — the finite universe for banks, insurers…
+  seedList     Json         @default("[]") @map("seed_list")
+  sourcingHint SourcingHint @default(NAME_HARVEST_STRONG) @map("sourcing_hint")
+  /// Bumped on every fragment/seed edit, so a measured yield can be read
+  /// against the set that produced it (spec §9bis/1).
+  version      Int          @default(1)
+  archived     Boolean      @default(false)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId])
+  @@map("segments")
+}
+
+/// Who to look for, for one product (spec §4.43.2). Three targeting layers —
+/// segments, size bands, references — plus optional fine filters.
+model IcpProfile {
+  id                     String             @id @default(cuid())
+  workspaceId            String             @map("workspace_id")
+  productId              String             @map("product_id")
+  name                   String
+  /// string[] of Segment.key
+  segmentKeys            Json               @default("[]") @map("segment_keys")
+  /// ("MICRO" | "SMALL" | "MEDIUM" | "LARGE")[]
+  sizeBands              Json               @default("[]") @map("size_bands")
+  includeUnknownSize     Boolean            @default(false) @map("include_unknown_size")
+  /// Integer forints. BigInt because 25 Mrd does not fit an Int.
+  revenueMin             BigInt?            @map("revenue_min")
+  revenueMax             BigInt?            @map("revenue_max")
+  counties               Json               @default("[]")
+  cities                 Json               @default("[]")
+  legalForms             Json               @default("[]") @map("legal_forms")
+  foundedAfter           Int?               @map("founded_after")
+  foundedBefore          Int?               @map("founded_before")
+  statusRequired         String             @default("Aktív") @map("status_required")
+  requiresWebsite        Boolean            @default(false) @map("requires_website")
+  auditScoreMin          Int?               @map("audit_score_min")
+  auditScoreMax          Int?               @map("audit_score_max")
+  requiredSignals        Json               @default("[]") @map("required_signals")
+  contactRequirement     ContactRequirement @default(GENERIC_OK) @map("contact_requirement")
+  excludeExistingClients Boolean            @default(true) @map("exclude_existing_clients")
+  mode                   CampaignMode       @default(VOLUME)
+  /// Ready-to-approve drafts per night for this profile (spec §4.43.10).
+  dailyQuota             Int                @default(0) @map("daily_quota")
+  /// Relative weight when a product's quota is shared between profiles.
+  weight                 Int                @default(1)
+  active                 Boolean            @default(true)
+  createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([productId])
+  @@map("icp_profiles")
+}

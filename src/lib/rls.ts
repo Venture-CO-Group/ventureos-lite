@@ -146,6 +146,11 @@ const BUSINESS_TABLES = [
   "undo_entries",
   "workflow_rules",
   "workflow_runs",
+  /** The outbound motor (playbook-v6, spec §4.43). */
+  "products",
+  "product_references",
+  "segments",
+  "icp_profiles",
 ];
 
 /**

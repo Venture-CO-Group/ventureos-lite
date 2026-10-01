@@ -89,6 +89,13 @@ export const DESTRUCTIVE_ACTIONS: Record<string, Undoability> = {
 
   // ---- configuration: gone means gone, but nothing of value is lost -------
   deleteRule: permanent("The rule is removed. Its execution log stays, so what it already did remains explicable."),
+  // Outbound motor catalogue (playbook-v6 F1).
+  deleteProduct: permanent(
+    "The product and every ICP profile on it are removed. Sent messages and the leads they created stay; set it to Paused instead to stop sourcing without losing it.",
+  ),
+  deleteProfile: permanent(
+    "The profile stops being sourced. Candidates and drafts it already produced keep their history.",
+  ),
   deleteWebhook: permanent("The endpoint stops receiving deliveries. Past delivery attempts stay in the log."),
   deleteSchedule: permanent("The schedule stops. Exports it already produced are unaffected."),
   deleteTeam: permanent("The team is removed. Nobody loses access, because a team grants nothing."),
