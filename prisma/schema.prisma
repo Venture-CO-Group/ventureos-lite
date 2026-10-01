@@ -687,6 +687,9 @@ model Workspace {
   claudeBudget  Decimal      @default(2) @map("claude_budget") // USD daily cap
   retentionDays Int          @default(365) @map("retention_days")
   featureFlags  Json?        @map("feature_flags")
+  /// Outbound motor settings (playbook-v6): registry quota, nightly schedule,
+  /// workspace cap, warm-up ramp. Parsed by src/modules/outbound/config.ts.
+  outboundConfig Json?       @map("outbound_config")
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
   memberships   Membership[]
@@ -3498,3 +3501,71 @@ model IcpProfile {
   @@index([productId])
   @@map("icp_profiles")
 }
+
+/// Why a registry detail lookup was made (spec §4.43.4). The ledger reports
+/// by purpose so "where did the month's quota go" has an answer.
+enum RegistryLookupPurpose {
+  NIGHTLY_RUN
+  MANUAL_RUN
+  INTERACTIVE
+  REFERENCE_SEED
+  MANUAL_REFRESH
+}
+
+/// A company datasheet, cached per tax number for 90 days (CLAUDE.md hard
+/// rule 12). Keyed on the tax number rather than on a Company because most
+/// sheets belong to candidates that never become companies here.
+model RegistrySheet {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  /// Normalised 11-digit tax number.
+  taxNumber   String   @map("tax_number")
+  provider    String
+  /// CompanyDatasheet, JSON-safe (bigint as { $bigint }).
+  sheet       Json
+  /// The provider knows no such company. Cached too, so a dead tax number is
+  /// not paid for twice.
+  notFound    Boolean  @default(false) @map("not_found")
+  fetchedAt   DateTime @default(now()) @map("fetched_at")
+  expiresAt   DateTime @map("expires_at")
+
+  @@unique([workspaceId, taxNumber])
+  @@index([workspaceId])
+  @@map("registry_sheets")
+}
+
+/// Free `/v1/search` responses, cached 7 days per query (spec §4.43.4).
+model RegistrySearchCache {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  /// Stable hash of the query and its parameters.
+  queryKey    String   @map("query_key")
+  results     Json
+  fetchedAt   DateTime @default(now()) @map("fetched_at")
+  expiresAt   DateTime @map("expires_at")
+
+  @@unique([workspaceId, queryKey])
+  @@index([workspaceId])
+  @@map("registry_search_cache")
+}
+
+/// Every detail lookup, charged or not (spec §4.43.4). Cache hits are written
+/// with `cacheHit = true` and never count against the month.
+model RegistryQuotaLedger {
+  id          String                @id @default(cuid())
+  workspaceId String                @map("workspace_id")
+  /// "2026-10" — the billing month the call belongs to (UTC).
+  month       String
+  taxNumber   String                @map("tax_number")
+  purpose     RegistryLookupPurpose
+  candidateId String?               @map("candidate_id")
+  cacheHit    Boolean               @default(false) @map("cache_hit")
+  /// ok | not_found | error | quota
+  outcome     String
+  userId      String?               @map("user_id")
+  at          DateTime              @default(now())
+
+  @@index([workspaceId, month])
+  @@map("registry_quota_ledger")
+}
+

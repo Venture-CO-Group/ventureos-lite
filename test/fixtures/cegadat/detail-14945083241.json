@@ -1,0 +1,56 @@
+{
+  "status": true,
+  "response": {
+    "results": {
+      "fullName": "DAYTON-Invest Korlátolt Felelősségű Társaság",
+      "shortName": "DAYTON-Invest Kft.",
+      "legalForm": "Korlátolt felelősségű társaság",
+      "fullAddress": "1055 Budapest, Honvéd utca 20.",
+      "addressCounty": "Budapest",
+      "addressPostalCode": "1055",
+      "addressCity": "Budapest",
+      "addressStreet": "Honvéd utca 20.",
+      "vatNumber": "14945083241",
+      "registryNumber": "0109927201",
+      "groupIdentificationNumber": "",
+      "dateFounded": "2009-10-16",
+      "statisticalCode": "14945083642111301",
+      "reportDate": "2025-12-31",
+      "netRevenue": 0,
+      "shareholdersEquity": 15788638000,
+      "operatingProfit": -242870000,
+      "earningsBeforeTaxes": -20461344000,
+      "netSalesRevenues": -20499956000,
+      "totalAssets": 29239192000,
+      "employeeDate": "2026-09-03",
+      "employeeCount": 0,
+      "ownerCount": 1,
+      "owners": [
+        "Teszt Személy 9"
+      ],
+      "managerCount": 1,
+      "managers": [
+        "Teszt Személy 10"
+      ],
+      "principalActivity": "6421. Vagyonkezelés (holding)",
+      "activities": [
+        "6421. Vagyonkezelés (holding)"
+      ],
+      "bankAccounts": [
+        {
+          "bankName": "UniCredit Bank Hungary Zrt. SZABADSÁG TÉRI FIÓK",
+          "accountNumber": "00000000-00000000-00000000",
+          "effectiveFrom": "2013-06-14"
+        },
+        {
+          "bankName": "UniCredit Bank Hungary Zrt. SZABADSÁG TÉRI FIÓK",
+          "accountNumber": "00000000-00000000-00000000",
+          "effectiveFrom": "2013-06-14"
+        }
+      ],
+      "branches": [],
+      "branchOffices": [],
+      "status": "Aktív"
+    }
+  }
+}

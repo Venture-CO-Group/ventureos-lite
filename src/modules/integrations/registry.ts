@@ -183,6 +183,22 @@ export const INTEGRATION_GROUPS: IntegrationGroup[] = [
     ],
   },
   {
+    id: "cegadat",
+    title: "Cégadat API (cégadatlapok)",
+    description:
+      "A kimenő motor és a cégadat-gazdagítás forrása: TEÁOR, árbevétel, létszám, vezetők, elérhetőségek. A keresés korlátlan, az adatlap-lekérés havi kerethez kötött (Haladó: 5000) — a keret napi elosztását és a tartalékot a Kimenő beállításoknál látod.",
+    testable: true,
+    fields: [
+      {
+        key: "cegadat.apiKey",
+        label: "API-kulcs",
+        kind: "secret",
+        envVar: "CEGADAT_API_KEY",
+        help: "cegadatapi.hu → Fiók → API-kulcs. A teszteléshez a dokumentációban közölt tesztkulcs is működik.",
+      },
+    ],
+  },
+  {
     id: "nav",
     title: "NAV Online Számla (cégadatok)",
     description:

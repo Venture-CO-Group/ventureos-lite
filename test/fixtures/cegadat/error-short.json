@@ -1,0 +1,6 @@
+{
+  "status": false,
+  "error": "Search Term Too Short",
+  "errorCode": 4,
+  "statusCode": 400
+}

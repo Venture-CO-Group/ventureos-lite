@@ -122,6 +122,12 @@ export const ADMIN_SECTIONS: readonly SettingsSection[] = [
     hint: "API keys, what they cost, outbound webhooks, invoicing.",
   },
   {
+    slug: "outbound",
+    href: "/settings/admin/outbound",
+    label: "Outbound",
+    hint: "Registry quota, the nightly run, daily caps, cold sending guardrails.",
+  },
+  {
     slug: "security",
     href: "/settings/admin/security",
     label: "Security & compliance",

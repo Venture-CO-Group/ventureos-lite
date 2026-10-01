@@ -1,0 +1,51 @@
+{
+  "status": true,
+  "response": {
+    "results": {
+      "fullName": "Minta Fogászati Korlátolt Felelősségű Társaság",
+      "shortName": "Minta Fogászati Kft.",
+      "legalForm": "Korlátolt felelősségű társaság",
+      "fullAddress": "1111 Budapest, Példa utca 3.",
+      "addressCounty": "Budapest",
+      "addressPostalCode": "1111",
+      "addressCity": "Budapest",
+      "addressStreet": "Példa utca 3.",
+      "vatNumber": "99999999242",
+      "registryNumber": "0109999999",
+      "dateFounded": "2012-03-01",
+      "statisticalCode": "99999999862311301",
+      "website": "www.mintafogaszat.example",
+      "phoneNumber": "+36 1 555 0100",
+      "emailAddress": "info@mintafogaszat.example",
+      "reportDate": "2025-12-31",
+      "netRevenue": "184000000",
+      "shareholdersEquity": "40000000",
+      "operatingProfit": "12000000",
+      "earningsBeforeTaxes": "11800000",
+      "netSalesRevenues": "10900000",
+      "totalAssets": "90000000",
+      "employeeDate": "2026-09-30",
+      "employeeCount": 14,
+      "ownerCount": 1,
+      "owners": [
+        "Teszt Személy 90"
+      ],
+      "managerCount": 2,
+      "managers": [
+        "Dr. Teszt Személy 91",
+        "Teszt Személy 92"
+      ],
+      "principalActivity": "8623. Fogorvosi járóbeteg-ellátás",
+      "activities": [
+        "8623. Fogorvosi járóbeteg-ellátás",
+        "8622. Szakorvosi járóbeteg-ellátás"
+      ],
+      "bankAccounts": [],
+      "branches": [],
+      "branchOffices": [],
+      "status": "Aktív",
+      "parentCompanies": [],
+      "subsidiaries": []
+    }
+  }
+}

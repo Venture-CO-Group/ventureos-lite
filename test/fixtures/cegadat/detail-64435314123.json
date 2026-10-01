@@ -1,0 +1,40 @@
+{
+  "status": true,
+  "response": {
+    "results": {
+      "fullName": "Teszt Személy 13",
+      "legalForm": "Egyéni vállalkozás",
+      "fullAddress": "6521 Vaskút, Minta utca 1.",
+      "addressCounty": "Bács-Kiskun",
+      "addressPostalCode": "6521",
+      "addressCity": "Vaskút",
+      "addressStreet": "Minta utca 1.",
+      "vatNumber": "64435314123",
+      "registryNumber": "9309148",
+      "dateFounded": "2005-09-21",
+      "statisticalCode": "64435314661923103",
+      "revenue": 25818314,
+      "netIncome": 8872046,
+      "principalActivity": "661901. Egyéb pénzügyi kiegészítő tevékenység m.n.s.",
+      "activities": [
+        "661201. Értékpapír-, árutőzsdei ügynöki tevékenység m.n.s.",
+        "662201. Biztosítási ügynöki, brókeri tevékenység",
+        "683102. Egyéb ingatlan közvetítése",
+        "702002. Általános üzletviteli tanácsadás",
+        "821001. Adminisztratív, üzletmenetet támogató szolgáltatás",
+        "824001. Egyéb üzletmenetet támogató szolgáltatás közvetítése",
+        "829901. Egyéb üzletmenetet támogató szolgáltatás m.n.s."
+      ],
+      "branches": [
+        {
+          "address": "6200 Kiskőrös, Minta utca 2.",
+          "addressCounty": "Bács-Kiskun",
+          "addressPostalCode": "6200",
+          "addressCity": "Kiskőrös",
+          "addressStreet": "Minta utca 2."
+        }
+      ],
+      "status": "Aktív"
+    }
+  }
+}

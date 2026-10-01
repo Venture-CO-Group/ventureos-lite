@@ -146,8 +146,10 @@ export function buildEnvSchema(strict: boolean) {
         .string()
         .refine((v) => /^https?:\/\//.test(v), "must be an absolute http(s) URL")
         .optional(),
-      REGISTRY_PROVIDER: z.enum(["mock", "opten"]).optional(),
-      REGISTRY_API_KEY: z.string().optional(),
+      // cegadat: the Cégadat API (playbook-v6 F2); `opten` stays accepted so an
+      // older .env still boots, and resolves to "no provider" in production.
+      REGISTRY_PROVIDER: z.enum(["cegadat", "mock", "opten"]).optional(),
+      CEGADAT_API_KEY: z.string().optional(),
       SZAMLAZZ_PROVIDER: z.enum(["mock", "szamlazz"]).optional(),
 
       // ---- seed ----------------------------------------------------------------
@@ -215,9 +217,9 @@ export function buildEnvSchema(strict: boolean) {
           if (!env[k]) issue(k, "is required when CALENDAR_PROVIDER=google");
         }
       }
-      if (env.REGISTRY_PROVIDER === "opten" && !env.REGISTRY_API_KEY) {
-        issue("REGISTRY_API_KEY", "is required when REGISTRY_PROVIDER=opten");
-      }
+      // No CEGADAT_API_KEY requirement: the key may live in Settings →
+      // Integrations instead, and without one the motor simply has no
+      // registry — which it reports, rather than refusing to boot.
 
       // --- VAPID is all-or-nothing (P6/1) -----------------------------------
       // Half a key pair is worse than none: the browser would be handed a

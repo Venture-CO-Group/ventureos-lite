@@ -19,7 +19,7 @@ export async function suggestFromReferences(
   productId: string,
 ): Promise<{ ok: true; suggestion: ProfileSuggestion } | { ok: false; error: string }> {
   if (!(await isOwner())) return { ok: false, error: "Only an Owner can seed a profile from references." };
-  const { workspaceId } = await getActiveContext();
+  const { workspaceId, userId } = await getActiveContext();
   const db = getWorkspaceClient(workspaceId);
   const product = await db.product.findUnique({
     where: { id: productId },
@@ -29,7 +29,7 @@ export async function suggestFromReferences(
   const refs = product.references.slice(0, 5);
   if (refs.length === 0) return { ok: false, error: "Add one to five reference companies first." };
 
-  const sheets = await referenceDatasheets(workspaceId, refs);
+  const sheets = await referenceDatasheets(workspaceId, refs, userId);
   if (!sheets.ok) return { ok: false, error: sheets.error };
   const segments = await loadSegments(db, workspaceId);
   return {

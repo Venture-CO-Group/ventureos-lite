@@ -10,18 +10,47 @@ import { validateTaxNumber, TAX_NUMBER_REJECTION_TEXT } from "./tax-number";
 import { navQueryTaxpayer } from "./nav-taxpayer";
 import { resolveNavCredentials } from "@/modules/integrations/resolve";
 import { brandFrom } from "@/modules/workspaces/brand";
+import { getDatasheet, resolveRegistryApi, searchRegistry } from "./registry-service";
+import { candidateFromHit, candidateFromSheet } from "./datasheet-candidate";
+import { cegadatTaxId } from "./cegadat";
 
-/** Candidate match (spec §4.19): lookup by the company's adószám, else its name. */
+/**
+ * Candidate match (spec §4.19): lookup by the company's adószám, else its name.
+ *
+ * With Cégadat configured, a known tax number fetches the datasheet — through
+ * the registry service, so it is cached for 90 days and charged to the
+ * monthly quota as INTERACTIVE — and a name runs the free search. Without it
+ * the older provider adapter answers as before.
+ */
 export async function enrichCompanyLookup(
   companyId: string,
-): Promise<{ candidates: RegistryCandidate[] }> {
-  const { workspaceId } = await getActiveContext();
+): Promise<{ candidates: RegistryCandidate[]; notice?: string }> {
+  const { workspaceId, userId } = await getActiveContext();
   const db = getWorkspaceClient(workspaceId);
   const company = await db.company.findUnique({
     where: { id: companyId },
     select: { name: true, taxId: true },
   });
   if (!company) throw new Error("Company not found");
+
+  const api = await resolveRegistryApi(workspaceId);
+  if (api) {
+    if (company.taxId && cegadatTaxId(company.taxId)) {
+      const res = await getDatasheet(workspaceId, company.taxId, { purpose: "INTERACTIVE", userId, api });
+      if (res.status === "ok") return { candidates: [candidateFromSheet(res.sheet)] };
+      if (res.status === "quota_exhausted") {
+        return { candidates: [], notice: "This month's registry lookups are used up — the lookup resumes next month." };
+      }
+      if (res.status === "not_found") return { candidates: [], notice: "The registry knows no company with this tax number." };
+      return { candidates: [], notice: res.message };
+    }
+    if (company.name.trim().length >= 4) {
+      const found = await searchRegistry(workspaceId, { name: company.name, limit: 10 }, { api });
+      if (found.ok) return { candidates: found.page.hits.map(candidateFromHit) };
+      return { candidates: [], notice: found.message };
+    }
+    return { candidates: [], notice: "A registry name search needs at least four characters." };
+  }
 
   const candidates = await getRegistryProvider().lookup({
     taxId: company.taxId ?? undefined,
@@ -45,7 +74,7 @@ export async function confirmEnrichment(
   rawCandidate: unknown,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const candidate = candidateSchema.parse(rawCandidate);
-  const { workspaceId } = await getActiveContext();
+  const { workspaceId, userId } = await getActiveContext();
   const db = getWorkspaceClient(workspaceId);
 
   const others = await db.company.findMany({
@@ -60,32 +89,94 @@ export async function confirmEnrichment(
     };
   }
 
-  await db.company.update({ where: { id: companyId }, data: { taxId: candidate.taxId } });
+  /**
+   * The full datasheet, when the registry can give one. A search hit carries
+   * no headcount or revenue, so confirming one fetches the sheet — usually a
+   * cache hit, because the lookup above may already have paid for it.
+   */
+  let enriched = candidate;
+  const api = await resolveRegistryApi(workspaceId);
+  if (api && cegadatTaxId(candidate.taxId)) {
+    const res = await getDatasheet(workspaceId, candidate.taxId, { purpose: "INTERACTIVE", userId, api });
+    if (res.status === "ok") {
+      enriched = candidateFromSheet(res.sheet);
+      const current = await db.company.findUnique({
+        where: { id: companyId },
+        select: { website: true, phone: true, city: true, address: true },
+      });
+      // Only ever FILLS a blank: a value a person typed is never overwritten.
+      await db.company.update({
+        where: { id: companyId },
+        data: {
+          website: current?.website ?? res.sheet.website ?? undefined,
+          phone: current?.phone ?? res.sheet.phone ?? undefined,
+          city: current?.city ?? res.sheet.seat.city ?? undefined,
+          address: current?.address ?? res.sheet.seat.oneLine ?? undefined,
+        },
+      });
+    }
+  }
+
+  await db.company.update({ where: { id: companyId }, data: { taxId: enriched.taxId } });
   await db.registryData.upsert({
     where: { companyId },
     create: {
       workspaceId,
       companyId,
-      taxId: candidate.taxId,
-      regNumber: candidate.regNumber,
-      legalName: candidate.legalName,
-      headcountBand: candidate.headcountBand,
-      revenueBand: candidate.revenueBand,
-      statusFlags: candidate.statusFlags,
+      taxId: enriched.taxId,
+      regNumber: enriched.regNumber,
+      legalName: enriched.legalName,
+      headcountBand: enriched.headcountBand,
+      revenueBand: enriched.revenueBand,
+      statusFlags: enriched.statusFlags,
     },
     update: {
-      taxId: candidate.taxId,
-      regNumber: candidate.regNumber,
-      legalName: candidate.legalName,
-      headcountBand: candidate.headcountBand,
-      revenueBand: candidate.revenueBand,
-      statusFlags: candidate.statusFlags,
+      taxId: enriched.taxId,
+      regNumber: enriched.regNumber,
+      legalName: enriched.legalName,
+      headcountBand: enriched.headcountBand,
+      revenueBand: enriched.revenueBand,
+      statusFlags: enriched.statusFlags,
       fetchedAt: new Date(),
     },
   });
 
   revalidatePath("/leads");
   return { ok: true };
+}
+
+/**
+ * Re-fetch a company's datasheet, bypassing the 90-day cache. Spends exactly
+ * one unit of the monthly quota, which is why the UI asks first.
+ */
+export async function refreshCompanyDatasheet(
+  companyId: string,
+): Promise<{ ok: true; fetchedAt: string } | { ok: false; error: string }> {
+  const { workspaceId, userId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+  const company = await db.company.findUnique({ where: { id: companyId }, select: { taxId: true } });
+  if (!company?.taxId || !cegadatTaxId(company.taxId)) {
+    return { ok: false, error: "The company has no 11-digit tax number to refresh." };
+  }
+  const res = await getDatasheet(workspaceId, company.taxId, { purpose: "MANUAL_REFRESH", userId, forceRefresh: true });
+  switch (res.status) {
+    case "ok": {
+      const c = candidateFromSheet(res.sheet);
+      await db.registryData.upsert({
+        where: { companyId },
+        create: { workspaceId, companyId, taxId: c.taxId, regNumber: c.regNumber, legalName: c.legalName, headcountBand: c.headcountBand, revenueBand: c.revenueBand, statusFlags: c.statusFlags },
+        update: { regNumber: c.regNumber, legalName: c.legalName, headcountBand: c.headcountBand, revenueBand: c.revenueBand, statusFlags: c.statusFlags, fetchedAt: res.fetchedAt },
+      });
+      revalidatePath("/leads");
+      return { ok: true, fetchedAt: res.fetchedAt.toISOString() };
+    }
+    case "quota_exhausted":
+      return { ok: false, error: "No registry lookups left this month." };
+    case "not_found":
+      return { ok: false, error: "The registry no longer knows this tax number." };
+    default:
+      return { ok: false, error: res.message };
+  }
 }
 
 // ---- Lookup by adószám (NAV queryTaxpayer) ---------------------------------

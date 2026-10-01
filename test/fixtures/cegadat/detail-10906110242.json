@@ -1,0 +1,148 @@
+{
+  "status": true,
+  "response": {
+    "results": {
+      "fullName": "Budapest Film Forgalmazó és Moziüzemi Zártkörűen Működő Részvénytársaság",
+      "shortName": "Budapest Film Zrt.",
+      "legalForm": "Részvénytársaság",
+      "fullAddress": "1082 Budapest, Corvin köz 1.",
+      "addressCounty": "Budapest",
+      "addressPostalCode": "1082",
+      "addressCity": "Budapest",
+      "addressStreet": "Corvin köz 1.",
+      "vatNumber": "10906110242",
+      "registryNumber": "0110042453",
+      "groupIdentificationNumber": "",
+      "dateFounded": "1995-06-13",
+      "statisticalCode": "10906110591411401",
+      "reportDate": "2025-12-31",
+      "netRevenue": 1545534000,
+      "shareholdersEquity": 6221557000,
+      "operatingProfit": 16711000,
+      "earningsBeforeTaxes": 19529000,
+      "netSalesRevenues": 15865000,
+      "totalAssets": 6996953000,
+      "employeeDate": "2026-09-30",
+      "employeeCount": 94,
+      "ownerCount": 1,
+      "owners": [
+        "Budapest Főváros Önkormányzata"
+      ],
+      "managerCount": 1,
+      "managers": [
+        "Teszt Személy 8"
+      ],
+      "principalActivity": "5914. Filmvetítés",
+      "activities": [
+        "5914. Filmvetítés",
+        "1820. Egyéb sokszorosítás",
+        "4690. Vegyes termékkörű nagykereskedelem",
+        "5630. Italszolgáltatás",
+        "5811. Könyvkiadás",
+        "5819. Egyéb kiadói tevékenység (kivéve: szoftverkiadás)",
+        "5911. Film, videó, televízióműsor készítése",
+        "5912. Film, videó, televízióműsor készítésének utómunkálatai",
+        "5920. Hangfelvétel-készítés, -kiadás",
+        "6210. Számítógépes programozás",
+        "6290. Egyéb információtechnológiai szolgáltatás",
+        "6392. Egyéb információs szolgáltatás",
+        "6832. Egyéb ingatlanügynöki, -kezelési szolgáltatás",
+        "6920. Számviteli, könyvvizsgálói, adószakértői tevékenység",
+        "7010. Üzletvezetés",
+        "7020. Üzletviteli, egyéb üzletvezetési tanácsadás",
+        "7311. Reklámügynöki tevékenység",
+        "7312. Médiareklám",
+        "7320. Piac-, közvélemény-kutatás",
+        "7330. PR-tevékenység",
+        "7722. Egyéb személyi használatú, háztartási cikk kölcsönzése",
+        "7740. Immateriális javak kölcsönzése, kivéve a szerzői jogdíjban részesülő javakat",
+        "8110. Építményüzemeltetés",
+        "8552. Kulturális képzés",
+        "8569. M.n.s. oktatást kiegészítő tevékenység",
+        "9039. Egyéb alkotó-, előadó-művészetet kiegészítő tevékenység"
+      ],
+      "bankAccounts": [
+        {
+          "bankName": "Kereskedelmi és Hitelbank Zártkörűen Működő Részvénytársaság",
+          "accountNumber": "00000000-00000000-00000000",
+          "effectiveFrom": "2022-12-22"
+        },
+        {
+          "bankName": "Kereskedelmi és Hitelbank Zártkörűen Működő Részvénytársaság",
+          "accountNumber": "00000000-00000000-00000000",
+          "effectiveFrom": "2022-12-22"
+        },
+        {
+          "bankName": "Kereskedelmi és Hitelbank Zártkörűen Működő Részvénytársaság",
+          "accountNumber": "00000000-00000000-00000000",
+          "effectiveFrom": "2022-12-22"
+        },
+        {
+          "bankName": "Kereskedelmi és Hitelbank Zrt.",
+          "accountNumber": "00000000-00000000-00000000",
+          "effectiveFrom": "2026-01-08"
+        }
+      ],
+      "branches": [
+        {
+          "address": "1013 Budapest, Krisztina krt. 87/89. (Tabán mozi).",
+          "addressCounty": "Budapest",
+          "addressPostalCode": "1013",
+          "addressCity": "Budapest",
+          "addressStreet": "Krisztina krt. 87/89. (Tabán mozi)."
+        },
+        {
+          "address": "1055 Budapst, Kossuth Lajos u. 18. (Puskin mozi).",
+          "addressCounty": "Budapest",
+          "addressPostalCode": "1055",
+          "addressCity": "Budapst",
+          "addressStreet": "Kossuth Lajos u. 18. (Puskin mozi)."
+        },
+        {
+          "address": "1066 Budapest, Teréz krt. 30. (Művész mozi).",
+          "addressCounty": "Budapest",
+          "addressPostalCode": "1066",
+          "addressCity": "Budapest",
+          "addressStreet": "Teréz krt. 30. (Művész mozi)."
+        },
+        {
+          "address": "1137 Budapest (Szinbád mozi), Szent I. krt. 16.",
+          "addressCounty": "Budapest",
+          "addressPostalCode": "1137",
+          "addressCity": "Budapest (Szinbád mozi)",
+          "addressStreet": "Szent I. krt. 16."
+        },
+        {
+          "address": "1136 Budapest /Odeon Lloyd mozi/, Hollán E. u. 7.",
+          "addressCounty": "Budapest",
+          "addressPostalCode": "1136",
+          "addressCity": "Budapest /Odeon Lloyd mozi/",
+          "addressStreet": "Hollán E. u. 7."
+        },
+        {
+          "address": "1073 Budapest /Örökmozgó mozi/, Erzsébet krt. 39.",
+          "addressCounty": "Budapest",
+          "addressPostalCode": "1073",
+          "addressCity": "Budapest /Örökmozgó mozi/",
+          "addressStreet": "Erzsébet krt. 39."
+        },
+        {
+          "address": "1054 Budapest, Bajcsy-Zsilinszky út 36-38. (Toldi mozi).",
+          "addressCounty": "Budapest",
+          "addressPostalCode": "1054",
+          "addressCity": "Budapest",
+          "addressStreet": "Bajcsy-Zsilinszky út 36-38. (Toldi mozi)."
+        },
+        {
+          "address": "1082 Budapest, Kisfaludy utca 31. Corvin Mozi. ép.",
+          "addressCounty": "Budapest",
+          "addressPostalCode": "1082",
+          "addressCity": "Budapest",
+          "addressStreet": "Kisfaludy utca 31. Corvin Mozi. ép."
+        }
+      ],
+      "branchOffices": [],
+      "status": "Aktív"
+    }
+  }
+}

@@ -3,7 +3,7 @@ import { attemptVoid, serverActionError } from "@/lib/client/server-action";
 
 import { useEffect, useState } from "react";
 import { overrideScore } from "@/modules/leads/actions";
-import { enrichCompanyLookup, confirmEnrichment } from "@/modules/registry/actions";
+import { enrichCompanyLookup, confirmEnrichment, refreshCompanyDatasheet } from "@/modules/registry/actions";
 import type { RegistryCandidate } from "@/modules/registry/provider";
 import { companyUnderProceedings } from "@/modules/registry/risk";
 import { RiskChip } from "./risk-chip";
@@ -31,7 +31,11 @@ export function EnrichDialog({
   useEffect(() => {
     let active = true;
     enrichCompanyLookup(companyId)
-      .then((r) => active && setCandidates(r.candidates))
+      .then((r) => {
+        if (!active) return;
+        setCandidates(r.candidates);
+        if (r.notice) setMsg(r.notice);
+      })
       .catch((e) => active && setMsg(serverActionError(e)));
     return () => {
       active = false;
@@ -50,6 +54,22 @@ export function EnrichDialog({
     }
   }
 
+  /** Bypasses the 90-day cache, so it costs one lookup — hence the question. */
+  async function refresh() {
+    if (!window.confirm("Fetch fresh company data? This spends one registry lookup from this month's quota.")) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await refreshCompanyDatasheet(companyId);
+      if (res.ok) onDone();
+      else setMsg(res.error);
+    } catch (e) {
+      setMsg(serverActionError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Modal>
       <div className="mb-3 flex items-center">
@@ -60,7 +80,10 @@ export function EnrichDialog({
       </div>
       <p className="mb-3 text-[12px] text-muted">
         Confirm the matching company. adószám becomes the dedupe key; a company
-        under proceedings is flagged.
+        under proceedings is flagged. Company data is cached for 90 days.{" "}
+        <button type="button" onClick={refresh} disabled={busy} className="underline hover:text-ink disabled:opacity-60">
+          Refresh now
+        </button>
       </p>
       {msg && <p className="mb-2 text-[12px] text-[#FFB3C2]">{msg}</p>}
       {candidates === null && !msg ? (

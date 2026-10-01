@@ -1,0 +1,65 @@
+{
+  "status": true,
+  "response": {
+    "results": {
+      "fullName": "WellData Korlátolt Felelősségű Társaság",
+      "shortName": "WellData Kft.",
+      "legalForm": "Korlátolt felelősségű társaság",
+      "fullAddress": "1193 Budapest, Derkovits Gyula utca 53.",
+      "addressCounty": "Budapest",
+      "addressPostalCode": "1193",
+      "addressCity": "Budapest",
+      "addressStreet": "Derkovits Gyula utca 53.",
+      "vatNumber": "32305964243",
+      "registryNumber": "0109417185",
+      "groupIdentificationNumber": "",
+      "dateFounded": "2023-06-12",
+      "statisticalCode": "32305964639211301",
+      "reportDate": "2025-12-31",
+      "netRevenue": 55927000,
+      "shareholdersEquity": 25355000,
+      "operatingProfit": 23316000,
+      "earningsBeforeTaxes": 23151000,
+      "netSalesRevenues": 21962000,
+      "totalAssets": 31831000,
+      "employeeDate": "2026-09-08",
+      "employeeCount": 3,
+      "ownerCount": 1,
+      "owners": [
+        "Teszt Személy 11"
+      ],
+      "managerCount": 1,
+      "managers": [
+        "Teszt Személy 11"
+      ],
+      "principalActivity": "6392. Egyéb információs szolgáltatás",
+      "activities": [
+        "6392. Egyéb információs szolgáltatás",
+        "5819. Egyéb kiadói tevékenység (kivéve: szoftverkiadás)",
+        "5829. Egyéb szoftverkiadás",
+        "6210. Számítógépes programozás",
+        "6220. Információtechnológiai szaktanácsadás és számítástechnikai eszközök, rendszerek üzemeltetése",
+        "7020. Üzletviteli, egyéb üzletvezetési tanácsadás",
+        "7311. Reklámügynöki tevékenység",
+        "6039. Egyéb tartalomterjesztési tevékenység",
+        "6310. Számítástechnikai infrastruktúra, adatfeldolgozás, tárhelyszolgáltatás és kapcsolódó szolgáltatások",
+        "6391. Internetes keresőportállal kapcsolatos tevékenységek"
+      ],
+      "bankAccounts": [
+        {
+          "bankName": "OTP Fiók Tapolca",
+          "accountNumber": "00000000-00000000-00000000",
+          "effectiveFrom": "2023-06-19"
+        },
+        {
+          "bankName": "OTP Veszprém m. Belföldiek Devizái",
+          "accountNumber": "00000000-00000000-00000000",
+          "effectiveFrom": "2023-06-19"
+        }
+      ],
+      "branches": [],
+      "branchOffices": [],
+      "status": "Aktív"
+    }
+  }
+}

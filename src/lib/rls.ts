@@ -151,6 +151,9 @@ const BUSINESS_TABLES = [
   "product_references",
   "segments",
   "icp_profiles",
+  "registry_sheets",
+  "registry_search_cache",
+  "registry_quota_ledger",
 ];
 
 /**

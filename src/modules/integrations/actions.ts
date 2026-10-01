@@ -222,11 +222,30 @@ export async function testIntegration(raw: unknown): Promise<TestResult> {
         return await testMailgun(values["mailgun.cold.domain"], values["mailgun.cold.apiKey"], "cold");
       case "nav":
         return await testNav(workspaceId);
+      case "cegadat":
+        return await testCegadat(values["cegadat.apiKey"]);
       default:
         return { ok: false, message: "That integration has no connection test." };
     }
   } catch (e) {
     return { ok: false, message: `Could not reach the provider: ${(e as Error).message}` };
+  }
+}
+
+/**
+ * The search endpoint is unlimited on every plan, so a test costs nothing
+ * against the monthly detail quota. A detail call would spend a unit to prove
+ * the same thing.
+ */
+async function testCegadat(apiKey: string | null): Promise<TestResult> {
+  if (!apiKey) return { ok: false, message: "No API key configured." };
+  const { CegadatProvider, RegistryAuthError } = await import("@/modules/registry/cegadat");
+  try {
+    const page = await new CegadatProvider(apiKey).search({ name: "WellData", limit: 1 });
+    return { ok: true, message: `Key accepted (search returned ${page.totalResults} result${page.totalResults === 1 ? "" : "s"}).` };
+  } catch (e) {
+    if (e instanceof RegistryAuthError) return { ok: false, message: "Cégadat rejected that key or the subscription is not active." };
+    throw e;
   }
 }
 

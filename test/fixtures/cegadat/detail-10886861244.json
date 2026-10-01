@@ -1,0 +1,182 @@
+{
+  "status": true,
+  "response": {
+    "results": {
+      "fullName": "Coca-Cola HBC Magyarország Korlátolt Felelősségű Társaság",
+      "shortName": "Coca-Cola HBC Magyarország Kft.",
+      "legalForm": "Korlátolt felelősségű társaság",
+      "fullAddress": "2330 Dunaharaszti, Némedi út 104.",
+      "addressCounty": "Pest",
+      "addressPostalCode": "2330",
+      "addressCity": "Dunaharaszti",
+      "addressStreet": "Némedi út 104.",
+      "vatNumber": "10886861244",
+      "registryNumber": "1309067506",
+      "groupIdentificationNumber": "",
+      "dateFounded": "1993-12-09",
+      "statisticalCode": "10886861110711313",
+      "reportDate": "2025-12-31",
+      "netRevenue": 263633479000,
+      "shareholdersEquity": 18368655000,
+      "operatingProfit": 13154708000,
+      "earningsBeforeTaxes": 10437848000,
+      "netSalesRevenues": 9542825000,
+      "totalAssets": 85397194000,
+      "employeeDate": "2026-09-30",
+      "employeeCount": 1092,
+      "ownerCount": 1,
+      "owners": [
+        "CC Beverages Holdings II B.V."
+      ],
+      "managerCount": 7,
+      "managers": [
+        "Teszt Személy 1",
+        "Teszt Személy 2",
+        "Teszt Személy 3",
+        "Teszt Személy 4",
+        "Teszt Személy 5",
+        "Teszt Személy 6",
+        "Teszt Személy 7"
+      ],
+      "principalActivity": "1107. Üdítőital, ásványvíz gyártása",
+      "activities": [
+        "1107. Üdítőital, ásványvíz gyártása",
+        "1032. Gyümölcs-, zöldséglé gyártása",
+        "4634. Ital nagykereskedelme",
+        "4637. Kávé-, tea-, kakaó-, fűszer-nagykereskedelem",
+        "4639. Élelmiszer, ital, dohányáru vegyes nagykereskedelme",
+        "6920. Számviteli, könyvvizsgálói, adószakértői tevékenység",
+        "7711. Személygépjármű kölcsönzése",
+        "8292. Csomagolás",
+        "3312. Ipari gép, berendezés javítása, karbantartása",
+        "4617. Élelmiszer, ital, dohányáru ügynöki nagykereskedelme",
+        "4711. Élelmiszer jellegű vegyes kiskereskedelem",
+        "4724. Kenyér-, pékáru-, édesség-kiskereskedelem",
+        "4725. Ital-kiskereskedelem",
+        "4727. Egyéb élelmiszer-kiskereskedelem",
+        "4751. Textil-kiskereskedelem",
+        "4941. Közúti áruszállítás",
+        "5224. Rakománykezelés",
+        "5225. Logisztikai szolgáltatás",
+        "5226. Egyéb, szállítást kiegészítő szolgáltatás",
+        "5231. Áruszállítási szolgáltatás közvetítése",
+        "6120. Távközlés viszonteladása, közvetítése",
+        "7020. Üzletviteli, egyéb üzletvezetési tanácsadás",
+        "7712. Gépjárműkölcsönzés (3,5 tonna fölött)",
+        "7739. M.n.s. egyéb gép, tárgyi eszköz kölcsönzése",
+        "8240. Egyéb üzletmenetet támogató szolgáltatás közvetítése",
+        "8299. M.n.s. egyéb üzletmenetet támogató szolgáltatás"
+      ],
+      "bankAccounts": [
+        {
+          "bankName": "CITIBANK Rt.",
+          "accountNumber": "00000000-00000000-00000000",
+          "effectiveFrom": "2008-07-03"
+        },
+        {
+          "bankName": "CITIBANK Rt.",
+          "accountNumber": "00000000-00000000-00000000",
+          "effectiveFrom": "2010-10-12"
+        },
+        {
+          "bankName": "Raiffeisen Bank Rt. Budapesti Fiók",
+          "accountNumber": "00000000-00000000-00000000",
+          "effectiveFrom": "2022-07-18"
+        },
+        {
+          "bankName": "UniCredit Bank Hungary Zrt. SZABADSÁG TÉRI FIÓK",
+          "accountNumber": "00000000-00000000-00000000",
+          "effectiveFrom": "2008-04-10"
+        }
+      ],
+      "branches": [],
+      "branchOffices": [
+        {
+          "address": "6000 Kecskemét, Kandó Kálmán u. 28-30.",
+          "addressCounty": "Bács-Kiskun",
+          "addressPostalCode": "6000",
+          "addressCity": "Kecskemét",
+          "addressStreet": "Kandó Kálmán u. 28-30."
+        },
+        {
+          "address": "6728 Szeged, Fonógyári út 13.",
+          "addressCounty": "Csongrád",
+          "addressPostalCode": "6728",
+          "addressCity": "Szeged",
+          "addressStreet": "Fonógyári út 13."
+        },
+        {
+          "address": "8790 Zalaszentgrót, Szív utca 17.",
+          "addressCounty": "Zala",
+          "addressPostalCode": "8790",
+          "addressCity": "Zalaszentgrót",
+          "addressStreet": "Szív utca 17."
+        },
+        {
+          "address": "8600 Siófok, Bajcsy-Zsilinszky u. 212.",
+          "addressCounty": "Somogy",
+          "addressPostalCode": "8600",
+          "addressCity": "Siófok",
+          "addressStreet": "Bajcsy-Zsilinszky u. 212."
+        },
+        {
+          "address": "7630 Pécs, Üszögi-kiserdő u. 2.",
+          "addressCounty": "Baranya",
+          "addressPostalCode": "7630",
+          "addressCity": "Pécs",
+          "addressStreet": "Üszögi-kiserdő u. 2."
+        },
+        {
+          "address": "9027 Győr, Bükkfa utca 18.",
+          "addressCounty": "Győr-Moson-Sopron",
+          "addressPostalCode": "9027",
+          "addressCity": "Győr",
+          "addressStreet": "Bükkfa utca 18."
+        },
+        {
+          "address": "8790 Zalaszentgrót, külterület 010311/20.",
+          "addressCounty": "Zala",
+          "addressPostalCode": "8790",
+          "addressCity": "Zalaszentgrót",
+          "addressStreet": "külterület 010311/20."
+        },
+        {
+          "address": "5600 Békéscsaba, Zsíros utca 9.",
+          "addressCounty": "Békés",
+          "addressPostalCode": "5600",
+          "addressCity": "Békéscsaba",
+          "addressStreet": "Zsíros utca 9."
+        },
+        {
+          "address": "4400 Nyíregyháza, Kert köz 4/a.",
+          "addressCounty": "Szabolcs-Szatmár-Bereg",
+          "addressPostalCode": "4400",
+          "addressCity": "Nyíregyháza",
+          "addressStreet": "Kert köz 4/a."
+        },
+        {
+          "address": "3200 Gyöngyös, Hunyadi János utca 1/1-1/2.",
+          "addressCounty": "Heves",
+          "addressPostalCode": "3200",
+          "addressCity": "Gyöngyös",
+          "addressStreet": "Hunyadi János utca 1/1-1/2."
+        },
+        {
+          "address": "3434 Mályi, Kistokaji utca 7.",
+          "addressCounty": "Borsod-Abaúj-Zemplén",
+          "addressPostalCode": "3434",
+          "addressCity": "Mályi",
+          "addressStreet": "Kistokaji utca 7."
+        },
+        {
+          "address": "4030 Debrecen, Repülőtéri út 12.",
+          "addressCounty": "Hajdú-Bihar",
+          "addressPostalCode": "4030",
+          "addressCity": "Debrecen",
+          "addressStreet": "Repülőtéri út 12."
+        }
+      ],
+      "status": "Aktív"
+    }
+  }
+}
