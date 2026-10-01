@@ -7,6 +7,8 @@ import { approveProposal, rejectProposal, type ProposalView } from "@/modules/si
 const KIND_LABEL: Record<string, string> = {
   FRAME_PROMOTION: "Frame promotion",
   SCORE_WEIGHT: "Score weight",
+  STAGE_PROBABILITY: "Stage probability",
+  FRAGMENT_RETIREMENT: "Retire a name fragment",
 };
 
 const STATUS_CHIP: Record<string, string> = {

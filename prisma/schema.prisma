@@ -1016,6 +1016,9 @@ enum ProposalKind {
   SCORE_WEIGHT
   /// Quarterly win/loss review of a stage's default probability (v2 P4/c).
   STAGE_PROBABILITY
+  /// Retire an outbound name fragment that keeps finding companies nobody
+  /// approves (playbook-v6 F6/4). Raised by arithmetic, approved by an Owner.
+  FRAGMENT_RETIREMENT
 }
 
 enum ProposalStatus {

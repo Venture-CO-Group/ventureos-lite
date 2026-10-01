@@ -5,6 +5,10 @@ import { myTasks } from "@/modules/tasks/actions";
 import { getLatestInsight } from "@/modules/signal/actions";
 import { Onboarding } from "@/components/onboarding";
 import { getOnboarding } from "@/modules/onboarding/actions";
+import { OutboundBriefing } from "@/components/outbound-briefing";
+import { buildBriefing } from "@/modules/outbound/briefing";
+import { getWorkspaceClient } from "@/lib/db";
+import { getActiveContext } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -12,10 +16,14 @@ export default async function Home() {
   // Tasks are fetched HERE, on the server, and handed to the panel as a prop.
   // The dashboard is the first page loaded every morning; a client round trip
   // for its main list costs a flash and real latency on a phone.
-  const [insight, tasks, onboarding] = await Promise.all([
+  const { workspaceId } = await getActiveContext();
+  const [insight, tasks, onboarding, briefing] = await Promise.all([
     getLatestInsight(),
     myTasks(),
     getOnboarding(),
+    // The outbound morning briefing (playbook-v6 F6/3): database reads only,
+    // no AI call on page load.
+    buildBriefing(getWorkspaceClient(workspaceId), workspaceId),
   ]);
   const initialTasks = [
     ...tasks.overdue,
@@ -63,6 +71,7 @@ export default async function Home() {
           <TasksPanel initial={initialTasks} />
 
           <div className="grid gap-4">
+            <OutboundBriefing b={briefing} />
             {/* Claude insight card — the only glowing element (spec §4.13) */}
             <div className="rounded-card border-[1.5px] border-transparent bg-[linear-gradient(rgba(4,8,34,0.92),rgba(4,8,34,0.92))_padding-box,linear-gradient(135deg,#310B59,#7427C6)_border-box] p-[18px] shadow-[0_0_24px_rgba(116,39,198,0.18)]">
               <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold">

@@ -100,6 +100,7 @@ export async function saveOutboundSettings(
   // not the form's: a stale tab must not restart a warm-up or clear a pause.
   const merged: OutboundConfig = {
     ...next,
+    schedule: { ...next.schedule, lastRunDate: before.schedule.lastRunDate },
     cap: { ...next.cap, startedAt: before.cap.startedAt },
     warmup: { ...next.warmup, startedAt: before.warmup.startedAt },
     sending: {

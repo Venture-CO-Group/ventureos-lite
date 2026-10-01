@@ -13,6 +13,7 @@ import { buildDigestModel } from "./reports";
 import { brandEmail, brandEmailText } from "../mail/layout";
 import { brandFrom } from "@/modules/workspaces/brand";
 import { appUrl } from "@/lib/env";
+import { buildBriefing, briefingDigestLines } from "@/modules/outbound/briefing";
 
 /**
  * Monday 07:30 per-user, per-workspace digest (spec §4.22). Each membership
@@ -29,6 +30,9 @@ export async function processMondayDigests(nowMs: number = Date.now()): Promise<
     const db = getWorkspaceClient(ws.id);
     const brand = brandFrom(ws.brand);
     const identity = resolveSendingIdentity(ws.mailgunConfig, brand);
+    // The outbound briefing leads the digest (playbook-v6 F6/3). Built once
+    // per workspace: it is the same numbers for every member.
+    const outbound = briefingDigestLines(await buildBriefing(db, ws.id, new Date(nowMs)));
     const members = await prismaUnsafe.membership.findMany({
       where: { workspaceId: ws.id },
       include: { user: { select: { name: true, email: true } } },
@@ -45,7 +49,8 @@ export async function processMondayDigests(nowMs: number = Date.now()): Promise<
         role: m.role,
         workspaceId: ws.id,
       });
-      const model = buildDigestModel(input);
+      const built = buildDigestModel(input);
+      const model = { ...built, sections: [...outbound, ...built.sections] };
 
       let intro = "Here's your week at a glance.";
       try {

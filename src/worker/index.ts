@@ -69,6 +69,8 @@ import {
 import { processReferralSweep } from "../modules/referrals/jobs";
 import { processRunPass, type RunJobData } from "../modules/outbound/run-jobs";
 import { processOutboundSendSweep } from "../modules/outbound/send-jobs";
+import { processNightlySweep } from "../modules/outbound/schedule";
+import { processOutboundRetention } from "../modules/outbound/retention";
 
 /**
  * Background worker (BullMQ + Redis). Runs in its own Docker service.
@@ -261,6 +263,18 @@ async function main(): Promise<void> {
         const sent = Object.values(r).filter((x) => x === "sent").length;
         // eslint-disable-next-line no-console
         if (sent) console.log(`[worker] outbound sent ${sent} message(s)`);
+        return;
+      }
+      if (job.name === "nightly") {
+        const r = await processNightlySweep();
+        // eslint-disable-next-line no-console
+        if (r.length) console.log(`[worker] outbound nightly fill: ${r.map((x) => `${x.workspaceId} ${x.runIds.length} run(s)`).join(", ")}`);
+        return;
+      }
+      if (job.name === "retention") {
+        const r = await processOutboundRetention();
+        // eslint-disable-next-line no-console
+        console.log(`[worker] outbound retention removed ${r.candidates} candidate(s), ${r.pool} pool row(s), ${r.sheets} datasheet(s)`);
         return;
       }
       if (job.name === "run-pass") {
@@ -631,6 +645,19 @@ async function main(): Promise<void> {
     "send-sweep",
     {},
     { repeat: { pattern: "*/5 * * * *" }, jobId: "outbound-send-sweep" },
+  );
+  // The nightly fill (playbook-v6 F6) — checked every 15 minutes; each
+  // workspace runs once per local date at its own configured time.
+  await outboundQueue().add(
+    "nightly",
+    {},
+    { repeat: { pattern: "*/15 * * * *" }, jobId: "outbound-nightly" },
+  );
+  // Outbound retention — 03:35, beside the other purges (spec §4.43.10 GDPR).
+  await outboundQueue().add(
+    "retention",
+    {},
+    { repeat: { pattern: "35 3 * * *" }, jobId: "outbound-retention" },
   );
   // Daily insight — 06:30, rotates over the weekly digest (one Haiku call/day).
   await wakeupsQueue().add(

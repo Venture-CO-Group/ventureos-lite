@@ -8,6 +8,7 @@ const TABS = [
   { href: "/outbound", label: "Approval queue" },
   { href: "/outbound/linkedin", label: "LinkedIn queue" },
   { href: "/outbound/runs", label: "Runs" },
+  { href: "/outbound/insights", label: "Insights" },
   { href: "/outbound/products", label: "Products & ICP" },
   { href: "/outbound/segments", label: "Segments" },
 ] as const;

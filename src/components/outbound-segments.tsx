@@ -7,6 +7,7 @@ import { saveSegment } from "@/modules/outbound/catalog-actions";
 import { harvestNow } from "@/modules/outbound/run-actions";
 import type { SegmentView } from "@/modules/outbound/catalog";
 import { SOURCING_HINT_LABEL } from "@/modules/outbound/segments-seed";
+import type { FragmentYield } from "@/modules/outbound/metrics";
 
 /**
  * The segment taxonomy (spec §4.43.2–3, §9bis).
@@ -20,11 +21,6 @@ const INPUT =
   "w-full rounded-[9px] border border-line bg-[rgba(0,5,29,0.5)] px-2.5 py-2 text-[13px] text-ink outline-none placeholder:text-muted focus:border-accent";
 const LABEL = "text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted";
 
-export interface FragmentYield {
-  fragment: string;
-  sourced: number;
-  approved: number;
-}
 
 export function OutboundSegments({
   segments,

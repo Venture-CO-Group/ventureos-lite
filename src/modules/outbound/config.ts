@@ -27,6 +27,8 @@ const scheduleSchema = z.object({
   /** ISO weekdays, 1 = Monday. Default Monday–Friday nights. */
   days: z.array(z.number().int().min(1).max(7)).default([1, 2, 3, 4, 5]),
   timezone: z.string().default("Europe/Budapest"),
+  /** The local date the nightly fill last ran for — set by the scheduler only. */
+  lastRunDate: z.string().nullable().default(null),
 });
 
 const capSchema = z.object({
