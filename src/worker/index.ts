@@ -3,6 +3,7 @@ import { checkEnvAtBoot } from "../lib/env";
 import {
   getRedisConnection,
   wakeupsQueue,
+  outboundQueue,
   FOLLOWUPS_QUEUE,
   WAKEUPS_QUEUE,
   AUDIT_QUEUE,
@@ -13,6 +14,7 @@ import {
   LOGS_QUEUE,
   VISITS_QUEUE,
   VERIFY_QUEUE,
+  OUTBOUND_QUEUE,
 } from "../lib/queue";
 import { processFollowup, processWakeupSweep } from "../modules/pipeline/jobs";
 import {
@@ -65,6 +67,10 @@ import {
   processSectorAggregation,
 } from "../modules/sector-reports/jobs";
 import { processReferralSweep } from "../modules/referrals/jobs";
+import { processRunPass, type RunJobData } from "../modules/outbound/run-jobs";
+import { processOutboundSendSweep } from "../modules/outbound/send-jobs";
+import { processNightlySweep } from "../modules/outbound/schedule";
+import { processOutboundRetention } from "../modules/outbound/retention";
 
 /**
  * Background worker (BullMQ + Redis). Runs in its own Docker service.
@@ -244,6 +250,44 @@ async function main(): Promise<void> {
   verifyWorker.on("failed", (job, err) => {
     // eslint-disable-next-line no-console
     console.error(`[worker] audience verification failed for ${job?.data?.campaignId}`, err);
+  });
+
+  // The outbound motor (playbook-v6): sourcing-run passes. Concurrency one —
+  // a run spends registry quota, and two passes of the same run racing for
+  // the same day's allocation is exactly what must not happen.
+  const outboundWorker = new Worker(
+    OUTBOUND_QUEUE,
+    async (job) => {
+      if (job.name === "send-sweep") {
+        const r = await processOutboundSendSweep();
+        const sent = Object.values(r).filter((x) => x === "sent").length;
+        // eslint-disable-next-line no-console
+        if (sent) console.log(`[worker] outbound sent ${sent} message(s)`);
+        return;
+      }
+      if (job.name === "nightly") {
+        const r = await processNightlySweep();
+        // eslint-disable-next-line no-console
+        if (r.length) console.log(`[worker] outbound nightly fill: ${r.map((x) => `${x.workspaceId} ${x.runIds.length} run(s)`).join(", ")}`);
+        return;
+      }
+      if (job.name === "retention") {
+        const r = await processOutboundRetention();
+        // eslint-disable-next-line no-console
+        console.log(`[worker] outbound retention removed ${r.candidates} candidate(s), ${r.pool} pool row(s), ${r.sheets} datasheet(s)`);
+        return;
+      }
+      if (job.name === "run-pass") {
+        const status = await processRunPass(job.data as RunJobData);
+        // eslint-disable-next-line no-console
+        console.log(`[worker] outbound run ${(job.data as RunJobData).runId}: ${status}`);
+      }
+    },
+    { connection, concurrency: 1 },
+  );
+  outboundWorker.on("failed", (job, err) => {
+    // eslint-disable-next-line no-console
+    console.error(`[worker] outbound ${job?.name} ${job?.id} failed`, err);
   });
 
   const wakeupWorker = new Worker(
@@ -594,6 +638,26 @@ async function main(): Promise<void> {
     "audit-watch",
     {},
     { repeat: { pattern: "0 4 * * *" }, jobId: "audit-watch" },
+  );
+  // Outbound sends (playbook-v6 F5) — every five minutes; each pass sends at
+  // most one message per workspace, so the cadence IS the spacing floor.
+  await outboundQueue().add(
+    "send-sweep",
+    {},
+    { repeat: { pattern: "*/5 * * * *" }, jobId: "outbound-send-sweep" },
+  );
+  // The nightly fill (playbook-v6 F6) — checked every 15 minutes; each
+  // workspace runs once per local date at its own configured time.
+  await outboundQueue().add(
+    "nightly",
+    {},
+    { repeat: { pattern: "*/15 * * * *" }, jobId: "outbound-nightly" },
+  );
+  // Outbound retention — 03:35, beside the other purges (spec §4.43.10 GDPR).
+  await outboundQueue().add(
+    "retention",
+    {},
+    { repeat: { pattern: "35 3 * * *" }, jobId: "outbound-retention" },
   );
   // Daily insight — 06:30, rotates over the weekly digest (one Haiku call/day).
   await wakeupsQueue().add(

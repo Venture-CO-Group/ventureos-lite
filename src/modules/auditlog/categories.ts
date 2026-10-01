@@ -48,6 +48,8 @@ export const AUDIT_LOG_CATEGORIES = [
       "calendar.",
       "capture.",
       "proposal.",
+      // Products, ICP profiles, segments and the outbound motor (playbook-v6).
+      "outbound.",
     ],
   },
 ] as const;

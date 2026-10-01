@@ -58,6 +58,7 @@ const PUBLIC_PREFIXES = [
   "/api/auth", // Auth.js endpoints
   "/api/health", // container + proxy probes
   "/api/cold/unsubscribe", // one-click unsubscribe in cold mail
+  "/api/outbound/unsubscribe", // the same, for mail the outbound motor sent (playbook-v6)
   "/api/mailgun", // inbound mail routes (signature-verified)
   "/api/webhooks", // delivery/bounce webhooks (signature-verified)
   "/api/capture", // browser-extension capture (bearer token, not a session)

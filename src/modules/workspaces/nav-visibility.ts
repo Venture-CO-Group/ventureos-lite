@@ -57,6 +57,7 @@ export const NAV_FEATURES: readonly NavFeature[] = [
   { key: "pipeline", label: "Pipeline", href: "/pipeline", essential: true, hint: "The sales board." },
   { key: "deals", label: "Deals", href: "/deals", hint: "The money board, after Qualified." },
   { key: "outreach", label: "Outreach", href: "/outreach", hint: "Drafting connection notes and follow-ups." },
+  { key: "outbound", label: "Outbound", href: "/outbound", hint: "The approval queue, products and ICP profiles of the outbound motor." },
   { key: "inbox", label: "Inbox", href: "/inbox", hint: "Replies and triage." },
   { key: "calls", label: "Calls", href: "/calls", hint: "The call list and callbacks." },
   { key: "meetings", label: "Meetings", href: "/meetings", hint: "Booked meetings and briefs." },

@@ -418,7 +418,9 @@ Two rules are enforced on the server, not just in the interface:
 1. **A Claude-drafted message cannot be marked sent until you have changed it.**
    Adding spaces does not count; the comparison ignores whitespace. If you press
    Mark sent on an untouched draft, the server refuses and says so. The intent
-   is that nothing leaves in Claude's voice unedited.
+   is that nothing leaves in Claude's voice unedited. (The outbound motor's
+   approval queue is the one exception, and only there: approving the exact
+   visible text is the human act of control — see §4b.)
 2. **Two follow-ups with no reply parks the lead as `Not now`**, with a wake-up
    in 30 days. Nobody gets chased indefinitely.
 
@@ -430,6 +432,139 @@ invent a fact.
 
 Both Draft and Critique are manual buttons and count against the AI budget
 below. Nothing on this screen calls Claude on load.
+
+## 4b. The outbound motor
+
+The motor finds companies for a product, checks them against the product's ICP
+profile, audits their site, finds a person to write to, drafts a message
+built on one fact about that company — and puts it in **Outbound → Approval
+queue** for a person to approve. Approved mail leaves from
+**fanni.viragh@ventureco.agency** through that account's own Gmail. Nothing is
+sent without an approval, and nothing is drafted without a company-specific
+fact (CLAUDE.md hard rules 6, 10, 11).
+
+### Before the first run — a checklist
+
+1. **Registry key.** Admin → Integrations → *Cégadat API*: paste the key and
+   press *Test connection* (a free search, it spends nothing). Without a key the
+   motor has no registry in production and every run stops with that message.
+2. **Counsel sign-off.** Admin → Integrations → the cold-email sign-off. The
+   outbound sender is gated on the same record as the Mailgun campaigns; until
+   it exists, approved mail waits and nothing goes out.
+3. **The mailbox.** Sign in **as Fanni**, Settings → Email → connect
+   *fanni.viragh@ventureco.agency*. The motor only ever sends from that exact
+   address; a `.group` mailbox is refused in code. Admin → Outbound shows
+   "Mailbox connected" and today's send cap once it is.
+4. **The schedule.** Admin → Outbound → *Fill the approval queue overnight*.
+   Default 03:00 Budapest time, Monday to Friday. Leave it off until you have
+   run one campaign by hand and liked the result.
+
+### Creating a product and a profile
+
+Outbound → **Products & ICP** → *New product*. The fields that matter most:
+
+- **Value propositions** — each claim needs its evidence. The draft makes one
+  evidenced claim; a claim without evidence is not offered to it.
+- **Reference companies** — tick *our client* only for a company you have
+  actually worked for. Only those can ever be named in a message; everything
+  else is a targeting pattern and is never written down. This is enforced in
+  code, not by asking the model nicely.
+
+Then *Add profile*: pick segments (the chip says which channel actually finds
+them — fantasy-named sectors like IT and consulting are "weak" for name
+harvesting and want a seed list), pick size bands, optionally press *Suggest*
+to derive both from the reference companies (one registry lookup each), and set
+**drafts per night**.
+
+### Running a campaign by hand
+
+Outbound → **Runs** → pick the profile, the channel, how many qualified
+companies you want → **Estimate**. The estimate says how many companies are in
+the pool, roughly how many registry datasheets it will spend and what share of
+the month that is. **Start run** only works after you have seen it, and refuses
+if the estimate has grown since.
+
+A run harvests the profile's segments first if the pool is empty (free), then
+spends datasheet lookups best-first, filters, audits, finds contacts and drafts.
+Watch it on the run's page: the funnel, and **why candidates dropped** — grouped,
+with examples. That distribution is how you fix a profile.
+
+To add companies by hand: *Import a list* (CSV, at least a name column) or *From
+the prospector* (a Places search you already ran — no new spend).
+
+### The approval queue
+
+**J/K** move, **A** approve, **E** edit in place, **X** reject (pick a reason —
+1 to 6; no reason, no rejection), **L** send the company to the LinkedIn queue.
+Each card shows the message exactly as it will leave — signature and
+unsubscribe line included — with the facts it is built on highlighted, how the
+address was found, the registry numbers and the audit score.
+
+- Approving creates the lead (source *Outbound engine*, stage Researched). It
+  moves to Contacted when the message is actually sent.
+- An edit that removes every company-specific sentence cannot be approved.
+- *Approve opened* only approves cards **you** have opened.
+- Follow-ups (up to two, 4 and 9 days after the previous touch by default)
+  appear in the same queue. They must add a fact the first message did not use.
+
+The **LinkedIn queue** holds companies with no usable address. *Draft in
+Outreach Studio* hands one over as a lead; from there the Studio's own rules
+apply unchanged, including the mandatory human edit.
+
+### Sending
+
+Every five minutes the sender sends at most one approved message: business
+hours on weekdays only, with a jittered gap, and no more than the warm-up cap
+(10 on the mailbox's first day, +5 every three days, up to 40). More approvals
+than the cap simply wait for the next day.
+
+- **Unsubscribe** (the link in every message, or the mail client's own button)
+  suppresses the address, the company's domain and its tax number — every
+  contact there, every campaign, at once.
+- A **reply** stops the sequence and moves the lead to Replied; it is in the
+  Inbox like any other. A reply asking us to stop counts as an unsubscribe.
+- **Bounces** are read from the mailbox. Above 3% the sender pauses itself and
+  notifies the Owners; Admin → Outbound → *Resume sending* re-opens it
+  (audit-logged). Find out why before you press it.
+
+Cold outbound is plain text with **no tracking pixel**; there are no open
+counts for it, by design.
+
+### Reading the morning briefing
+
+The Dashboard card (and the first lines of the Monday digest): how many drafts
+are waiting, by product; what dropped last night and why; the month's datasheet
+count; segments running dry; and why any product got fewer than it wanted. The
+nightly run only tops the queue up to its target — if Fanni has 12 waiting and
+the target is 15, it makes 3.
+
+### Maintaining name fragments
+
+Outbound → **Segments**. Each fragment shows *found → approved*. A fragment with
+20 or more decided companies and no approval is a retirement candidate; the
+weekly Signal Engine run raises it as a proposal for an Owner to approve
+(Admin → Sales & delivery → proposals). Strong fragments are listed on
+**Insights** — add similar words. Fragments need four characters or more; the
+registry refuses shorter searches. *Harvest now* fetches one free page per
+fragment.
+
+### When the datasheet quota runs low
+
+The plan has 5,000 datasheets a month. Runs get a daily share (what is left ÷
+days left), and 15% is held back for people looking companies up by hand.
+When a run's share is gone it **pauses** and resumes the next night — it never
+fails. A cached datasheet (90 days) costs nothing; *Refresh now* in the
+enrichment dialog spends one. If the month is tight: lower *drafts per night*,
+or improve the profile so fewer datasheets are wasted on companies that get
+filtered out (the run's drop reasons say which).
+
+### Data protection
+
+Candidate data — including managers' names from the registry — is deleted after
+twelve months without a meaningful interaction; datasheets go once they are well
+past their cache life. Erasing a lead (§7) takes its candidate and every draft
+with it. Suppression entries are never erased: "do not contact" has to outlive
+the data, or the next harvest would write to them again.
 
 ---
 

@@ -66,6 +66,21 @@ export async function approveProposal(
       where: { id: frameId },
       data: { version: effect.version, status: "APPROVED" },
     });
+  } else if (proposal.kind === "FRAGMENT_RETIREMENT") {
+    // Outbound (playbook-v6 F6/4): drop a fragment that keeps finding
+    // companies nobody approves. Through the guarded client, and versioned
+    // like every other fragment edit so yields stay readable.
+    const effect = proposalEffect("FRAGMENT_RETIREMENT", data, "approve", {});
+    if (effect?.type !== "fragment") return { ok: false, error: "Invalid proposal." };
+    const segment = await db.segment.findFirst({ where: { key: effect.segmentKey } });
+    if (!segment) return { ok: false, error: "That segment no longer exists." };
+    const fragments = Array.isArray(segment.fragments) ? (segment.fragments as string[]) : [];
+    if (fragments.includes(effect.fragment)) {
+      await db.segment.update({
+        where: { id: segment.id },
+        data: { fragments: fragments.filter((f) => f !== effect.fragment), version: { increment: 1 } },
+      });
+    }
   } else if (proposal.kind === "STAGE_PROBABILITY") {
     // v2 P4/c. The stage is looked up through the guarded client, so an
     // approval cannot reach a stage in another workspace even if the stored

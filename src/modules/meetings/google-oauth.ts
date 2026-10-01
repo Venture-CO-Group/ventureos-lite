@@ -24,6 +24,11 @@ export const GOOGLE_SCOPES = [
   // not expire. readonly + send rather than modify: we never need to change
   // anything in the user's mailbox, and asking for less is the difference
   // between a scope review and none.
+  //
+  // gmail.readonly also covers users.settings.sendAs.get, which is how the
+  // outbound sender reads the account signature (playbook-v6 F5/2). The
+  // playbook suggested gmail.settings.basic for that; it is a WRITE scope over
+  // filters, forwarding and signatures, and is not needed to read one.
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
   "openid",

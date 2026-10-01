@@ -101,6 +101,19 @@ export async function eraseLeadData(
   // opened this message at this time" is personal data about them.
   deleted.emailTrackEvents = (await db.emailTrackEvent.deleteMany({ where: { leadId } })).count;
   deleted.campaignRecipients = (await db.campaignRecipient.deleteMany({ where: { leadId } })).count;
+  /**
+   * The outbound motor's record of this person (playbook-v6): the candidate
+   * row holds their name and address in its contact trail, and every draft
+   * holds the address and the words written to them. Both go. The
+   * suppression entries do NOT — "do not contact" must outlive the erasure,
+   * or the next harvest would find the company and write to them again.
+   */
+  const candidates = await db.prospectCandidate.findMany({ where: { leadId }, select: { id: true } });
+  if (candidates.length > 0) {
+    const ids = candidates.map((c) => c.id);
+    deleted.outreachDrafts = (await db.outreachDraft.deleteMany({ where: { candidateId: { in: ids } } })).count;
+    deleted.prospectCandidates = (await db.prospectCandidate.deleteMany({ where: { id: { in: ids } } })).count;
+  }
 
   // Documents: per retention policy — purge (with PDFs) or retain detached.
   if (opts.eraseDocuments) {

@@ -128,6 +128,10 @@ enum LeadSource {
   /// report (P12/1c). The warmest source there is, and the only one where the
   /// lawful basis for contacting them is a consent record.
   SELF_SERVE_AUDIT
+  /// Sourced, drafted and approved by the outbound motor (playbook-v6, spec
+  /// §4.43). The lawful basis is the documented legitimate interest recorded
+  /// with the counsel sign-off.
+  OUTBOUND_ENGINE
 }
 
 enum Stage {
@@ -687,6 +691,9 @@ model Workspace {
   claudeBudget  Decimal      @default(2) @map("claude_budget") // USD daily cap
   retentionDays Int          @default(365) @map("retention_days")
   featureFlags  Json?        @map("feature_flags")
+  /// Outbound motor settings (playbook-v6): registry quota, nightly schedule,
+  /// workspace cap, warm-up ramp. Parsed by src/modules/outbound/config.ts.
+  outboundConfig Json?       @map("outbound_config")
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
   memberships   Membership[]
@@ -1009,6 +1016,9 @@ enum ProposalKind {
   SCORE_WEIGHT
   /// Quarterly win/loss review of a stage's default probability (v2 P4/c).
   STAGE_PROBABILITY
+  /// Retire an outbound name fragment that keeps finding companies nobody
+  /// approves (playbook-v6 F6/4). Raised by arithmetic, approved by an Owner.
+  FRAGMENT_RETIREMENT
 }
 
 enum ProposalStatus {
@@ -3331,3 +3341,536 @@ model TaskChecklistItem {
   @@index([workspaceId, taskId, position])
   @@map("task_checklist_items")
 }
+
+// ---------------------------------------------------------------------------
+// Outbound Motor (playbook-v6, spec §4.43)
+// ---------------------------------------------------------------------------
+
+enum ProductCategory {
+  OWN_SERVICE
+  PARTNER_SOLUTION
+}
+
+enum ProductStatus {
+  ACTIVE
+  PAUSED
+  RETIRED
+}
+
+/// Which sourcing channel actually carries a segment (spec §4.43.2, §9bis).
+/// Shown on the segment chip so nobody expects a name harvest to find
+/// fantasy-named IT companies.
+enum SourcingHint {
+  NAME_HARVEST_STRONG
+  NAME_HARVEST_WEAK
+  SEED_LIST
+  PLACES
+}
+
+enum ContactRequirement {
+  NAMED_CONTACT
+  GENERIC_OK
+}
+
+/// Volume (SMEs, batch approval) or account (enterprises, individual
+/// approval, several decision makers) — spec §4.43.8.
+enum CampaignMode {
+  VOLUME
+  ACCOUNT
+}
+
+/// The portfolio as data (spec §4.43.1). Without it the motor has nothing to
+/// target FOR — every other outbound table hangs off a product.
+model Product {
+  id            String          @id @default(cuid())
+  workspaceId   String          @map("workspace_id")
+  name          String
+  slug          String
+  category      ProductCategory @default(OWN_SERVICE)
+  /// Supplier name for a partner solution; null for our own services.
+  partner       String?
+  problemSolved String          @map("problem_solved") @db.Text
+  /// [{ claim, evidence }] — a claim with no evidence is not a value prop.
+  valueProps    Json            @default("[]") @map("value_props")
+  /// string[] — real numbers and outcomes only.
+  proofPoints   Json            @default("[]") @map("proof_points")
+  /// An order of magnitude. The quote itself is still the Owner's (§4.9).
+  priceBand     String?         @map("price_band")
+  /// [{ label, url }] — one-pager, deck, demo video.
+  assets        Json            @default("[]")
+  status        ProductStatus   @default(ACTIVE)
+  language      Lang            @default(HU)
+  /// Who gets quota first when the workspace cap is smaller than the sum of
+  /// the product quotas (spec §4.43.10). Higher wins.
+  priority      Int             @default(0)
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  references ProductReference[]
+  profiles   IcpProfile[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+  @@map("products")
+}
+
+/// A reference company on a product (spec §4.43.1, CLAUDE.md hard rule 13).
+///
+/// `isClient` is load-bearing: a true client may be NAMED in outbound copy, a
+/// targeting pattern never may. Drafting reads references only through
+/// `nameableReferences()` (src/modules/outbound/references.ts), never this
+/// table directly.
+model ProductReference {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  productId   String   @map("product_id")
+  companyName String   @map("company_name")
+  taxNumber   String?  @map("tax_number")
+  isClient    Boolean  @default(false) @map("is_client")
+  note        String?  @db.Text
+  position    Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([productId])
+  @@map("product_references")
+}
+
+/// The segment taxonomy (spec §4.43.2a), seeded with 19 and editable per
+/// workspace. A person picks "private clinics", not TEÁOR 8622.
+model Segment {
+  id           String       @id @default(cuid())
+  workspaceId  String       @map("workspace_id")
+  /// Stable key ("private_clinics"); profiles reference segments by it.
+  key          String
+  name         String
+  /// string[] of TEÁOR codes or prefixes ("8622", "86").
+  teaorInclude Json         @default("[]") @map("teaor_include")
+  teaorExclude Json         @default("[]") @map("teaor_exclude")
+  /// string[] — words that genuinely occur in Hungarian company names.
+  fragments    Json         @default("[]")
+  /// [{ name?, taxNumber? }] — the finite universe for banks, insurers…
+  seedList     Json         @default("[]") @map("seed_list")
+  sourcingHint SourcingHint @default(NAME_HARVEST_STRONG) @map("sourcing_hint")
+  /// Bumped on every fragment/seed edit, so a measured yield can be read
+  /// against the set that produced it (spec §9bis/1).
+  version      Int          @default(1)
+  archived     Boolean      @default(false)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId])
+  @@map("segments")
+}
+
+/// Who to look for, for one product (spec §4.43.2). Three targeting layers —
+/// segments, size bands, references — plus optional fine filters.
+model IcpProfile {
+  id                     String             @id @default(cuid())
+  workspaceId            String             @map("workspace_id")
+  productId              String             @map("product_id")
+  name                   String
+  /// string[] of Segment.key
+  segmentKeys            Json               @default("[]") @map("segment_keys")
+  /// ("MICRO" | "SMALL" | "MEDIUM" | "LARGE")[]
+  sizeBands              Json               @default("[]") @map("size_bands")
+  includeUnknownSize     Boolean            @default(false) @map("include_unknown_size")
+  /// Integer forints. BigInt because 25 Mrd does not fit an Int.
+  revenueMin             BigInt?            @map("revenue_min")
+  revenueMax             BigInt?            @map("revenue_max")
+  counties               Json               @default("[]")
+  cities                 Json               @default("[]")
+  legalForms             Json               @default("[]") @map("legal_forms")
+  foundedAfter           Int?               @map("founded_after")
+  foundedBefore          Int?               @map("founded_before")
+  statusRequired         String             @default("Aktív") @map("status_required")
+  requiresWebsite        Boolean            @default(false) @map("requires_website")
+  auditScoreMin          Int?               @map("audit_score_min")
+  auditScoreMax          Int?               @map("audit_score_max")
+  requiredSignals        Json               @default("[]") @map("required_signals")
+  contactRequirement     ContactRequirement @default(GENERIC_OK) @map("contact_requirement")
+  excludeExistingClients Boolean            @default(true) @map("exclude_existing_clients")
+  mode                   CampaignMode       @default(VOLUME)
+  /// Ready-to-approve drafts per night for this profile (spec §4.43.10).
+  dailyQuota             Int                @default(0) @map("daily_quota")
+  /// Relative weight when a product's quota is shared between profiles.
+  weight                 Int                @default(1)
+  active                 Boolean            @default(true)
+  createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([productId])
+  @@map("icp_profiles")
+}
+
+/// Why a registry detail lookup was made (spec §4.43.4). The ledger reports
+/// by purpose so "where did the month's quota go" has an answer.
+enum RegistryLookupPurpose {
+  NIGHTLY_RUN
+  MANUAL_RUN
+  INTERACTIVE
+  REFERENCE_SEED
+  MANUAL_REFRESH
+}
+
+/// A company datasheet, cached per tax number for 90 days (CLAUDE.md hard
+/// rule 12). Keyed on the tax number rather than on a Company because most
+/// sheets belong to candidates that never become companies here.
+model RegistrySheet {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  /// Normalised 11-digit tax number.
+  taxNumber   String   @map("tax_number")
+  provider    String
+  /// CompanyDatasheet, JSON-safe (bigint as { $bigint }).
+  sheet       Json
+  /// The provider knows no such company. Cached too, so a dead tax number is
+  /// not paid for twice.
+  notFound    Boolean  @default(false) @map("not_found")
+  fetchedAt   DateTime @default(now()) @map("fetched_at")
+  expiresAt   DateTime @map("expires_at")
+
+  @@unique([workspaceId, taxNumber])
+  @@index([workspaceId])
+  @@map("registry_sheets")
+}
+
+/// Free `/v1/search` responses, cached 7 days per query (spec §4.43.4).
+model RegistrySearchCache {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  /// Stable hash of the query and its parameters.
+  queryKey    String   @map("query_key")
+  results     Json
+  fetchedAt   DateTime @default(now()) @map("fetched_at")
+  expiresAt   DateTime @map("expires_at")
+
+  @@unique([workspaceId, queryKey])
+  @@index([workspaceId])
+  @@map("registry_search_cache")
+}
+
+/// Every detail lookup, charged or not (spec §4.43.4). Cache hits are written
+/// with `cacheHit = true` and never count against the month.
+model RegistryQuotaLedger {
+  id          String                @id @default(cuid())
+  workspaceId String                @map("workspace_id")
+  /// "2026-10" — the billing month the call belongs to (UTC).
+  month       String
+  taxNumber   String                @map("tax_number")
+  purpose     RegistryLookupPurpose
+  candidateId String?               @map("candidate_id")
+  cacheHit    Boolean               @default(false) @map("cache_hit")
+  /// ok | not_found | error | quota
+  outcome     String
+  userId      String?               @map("user_id")
+  at          DateTime              @default(now())
+
+  @@index([workspaceId, month])
+  @@map("registry_quota_ledger")
+}
+
+
+/// Where a pooled company came from (spec §4.43.3).
+enum PoolSource {
+  NAME_HARVEST
+  SEED_LIST
+  PLACES
+  CSV
+}
+
+/// The candidate state machine (spec §4.43.8). Every transition is written
+/// to CandidateEvent with a reason and a timestamp.
+enum CandidateState {
+  SOURCED
+  ENRICHED
+  FILTERED_IN
+  FILTERED_OUT
+  AUDITED
+  CONTACT_RESOLVED
+  NO_CONTACT
+  DRAFTED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  SENT
+  REPLIED
+  /// Routed to Fanni's manual LinkedIn outreach — no usable address, or the
+  /// reviewer pressed L.
+  LINKEDIN_QUEUE
+}
+
+/// Why a candidate left the funnel. First-class, not free text: the
+/// distribution is the main feedback on sourcing and profiles (§4.43.10).
+enum CandidateReason {
+  // free pre-filter
+  IN_CRM
+  SUPPRESSED
+  RECENTLY_FILTERED
+  // registry
+  NOT_IN_REGISTRY
+  NO_TAX_NUMBER
+  // local ICP filter
+  STATUS
+  SEGMENT
+  SIZE
+  REVENUE
+  REGION
+  LEGAL_FORM
+  FOUNDED
+  NO_WEBSITE
+  EXISTING_CLIENT
+  // after the audit
+  AUDIT_SCORE
+  SIGNALS
+  // contact
+  NO_NAMED_CONTACT
+  // drafting
+  NO_HOOK
+  // review
+  WRONG_TARGETING
+  WEAK_COPY
+  WRONG_CONTACT
+  BAD_TIMING
+  ALREADY_IN_CONTACT
+  OTHER
+}
+
+enum RunStatus {
+  RUNNING
+  AWAITING_AUDITS
+  /// The day's registry allocation ran out — resumes on the next pass.
+  PAUSED_QUOTA
+  DONE
+  FAILED
+  CANCELLED
+}
+
+enum RunTrigger {
+  NIGHTLY
+  MANUAL
+}
+
+/// One company the motor could approach, from any channel, deduplicated on
+/// tax number (or domain + name where no tax number is known). The pool
+/// persists across runs: one good harvest serves several nights.
+model CandidatePool {
+  id           String     @id @default(cuid())
+  workspaceId  String     @map("workspace_id")
+  /// "tax:12345678242" or "web:example.hu|name" — the dedupe key.
+  dedupeKey    String     @map("dedupe_key")
+  taxNumber    String?    @map("tax_number")
+  name         String
+  /// The registry's status word from the search hit, when it came from one.
+  status       String?
+  domain       String?
+  website      String?
+  phone        String?
+  city         String?
+  googlePlaceId String?   @map("google_place_id")
+  /// The channel that FIRST found it; later channels add to `hits`.
+  source       PoolSource
+  /// string[] of Segment.key this company was found for.
+  segmentKeys  Json       @default("[]") @map("segment_keys")
+  /// [{ segment, fragment, version, at }] — which fragment found it; the raw
+  /// data for fragment-yield measurement.
+  hits         Json       @default("[]")
+  firstSeenAt  DateTime   @default(now()) @map("first_seen_at")
+  lastSeenAt   DateTime   @default(now()) @map("last_seen_at")
+
+  candidates ProspectCandidate[]
+
+  @@unique([workspaceId, dedupeKey])
+  @@index([workspaceId])
+  @@index([workspaceId, taxNumber])
+  @@map("candidate_pool")
+}
+
+/// How far a fragment's harvest has paged, so a harvest resumes rather than
+/// restarting and a refreshed fragment set starts clean.
+model HarvestProgress {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  segmentKey  String   @map("segment_key")
+  fragment    String
+  version     Int
+  nextPage    Int      @default(1) @map("next_page")
+  totalPages  Int?     @map("total_pages")
+  done        Boolean  @default(false)
+  found       Int      @default(0)
+  harvestedAt DateTime @default(now()) @map("harvested_at")
+
+  @@unique([workspaceId, segmentKey, fragment])
+  @@index([workspaceId])
+  @@map("harvest_progress")
+}
+
+/// One sourcing run (spec §4.43.10): what was asked, what it cost, what came
+/// out. Nightly or by hand.
+model SourcingRun {
+  id          String     @id @default(cuid())
+  workspaceId String     @map("workspace_id")
+  productId   String?    @map("product_id")
+  profileId   String?    @map("profile_id")
+  trigger     RunTrigger @default(MANUAL)
+  /// "all" | PoolSource — which part of the pool to draw from.
+  channel     String     @default("all")
+  /// Qualified (contact-resolved, ready to draft) candidates wanted.
+  requested   Int
+  status      RunStatus  @default(RUNNING)
+  /// The pre-run estimate the person confirmed.
+  estimate    Json?
+  /// { sourced, prefiltered, enriched, filteredIn, filteredOut, audited, contactResolved, noContact, drafted, … }
+  counters    Json       @default("{}")
+  quotaUsed   Int        @default(0) @map("quota_used")
+  passes      Int        @default(0)
+  message     String?    @db.Text
+  startedById String?    @map("started_by_id")
+  startedAt   DateTime   @default(now()) @map("started_at")
+  finishedAt  DateTime?  @map("finished_at")
+  /// The local date a nightly run belongs to, so a retried job cannot start
+  /// a second run for the same night.
+  runDate     String?    @map("run_date")
+
+  candidates ProspectCandidate[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, status])
+  @@map("sourcing_runs")
+}
+
+/// A company inside one run, moving through the state machine.
+model ProspectCandidate {
+  id            String           @id @default(cuid())
+  workspaceId   String           @map("workspace_id")
+  runId         String           @map("run_id")
+  poolId        String           @map("pool_id")
+  productId     String?          @map("product_id")
+  profileId     String?          @map("profile_id")
+  taxNumber     String?          @map("tax_number")
+  name          String
+  state         CandidateState   @default(SOURCED)
+  reason        CandidateReason?
+  /// The measured value behind the reason: "net revenue 42 M Ft < min 300 M Ft".
+  reasonDetail  String?          @map("reason_detail") @db.Text
+  priority      Float            @default(0)
+  sizeBand      String?          @map("size_band")
+  unknownSize   Boolean          @default(false) @map("unknown_size")
+  matchedSegment String?         @map("matched_segment")
+  website       String?
+  auditId       String?          @map("audit_id")
+  /// [{ id, kind: "audit"|"registry"|"site", label, value }] — the only
+  /// facts a draft may cite (hook gate, CLAUDE.md hard rule 10).
+  facts         Json             @default("[]")
+  /// { name, email, phone, kind, source, verify, managerName, trail[] }
+  contact       Json?
+  companyId     String?          @map("company_id")
+  leadId        String?          @map("lead_id")
+  attempts      Int              @default(0)
+  /// A transient failure parks the candidate until then (§4.43.10/3).
+  parkedUntil   DateTime?        @map("parked_until")
+  lastError     String?          @map("last_error") @db.Text
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  run    SourcingRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  pool   CandidatePool      @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  events CandidateEvent[]
+
+  @@unique([runId, poolId])
+  @@index([workspaceId])
+  @@index([workspaceId, state])
+  @@index([workspaceId, profileId, state])
+  @@index([poolId])
+  @@map("prospect_candidates")
+}
+
+model CandidateEvent {
+  id           String           @id @default(cuid())
+  workspaceId  String           @map("workspace_id")
+  candidateId  String           @map("candidate_id")
+  fromState    CandidateState?  @map("from_state")
+  toState      CandidateState   @map("to_state")
+  reason       CandidateReason?
+  detail       String?          @db.Text
+  userId       String?          @map("user_id")
+  at           DateTime         @default(now())
+
+  candidate ProspectCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([candidateId])
+  @@map("candidate_events")
+}
+
+enum DraftStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  /// Routed elsewhere (the LinkedIn queue) or made moot by a reply.
+  CANCELLED
+  SENT
+  FAILED
+}
+
+/// A generated outbound message and its review trail (spec §4.43.7–8).
+/// Step 0 is the first touch; 1 and 2 are the follow-ups, each reviewed in
+/// the same queue as the first.
+model OutreachDraft {
+  id                    String           @id @default(cuid())
+  workspaceId           String           @map("workspace_id")
+  candidateId           String           @map("candidate_id")
+  productId             String?          @map("product_id")
+  step                  Int              @default(0)
+  /// named | named_generic | generic — which template variant wrote it.
+  variant               String
+  language              Lang             @default(HU)
+  /// Prompt id and version that produced it, e.g. "outbound-draft@1".
+  templateVersion       String           @map("template_version")
+  toAddress             String           @map("to_address")
+  toName                String?          @map("to_name")
+  subject               String
+  body                  String           @db.Text
+  /// What the generator wrote, kept when a person edits it.
+  originalSubject       String           @map("original_subject")
+  originalBody          String           @map("original_body") @db.Text
+  /// [{ factId, quote }] — validated against the candidate's facts.
+  personalisationPoints Json             @default("[]") @map("personalisation_points")
+  status                DraftStatus      @default(PENDING)
+  edited                Boolean          @default(false)
+  /// The reviewer looked at this card — the only cards bulk approve may touch.
+  openedAt              DateTime?        @map("opened_at")
+  openedById            String?          @map("opened_by_id")
+  decidedById           String?          @map("decided_by_id")
+  decidedAt             DateTime?        @map("decided_at")
+  rejectReason          CandidateReason? @map("reject_reason")
+  rejectNote            String?          @map("reject_note") @db.Text
+  /// Earliest send time; follow-ups are scheduled off the previous touch.
+  scheduledFor          DateTime?        @map("scheduled_for")
+  sentAt                DateTime?        @map("sent_at")
+  gmailMessageId        String?          @map("gmail_message_id")
+  gmailThreadId         String?          @map("gmail_thread_id")
+  sendError             String?          @map("send_error") @db.Text
+  /// The address it actually went out from — asserted to be the cold
+  /// outbound identity at send time (CLAUDE.md hard rule 11).
+  sentFrom              String?          @map("sent_from")
+  /// The capability in this message's unsubscribe link. 256 bits, unique.
+  unsubscribeToken      String?          @unique @map("unsubscribe_token")
+  /// Set when the mailbox reported this message undeliverable.
+  bouncedAt             DateTime?        @map("bounced_at")
+  claudeCostUsd         Decimal?         @map("claude_cost_usd")
+  createdAt             DateTime         @default(now()) @map("created_at")
+  updatedAt             DateTime         @updatedAt @map("updated_at")
+
+  @@unique([candidateId, step])
+  @@index([workspaceId])
+  @@index([workspaceId, status])
+  @@map("outreach_drafts")
+}
+

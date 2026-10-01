@@ -146,6 +146,20 @@ const BUSINESS_TABLES = [
   "undo_entries",
   "workflow_rules",
   "workflow_runs",
+  /** The outbound motor (playbook-v6, spec §4.43). */
+  "products",
+  "product_references",
+  "segments",
+  "icp_profiles",
+  "registry_sheets",
+  "registry_search_cache",
+  "registry_quota_ledger",
+  "candidate_pool",
+  "harvest_progress",
+  "sourcing_runs",
+  "prospect_candidates",
+  "candidate_events",
+  "outreach_drafts",
 ];
 
 /**

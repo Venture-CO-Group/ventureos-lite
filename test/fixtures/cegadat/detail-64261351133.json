@@ -1,0 +1,27 @@
+{
+  "status": true,
+  "response": {
+    "results": {
+      "fullName": "Teszt Személy 12",
+      "legalForm": "Egyéni vállalkozás",
+      "fullAddress": "2330 Dunaharaszti, Minta utca 1.",
+      "addressCounty": "Pest",
+      "addressPostalCode": "2330",
+      "addressCity": "Dunaharaszti",
+      "addressStreet": "Minta utca 1.",
+      "vatNumber": "64261351133",
+      "registryNumber": "9127416",
+      "dateFounded": "2005-04-13",
+      "statisticalCode": "64261351812123113",
+      "revenue": 1202500,
+      "netIncome": 0,
+      "principalActivity": "812101. Általános épülettakarítás",
+      "activities": [
+        "477202. Bőrdíszműáru-kiskereskedelem",
+        "477813. Ajándéktárgy-, bizsu-kiskereskedelem"
+      ],
+      "branches": [],
+      "status": "Aktív"
+    }
+  }
+}

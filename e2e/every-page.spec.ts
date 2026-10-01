@@ -23,6 +23,9 @@ const PAGES = [
   "/settings/admin/workspace", "/settings/admin/sales", "/settings/admin/audit",
   "/settings/admin/integrations", "/settings/admin/security",
   "/templates",
+  // The outbound motor (playbook-v6).
+  "/outbound", "/outbound/linkedin", "/outbound/runs", "/outbound/insights",
+  "/outbound/products", "/outbound/segments", "/settings/admin/outbound",
 ];
 
 for (const path of PAGES) {

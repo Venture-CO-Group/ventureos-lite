@@ -15,6 +15,7 @@ import {
 import { aggregateWeek, filterEligibleProposals, type ProposalDraft, type ProposalKind } from "./logic";
 import { getWeekFacts, weekWindow } from "./data";
 import { notifyProposalPending } from "../notifications/notify";
+import { outboundSignal } from "../outbound/signal";
 
 /**
  * Weekly Signal Engine (spec §4.13). ONE Sonnet call per workspace on the
@@ -30,7 +31,9 @@ export async function processSignalEngine(nowMs: number = Date.now()): Promise<n
   for (const ws of workspaces) {
     const db = getWorkspaceClient(ws.id);
     const facts = await getWeekFacts(db, sinceMs, untilMs);
-    const stats = aggregateWeek(facts);
+    // The outbound motor's week joins the same analysis (playbook-v6 F6/4).
+    const outbound = await outboundSignal(db, new Date(sinceMs)).catch(() => ({ stats: [], proposals: [] }));
+    const stats = [...aggregateWeek(facts), ...outbound.stats];
 
     let output: SignalEngineOutput | null = null;
     try {
@@ -82,7 +85,8 @@ export async function processSignalEngine(nowMs: number = Date.now()): Promise<n
         });
       }
     }
-    const eligible = filterEligibleProposals(drafts);
+    // Outbound proposals are computed, not generated, and pass the same n≥20 gate.
+    const eligible = filterEligibleProposals([...drafts, ...outbound.proposals]);
 
     // Idempotency: don't duplicate a still-pending proposal with the same title.
     const pending = await db.proposal.findMany({

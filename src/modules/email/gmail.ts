@@ -301,4 +301,51 @@ export class GmailProvider implements MailProvider {
     const data = (await res.json()) as { id: string };
     return { providerMessageId: data.id, refreshed };
   }
+
+  /**
+   * Send an already-built message (playbook-v6 F5): a new conversation, or a
+   * follow-up in an existing thread. The caller builds the MIME — the cold
+   * outbound sender asserts its own from-address before it gets here.
+   */
+  async sendRaw(
+    creds: MailCredentials,
+    input: { mime: string; threadId?: string | null },
+  ): Promise<{ providerMessageId: string; providerThreadId: string; refreshed?: RefreshedCredentials }> {
+    const { accessToken, refreshed } = await this.ensureToken(creds);
+    const res = await this.call(accessToken, "/messages/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ raw: encodeMime(input.mime), ...(input.threadId ? { threadId: input.threadId } : {}) }),
+    });
+    const data = (await res.json()) as { id: string; threadId: string };
+    return { providerMessageId: data.id, providerThreadId: data.threadId, refreshed };
+  }
+
+  /**
+   * The account's signature for a send-as address. Gmail adds it in its own
+   * client but NOT to mail sent through the API, so a sender that wants its
+   * mail to look hand-written has to fetch it and append it. HTML as Gmail
+   * stores it; null when the account has none.
+   */
+  async getSendAsSignature(
+    creds: MailCredentials,
+    sendAsEmail: string,
+  ): Promise<{ signatureHtml: string | null; refreshed?: RefreshedCredentials }> {
+    const { accessToken, refreshed } = await this.ensureToken(creds);
+    const res = await this.call(accessToken, `/settings/sendAs/${encodeURIComponent(sendAsEmail)}`);
+    const data = (await res.json()) as { signature?: string };
+    return { signatureHtml: data.signature?.trim() ? data.signature : null, refreshed };
+  }
+
+  /** The RFC 5322 Message-ID of a sent message, so a follow-up threads for the recipient too. */
+  async getMessageIdHeader(
+    creds: MailCredentials,
+    messageId: string,
+  ): Promise<{ messageIdHeader: string | null; refreshed?: RefreshedCredentials }> {
+    const { accessToken, refreshed } = await this.ensureToken(creds);
+    const res = await this.call(accessToken, `/messages/${messageId}?format=metadata&metadataHeaders=Message-ID`);
+    const data = (await res.json()) as GmailMessage;
+    const h = data.payload?.headers?.find((x) => x.name.toLowerCase() === "message-id");
+    return { messageIdHeader: h?.value ?? null, refreshed };
+  }
 }

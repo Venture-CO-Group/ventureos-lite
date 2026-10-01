@@ -1,0 +1,6 @@
+{
+  "status": false,
+  "error": "Package limit reached",
+  "errorCode": 7,
+  "statusCode": 429
+}

@@ -62,6 +62,8 @@ const NAV: NavItem[] = [
   // Qualified, and putting them side by side is half of explaining the boundary.
   { label: "Deals", icon: <DealsIcon />, href: "/deals" },
   { label: "Outreach", icon: <OutreachIcon />, href: "/outreach" },
+  // The approval queue and its catalogue (playbook-v6, spec §4.43).
+  { label: "Outbound", icon: <OutreachIcon />, href: "/outbound" },
   { label: "Inbox", icon: <InboxIcon />, href: "/inbox" },
   { label: "Calls", icon: <CallsIcon />, href: "/calls" },
   { label: "Meetings", icon: <MeetingsIcon />, href: "/meetings" },

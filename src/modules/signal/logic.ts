@@ -6,7 +6,7 @@
  */
 export const MIN_PROPOSAL_N = 20;
 
-export type ProposalKind = "FRAME_PROMOTION" | "SCORE_WEIGHT" | "STAGE_PROBABILITY";
+export type ProposalKind = "FRAME_PROMOTION" | "SCORE_WEIGHT" | "STAGE_PROBABILITY" | "FRAGMENT_RETIREMENT";
 
 export interface ProposalDraft {
   kind: ProposalKind;
@@ -116,7 +116,14 @@ export interface StageProbabilityMutation {
   stageId: string;
   probability: number;
 }
-export type ProposalMutation = FrameMutation | WeightMutation | StageProbabilityMutation;
+/** Remove one name fragment from a segment's harvest set (playbook-v6 F6/4). */
+export interface FragmentMutation {
+  type: "fragment";
+  segmentKey: string;
+  fragment: string;
+}
+
+export type ProposalMutation = FrameMutation | WeightMutation | StageProbabilityMutation | FragmentMutation;
 
 /**
  * The mutation a decision implies. A rejection (or anything but an explicit
@@ -140,6 +147,9 @@ export function proposalEffect(
   }
   if (kind === "SCORE_WEIGHT") {
     return { type: "weight", criterion: String(data.criterion), weight: Number(data.weight) };
+  }
+  if (kind === "FRAGMENT_RETIREMENT") {
+    return { type: "fragment", segmentKey: String(data.segmentKey), fragment: String(data.fragment) };
   }
   if (kind === "STAGE_PROBABILITY") {
     return {

@@ -59,6 +59,7 @@ const LEAD_SOURCES = [
   "REFERRAL",
   "COLD_EMAIL",
   "SELF_SERVE_AUDIT",
+  "OUTBOUND_ENGINE",
 ];
 
 interface Draft {
