@@ -94,6 +94,10 @@ Inbox + reply analysis + escalation, Meetings + briefs + Calendar, **public book
 **Cold Email module** (separate Mailgun domain, warm-up ramp, caps, suppression, inbound routes to Inbox, campaign builder, **compliance gate wired to counsel sign-off record — module ships disabled until that exists**); **Számlázz.hu Számla Agent integration** (prepare→confirm→submit, invoice chain link, payment status polling).
 *Exit: criteria 14, 20 pass. Cold email activation additionally requires the recorded legal sign-off — a business gate, not a code gate.*
 
+**Phase 6 — Outbound motor (v6, F1–F6)**
+Spec §4.43, build order in `docs/10_ClaudeCode_Playbook_v6_Outbound.md`. F1 products, ICP profiles, segment taxonomy · F2 Cégadat provider, detail quota, 90-day cache · F3 sourcing runs (harvest, seeds, Places, CSV → pool → pre-filter → enrichment → ICP filter → audit → contact waterfall) · F4 grounded drafts and the approval queue · F5 Gmail sending from fanni.viragh@ventureco.agency, follow-ups, replies, unsubscribe · F6 nightly fill, morning briefing, measurement and fragment learning.
+*Exit: spec §12 criteria pass; a manual run produces approvable drafts on the test key before the subscription; sending waits on the connected mailbox and the recorded counsel sign-off.*
+
 **Post-Lite backlog (the "másik chatben" extended set slots here):** in-house e-signature (plugs into the Accept interface), plus the extended modules — feature flags are already in place, so they land per workspace without touching Lite behavior.
 
 ## B.4 Effort & cost estimate
