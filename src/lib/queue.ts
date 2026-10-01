@@ -17,6 +17,8 @@ export const ERASURE_QUEUE = "erasures";
 export const LOGS_QUEUE = "logs";
 export const VISITS_QUEUE = "visits";
 export const VERIFY_QUEUE = "verify";
+/** The outbound motor: sourcing runs, drafting, approved sends (playbook-v6). */
+export const OUTBOUND_QUEUE = "outbound";
 
 let connection: IORedis | null = null;
 export function getRedisConnection(): IORedis {
@@ -108,4 +110,13 @@ export function erasuresQueue(): Queue {
     erasures = new Queue(ERASURE_QUEUE, { connection: getRedisConnection() });
   }
   return erasures;
+}
+
+let outbound: Queue | null = null;
+/** Sourcing-run passes, the nightly fill and approved sends (playbook-v6). */
+export function outboundQueue(): Queue {
+  if (!outbound) {
+    outbound = new Queue(OUTBOUND_QUEUE, { connection: getRedisConnection() });
+  }
+  return outbound;
 }

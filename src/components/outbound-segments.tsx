@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { attempt } from "@/lib/client/server-action";
 import { saveSegment } from "@/modules/outbound/catalog-actions";
+import { harvestNow } from "@/modules/outbound/run-actions";
 import type { SegmentView } from "@/modules/outbound/catalog";
 import { SOURCING_HINT_LABEL } from "@/modules/outbound/segments-seed";
 
@@ -75,6 +76,7 @@ function SegmentEditor({ segment, canEdit, yields }: { segment: SegmentView; can
   const [archived, setArchived] = useState(segment.archived);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [harvestMsg, setHarvestMsg] = useState<string | null>(null);
   const disabled = !canEdit || pending;
 
   const split = (s: string, sep: RegExp) => s.split(sep).map((x) => x.trim()).filter(Boolean);
@@ -178,6 +180,30 @@ function SegmentEditor({ segment, canEdit, yields }: { segment: SegmentView; can
             archived
           </label>
           {saved && <span className="text-[11.5px] text-pos">saved</span>}
+          {segment.fragments.length > 0 && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  setError(null);
+                  const res = await attempt(harvestNow(segment.key));
+                  if (!res.ok) setError(res.error);
+                  else {
+                    setHarvestMsg(
+                      `${res.created} new, ${res.updated} seen again${res.errors.length ? ` · ${res.errors.length} fragment(s) failed: ${res.errors[0]}` : ""}`,
+                    );
+                    router.refresh();
+                  }
+                })
+              }
+              className="ml-auto min-h-[40px] rounded-[9px] border border-line px-3 py-2 text-[12.5px] text-muted hover:text-ink disabled:opacity-45"
+              title="One page per fragment from the free registry search — spends no quota."
+            >
+              Harvest now
+            </button>
+          )}
+          {harvestMsg && <span className="w-full text-[11.5px] text-muted">{harvestMsg}</span>}
         </div>
       )}
     </div>

@@ -1,4 +1,5 @@
 import { normalizeEmail } from "../leads/dedupe";
+import { isRecipientSuppressed } from "../mail/suppression";
 
 /**
  * Cold Email pure logic (spec §4.16). The compliance gate, shared suppression,
@@ -56,23 +57,25 @@ export function coldEmailAllowed(featureFlags: unknown): boolean {
 
 // ---- shared suppression ---------------------------------------------------
 
+/**
+ * Domain-wide entries ("@ceg.hu") written by an outbound unsubscribe apply
+ * here too: one suppression list for every channel (spec §4.43.9).
+ */
 export function isSuppressed(address: string, suppressed: string[]): boolean {
   const a = normalizeEmail(address);
   if (!a) return true; // no address → never send
-  const set = new Set(suppressed.map((s) => normalizeEmail(s)).filter(Boolean));
-  return set.has(a);
+  return isRecipientSuppressed(a, suppressed);
 }
 
 export function partitionRecipients<T extends { address: string }>(
   recipients: T[],
   suppressed: string[],
 ): { sendable: T[]; blocked: T[] } {
-  const set = new Set(suppressed.map((s) => normalizeEmail(s)).filter(Boolean));
   const sendable: T[] = [];
   const blocked: T[] = [];
   for (const r of recipients) {
     const a = normalizeEmail(r.address);
-    if (a && !set.has(a)) sendable.push(r);
+    if (a && !isRecipientSuppressed(a, suppressed)) sendable.push(r);
     else blocked.push(r);
   }
   return { sendable, blocked };

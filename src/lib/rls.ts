@@ -154,6 +154,11 @@ const BUSINESS_TABLES = [
   "registry_sheets",
   "registry_search_cache",
   "registry_quota_ledger",
+  "candidate_pool",
+  "harvest_progress",
+  "sourcing_runs",
+  "prospect_candidates",
+  "candidate_events",
 ];
 
 /**

@@ -8,7 +8,8 @@
  *     two-digit divisions are shared by TEÁOR'08 and TEÁOR'25, which is why
  *     most entries stop there — a registry answering in either scheme still
  *     matches.
- *   - name fragments: words that genuinely occur in Hungarian company names.
+ *   - name fragments: words that genuinely occur in Hungarian company names,
+ *     four characters or more — the search endpoint refuses shorter terms.
  *     These drive the free `/v1/search` harvest, so they are the main lever
  *     on candidate quality and are measured per fragment (§4.43.10).
  *   - a sourcing hint: which channel actually carries the segment. Fantasy-
@@ -232,7 +233,6 @@ export const DEFAULT_SEGMENTS: readonly SegmentSeed[] = [
       "construction",
       "kivitelező",
       "generálkivitelező",
-      "bau",
       "épületgépészet",
       "szigetelés",
       "tetőfedő",
@@ -317,7 +317,7 @@ export const DEFAULT_SEGMENTS: readonly SegmentSeed[] = [
     name: "Law firms",
     teaorInclude: ["691"],
     teaorExclude: [],
-    fragments: ["ügyvédi iroda", "ügyvédi", "law", "legal", "jogi", "közjegyzői"],
+    fragments: ["ügyvédi iroda", "ügyvédi", "ügyvéd", "legal", "jogi", "közjegyzői"],
     seedList: [],
     sourcingHint: "NAME_HARVEST_STRONG",
   },
@@ -379,7 +379,6 @@ export const DEFAULT_SEGMENTS: readonly SegmentSeed[] = [
       "autószerviz",
       "gépjármű",
       "autóház",
-      "car",
       "auto",
       "karosszéria",
       "gumiszerviz",

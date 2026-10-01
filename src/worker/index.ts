@@ -13,6 +13,7 @@ import {
   LOGS_QUEUE,
   VISITS_QUEUE,
   VERIFY_QUEUE,
+  OUTBOUND_QUEUE,
 } from "../lib/queue";
 import { processFollowup, processWakeupSweep } from "../modules/pipeline/jobs";
 import {
@@ -65,6 +66,7 @@ import {
   processSectorAggregation,
 } from "../modules/sector-reports/jobs";
 import { processReferralSweep } from "../modules/referrals/jobs";
+import { processRunPass, type RunJobData } from "../modules/outbound/run-jobs";
 
 /**
  * Background worker (BullMQ + Redis). Runs in its own Docker service.
@@ -244,6 +246,25 @@ async function main(): Promise<void> {
   verifyWorker.on("failed", (job, err) => {
     // eslint-disable-next-line no-console
     console.error(`[worker] audience verification failed for ${job?.data?.campaignId}`, err);
+  });
+
+  // The outbound motor (playbook-v6): sourcing-run passes. Concurrency one —
+  // a run spends registry quota, and two passes of the same run racing for
+  // the same day's allocation is exactly what must not happen.
+  const outboundWorker = new Worker(
+    OUTBOUND_QUEUE,
+    async (job) => {
+      if (job.name === "run-pass") {
+        const status = await processRunPass(job.data as RunJobData);
+        // eslint-disable-next-line no-console
+        console.log(`[worker] outbound run ${(job.data as RunJobData).runId}: ${status}`);
+      }
+    },
+    { connection, concurrency: 1 },
+  );
+  outboundWorker.on("failed", (job, err) => {
+    // eslint-disable-next-line no-console
+    console.error(`[worker] outbound ${job?.name} ${job?.id} failed`, err);
   });
 
   const wakeupWorker = new Worker(

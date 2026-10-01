@@ -4,6 +4,7 @@ import { safeFetch, isBlockedHostname } from "@/lib/safe-fetch";
 // One implementation of "is this a usable email / phone", shared with the
 // extension capture path — two copies would drift.
 import { normalizeEmail, normalizePhone } from "@/modules/capture/contact";
+import { extractRepresentedBy } from "./impresszum";
 
 /**
  * Company-website enrichment (P1/1c).
@@ -81,6 +82,11 @@ export function extractReadableText(html: string): string {
 export interface SiteContacts {
   emails: string[];
   phones: string[];
+  /**
+   * People the impresszum names as representing the company ("Képviseli:
+   * Kovács Anna"). Optional: only the outbound contact waterfall reads it.
+   */
+  names?: string[];
 }
 
 /** Addresses no human reads — a site's plumbing, not its contact details. */
@@ -131,7 +137,9 @@ export function extractSiteContacts(html: string): SiteContacts {
     return out;
   };
 
+  const names = extractRepresentedBy(visible.replace(/\s+/g, " "));
   return {
+    ...(names.length > 0 ? { names } : {}),
     emails: clean(emails, (v) => {
       const local = v.split("@")[0] ?? "";
       // A no-reply address is not a way to reach anybody, and a template
@@ -239,6 +247,7 @@ export async function readSite(raw: string): Promise<SiteRead> {
     const found = await fetchContactPage(origin, robotRules);
     if (found) {
       contacts = {
+        ...(found.names || contacts.names ? { names: [...(contacts.names ?? []), ...(found.names ?? [])] } : {}),
         emails: found.emails,
         // Keep a homepage phone if we already had one; it is likelier to be the
         // main line than a number buried in an impresszum.

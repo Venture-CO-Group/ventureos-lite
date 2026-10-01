@@ -141,7 +141,8 @@ export const segmentInputSchema = z.object({
   name: trimmed(120).min(1),
   teaorInclude: z.array(z.string().trim().regex(/^[0-9.]{2,7}$/, "TEÁOR codes are digits.")).max(40),
   teaorExclude: z.array(z.string().trim().regex(/^[0-9.]{2,7}$/, "TEÁOR codes are digits.")).max(40),
-  fragments: z.array(trimmed(60).min(2)).max(40),
+  // The search endpoint refuses terms under four characters (error 4).
+  fragments: z.array(trimmed(60).min(4, "A fragment needs at least four characters — the registry search refuses shorter ones.")).max(40),
   seedList: z.array(seedEntrySchema).max(300),
   sourcingHint: z.enum(["NAME_HARVEST_STRONG", "NAME_HARVEST_WEAK", "SEED_LIST", "PLACES"]),
   archived: z.boolean(),
