@@ -43,7 +43,12 @@ export async function processRunPass(data: RunJobData, depsOverride?: RunDeps): 
   return outcome.status;
 }
 
-/** The drafting hook — absent until drafting is wired (F4). */
+/** The drafting hook (F4): contact-resolved candidates become queue drafts. */
 async function draftDeps(): Promise<Partial<RunDeps>> {
-  return {};
+  const { draftCandidate } = await import("./draft-engine");
+  return {
+    draft: async (workspaceId, candidateId) => {
+      await draftCandidate(workspaceId, candidateId);
+    },
+  };
 }

@@ -24,7 +24,8 @@ export type UseCase =
   | "person_brief" // Haiku  — 2-3 sentence factual summary on extension capture (P1/1e)
   | "site_lookup" // Haiku  — find a company's own website (web search, on click)
   | "meeting_followup" // Sonnet — the email after a meeting (P13/2)
-  | "sector_report"; // Sonnet — the prose between a report's numbers (P12/2)
+  | "sector_report" // Sonnet — the prose between a report's numbers (P12/2)
+  | "outbound_draft"; // Sonnet — outbound-motor draft or follow-up, per candidate (v6 F4)
 
 export const USE_CASE_MODEL: Record<UseCase, ModelId> = {
   lead_research: "claude-sonnet-4-6",
@@ -52,6 +53,9 @@ export const USE_CASE_MODEL: Record<UseCase, ModelId> = {
   // Sonnet: this is published writing that carries the company's name in
   // public. One call per report, Owner-triggered and Owner-edited.
   sector_report: "claude-sonnet-4-6",
+  // Sonnet: an outreach draft is a writing-quality use case under rule #3,
+  // and it only runs for a candidate that passed every deterministic step.
+  outbound_draft: "claude-sonnet-4-6",
 };
 
 export function modelForUseCase(useCase: UseCase): ModelId {

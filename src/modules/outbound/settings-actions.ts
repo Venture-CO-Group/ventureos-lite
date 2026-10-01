@@ -49,6 +49,8 @@ export async function saveOutboundSettings(
     sending: {
       ...next.sending,
       mailAccountId: before.sending.mailAccountId,
+      cachedSignature: before.sending.cachedSignature,
+      signatureFetchedAt: before.sending.signatureFetchedAt,
       pausedAt: before.sending.pausedAt,
       pausedReason: before.sending.pausedReason,
     },

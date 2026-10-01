@@ -39,6 +39,11 @@ export const GRANTS = [
   "public_pages.manage",
   /// Commissioning, generating and publishing a sector report.
   "sector_reports.manage",
+  /// Approving, editing and rejecting outbound-motor drafts (playbook-v6).
+  /// Approval sends mail in the company's name from the cold mailbox, so it
+  /// is nameable and withdrawable — but it is the BDR's daily job, so a BDR
+  /// carries it by default like the rest of this list.
+  "outbound.approve",
 ] as const;
 
 export type Grant = (typeof GRANTS)[number];

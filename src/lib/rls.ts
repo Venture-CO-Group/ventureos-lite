@@ -159,6 +159,7 @@ const BUSINESS_TABLES = [
   "sourcing_runs",
   "prospect_candidates",
   "candidate_events",
+  "outreach_drafts",
 ];
 
 /**

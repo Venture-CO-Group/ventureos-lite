@@ -59,6 +59,12 @@ const sendingSchema = z.object({
   /** Set by the circuit breaker; cleared by an Owner. */
   pausedAt: z.string().nullable().default(null),
   pausedReason: z.string().nullable().default(null),
+  /**
+   * The Gmail account's own signature, as plain text, fetched from
+   * users.settings.sendAs (the API does not add it on send) and cached here.
+   */
+  cachedSignature: z.string().max(4000).nullable().default(null),
+  signatureFetchedAt: z.string().nullable().default(null),
   /** Fallback block when the Gmail account has no signature. */
   fallbackSignature: z.string().max(2000).default(""),
   /** Minimum and maximum seconds between two sends. */

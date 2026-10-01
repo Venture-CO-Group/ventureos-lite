@@ -166,6 +166,9 @@ describe("model routing (CLAUDE.md hard rule #3)", () => {
       "lead_research",
       "meeting_brief",
       "meeting_followup",
+      // The outbound motor's draft (playbook-v6 F4) — an outreach draft,
+      // which rule #3 names as a Sonnet use case.
+      "outbound_draft",
       "outreach_draft",
       "sector_report",
       "signal_engine",
