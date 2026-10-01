@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prismaUnsafe, getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
 import { isOwner } from "@/lib/authz";
-import { outboundConfigSchema, parseOutboundConfig, type OutboundConfig } from "./config";
+import { COLD_OUTBOUND_ADDRESS, outboundConfigSchema, parseOutboundConfig, warmupDailyCap, type OutboundConfig } from "./config";
 import { quotaMeter, type QuotaMeter } from "@/modules/registry/registry-service";
 
 /**
@@ -14,10 +14,66 @@ import { quotaMeter, type QuotaMeter } from "@/modules/registry/registry-service
  * Owner-only: every one of these decides how much quota, Claude budget and
  * mailbox reputation the motor may spend without anybody clicking.
  */
-export async function getOutboundSettings(): Promise<{ config: OutboundConfig; meter: QuotaMeter }> {
+export interface MailboxStatus {
+  address: string;
+  connected: boolean;
+  health: string | null;
+  connectedBy: string | null;
+  sendCapToday: number;
+  sentToday: number;
+  signatureFetchedAt: string | null;
+}
+
+export async function getOutboundSettings(): Promise<{ config: OutboundConfig; meter: QuotaMeter; mailbox: MailboxStatus }> {
   const { workspaceId } = await getActiveContext();
   const ws = await prismaUnsafe.workspace.findUnique({ where: { id: workspaceId }, select: { outboundConfig: true } });
-  return { config: parseOutboundConfig(ws?.outboundConfig), meter: await quotaMeter(workspaceId) };
+  const config = parseOutboundConfig(ws?.outboundConfig);
+  const account = await prismaUnsafe.mailAccount.findFirst({
+    where: { workspaceId, accountEmail: COLD_OUTBOUND_ADDRESS },
+    select: { health: true, userId: true, credentialId: true },
+  });
+  const user = account ? await prismaUnsafe.user.findUnique({ where: { id: account.userId }, select: { name: true } }) : null;
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const sentToday = await getWorkspaceClient(workspaceId).outreachDraft.count({ where: { status: "SENT", sentAt: { gte: start } } });
+  return {
+    config,
+    meter: await quotaMeter(workspaceId),
+    mailbox: {
+      address: COLD_OUTBOUND_ADDRESS,
+      connected: !!account?.credentialId && account.health !== "reconnect_needed",
+      health: account?.health ?? null,
+      connectedBy: user?.name ?? null,
+      sendCapToday: warmupDailyCap(config.warmup, now),
+      sentToday,
+      signatureFetchedAt: config.sending.signatureFetchedAt,
+    },
+  };
+}
+
+/** Clear a circuit-breaker pause. Owner-only and audit-logged: it re-opens a mailbox that was bouncing. */
+export async function resumeSending(): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(await isOwner())) return { ok: false, error: "Only an Owner can resume outbound sending." };
+  const { workspaceId, userId } = await getActiveContext();
+  const ws = await prismaUnsafe.workspace.findUnique({ where: { id: workspaceId }, select: { outboundConfig: true } });
+  const cfg = parseOutboundConfig(ws?.outboundConfig);
+  if (!cfg.sending.pausedAt) return { ok: true };
+  await prismaUnsafe.workspace.update({
+    where: { id: workspaceId },
+    data: { outboundConfig: { ...cfg, sending: { ...cfg.sending, pausedAt: null, pausedReason: null } } },
+  });
+  await getWorkspaceClient(workspaceId).auditLog.create({
+    data: {
+      workspaceId,
+      actorUserId: userId,
+      action: "outbound.sending.resumed",
+      entityType: "Workspace",
+      entityId: workspaceId,
+      meta: { pausedAt: cfg.sending.pausedAt, reason: cfg.sending.pausedReason },
+    },
+  });
+  revalidatePath("/settings/admin/outbound");
+  return { ok: true };
 }
 
 export async function saveOutboundSettings(

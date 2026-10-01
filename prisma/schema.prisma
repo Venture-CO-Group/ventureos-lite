@@ -3854,6 +3854,13 @@ model OutreachDraft {
   gmailMessageId        String?          @map("gmail_message_id")
   gmailThreadId         String?          @map("gmail_thread_id")
   sendError             String?          @map("send_error") @db.Text
+  /// The address it actually went out from — asserted to be the cold
+  /// outbound identity at send time (CLAUDE.md hard rule 11).
+  sentFrom              String?          @map("sent_from")
+  /// The capability in this message's unsubscribe link. 256 bits, unique.
+  unsubscribeToken      String?          @unique @map("unsubscribe_token")
+  /// Set when the mailbox reported this message undeliverable.
+  bouncedAt             DateTime?        @map("bounced_at")
   claudeCostUsd         Decimal?         @map("claude_cost_usd")
   createdAt             DateTime         @default(now()) @map("created_at")
   updatedAt             DateTime         @updatedAt @map("updated_at")

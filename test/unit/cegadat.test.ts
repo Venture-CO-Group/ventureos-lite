@@ -219,7 +219,6 @@ describe("outbound config", () => {
     expect(c.registry).toEqual({ monthlyLimit: 5000, reservePct: 15 });
     expect(c.cap.initial).toBe(15);
     expect(c.cap.after).toBe(25);
-    expect(c.sending.track).toBe(false);
     expect(c.schedule.days).toEqual([1, 2, 3, 4, 5]);
   });
   it("keeps the good sections of a partly broken config", () => {

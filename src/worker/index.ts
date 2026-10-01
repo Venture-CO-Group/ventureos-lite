@@ -3,6 +3,7 @@ import { checkEnvAtBoot } from "../lib/env";
 import {
   getRedisConnection,
   wakeupsQueue,
+  outboundQueue,
   FOLLOWUPS_QUEUE,
   WAKEUPS_QUEUE,
   AUDIT_QUEUE,
@@ -67,6 +68,7 @@ import {
 } from "../modules/sector-reports/jobs";
 import { processReferralSweep } from "../modules/referrals/jobs";
 import { processRunPass, type RunJobData } from "../modules/outbound/run-jobs";
+import { processOutboundSendSweep } from "../modules/outbound/send-jobs";
 
 /**
  * Background worker (BullMQ + Redis). Runs in its own Docker service.
@@ -254,6 +256,13 @@ async function main(): Promise<void> {
   const outboundWorker = new Worker(
     OUTBOUND_QUEUE,
     async (job) => {
+      if (job.name === "send-sweep") {
+        const r = await processOutboundSendSweep();
+        const sent = Object.values(r).filter((x) => x === "sent").length;
+        // eslint-disable-next-line no-console
+        if (sent) console.log(`[worker] outbound sent ${sent} message(s)`);
+        return;
+      }
       if (job.name === "run-pass") {
         const status = await processRunPass(job.data as RunJobData);
         // eslint-disable-next-line no-console
@@ -615,6 +624,13 @@ async function main(): Promise<void> {
     "audit-watch",
     {},
     { repeat: { pattern: "0 4 * * *" }, jobId: "audit-watch" },
+  );
+  // Outbound sends (playbook-v6 F5) — every five minutes; each pass sends at
+  // most one message per workspace, so the cadence IS the spacing floor.
+  await outboundQueue().add(
+    "send-sweep",
+    {},
+    { repeat: { pattern: "*/5 * * * *" }, jobId: "outbound-send-sweep" },
   );
   // Daily insight — 06:30, rotates over the weekly digest (one Haiku call/day).
   await wakeupsQueue().add(

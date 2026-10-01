@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { attempt } from "@/lib/client/server-action";
-import { saveOutboundSettings } from "@/modules/outbound/settings-actions";
+import { saveOutboundSettings, resumeSending, type MailboxStatus } from "@/modules/outbound/settings-actions";
 import type { OutboundConfig } from "@/modules/outbound/config";
 import { COLD_OUTBOUND_ADDRESS } from "@/modules/outbound/config";
 
@@ -49,7 +49,7 @@ function Num({
   );
 }
 
-export function SettingsOutbound({ config, isOwner }: { config: OutboundConfig; isOwner: boolean }) {
+export function SettingsOutbound({ config, isOwner, mailbox }: { config: OutboundConfig; isOwner: boolean; mailbox: MailboxStatus }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [c, setC] = useState(config);
@@ -185,10 +185,9 @@ export function SettingsOutbound({ config, isOwner }: { config: OutboundConfig; 
             />
           </label>
         </div>
-        <label className="flex items-center gap-2 text-[12.5px]">
-          <input type="checkbox" checked={c.sending.track} disabled={disabled} onChange={(e) => patch("sending", { track: e.target.checked })} />
-          Track opens and clicks on cold outbound (off by default: plain text, no pixel)
-        </label>
+        <p className="text-[11.5px] text-muted">
+          Cold outbound leaves as plain text with no tracking pixel and no rewritten links.
+        </p>
         <label className="grid gap-1">
           <span className={LABEL}>Fallback signature (used when the Gmail account has none)</span>
           <textarea
@@ -198,10 +197,40 @@ export function SettingsOutbound({ config, isOwner }: { config: OutboundConfig; 
             onChange={(e) => patch("sending", { fallbackSignature: e.target.value })}
           />
         </label>
+        <p className="text-[12px] tabular-nums" data-testid="outbound-mailbox">
+          {mailbox.connected ? (
+            <>
+              Mailbox connected{mailbox.connectedBy ? ` by ${mailbox.connectedBy}` : ""} · {mailbox.sentToday} / {mailbox.sendCapToday} sent today
+              {mailbox.signatureFetchedAt ? ` · signature read ${mailbox.signatureFetchedAt.slice(0, 10)}` : " · signature not read yet"}
+            </>
+          ) : (
+            <span className="text-[#FFD27A]">
+              {mailbox.health === "reconnect_needed" ? "The mailbox needs reconnecting" : "The mailbox is not connected"} — nothing is sent until it is.
+            </span>
+          )}
+        </p>
         {c.sending.pausedAt && (
-          <p className="text-[12px] text-[#FFB3C2]">
-            Sending is paused since {c.sending.pausedAt.slice(0, 16).replace("T", " ")}: {c.sending.pausedReason}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[12px] text-[#FFB3C2]">
+              Sending is paused since {c.sending.pausedAt.slice(0, 16).replace("T", " ")}: {c.sending.pausedReason}
+            </p>
+            {isOwner && (
+              <button
+                type="button"
+                disabled={pending}
+                className="min-h-[36px] rounded-[8px] border border-line px-2.5 py-1.5 text-[11.5px] font-semibold text-ink hover:border-accent"
+                onClick={() =>
+                  startTransition(async () => {
+                    const res = await attempt(resumeSending());
+                    if (!res.ok) setError(res.error);
+                    else router.refresh();
+                  })
+                }
+              >
+                Resume sending
+              </button>
+            )}
+          </div>
         )}
       </div>
 

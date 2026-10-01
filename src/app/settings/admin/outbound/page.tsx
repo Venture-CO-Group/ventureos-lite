@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminOutboundPage() {
   await requireSuperAdminPage();
-  const [{ config, meter }, owner] = await Promise.all([getOutboundSettings(), isOwner()]);
+  const [{ config, meter, mailbox }, owner] = await Promise.all([getOutboundSettings(), isOwner()]);
   return (
     <SettingsShell
       group="admin"
@@ -22,7 +22,7 @@ export default async function AdminOutboundPage() {
       description="Registry quota, the nightly run, daily caps and the cold sending guardrails."
     >
       <RegistryQuotaMeter meter={meter} />
-      <SettingsOutbound config={config} isOwner={owner} />
+      <SettingsOutbound config={config} isOwner={owner} mailbox={mailbox} />
     </SettingsShell>
   );
 }

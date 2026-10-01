@@ -4,7 +4,31 @@
  * text. The approval card renders through the same function, so "the
  * message exactly as it will be sent" is literally the same string.
  */
+import sanitizeHtml from "sanitize-html";
 import type { OutboundConfig } from "./config";
+
+/**
+ * A Gmail signature (HTML) as plain text that keeps its LINES. The inbox's
+ * own htmlToText collapses every break into a space, which is right for a
+ * snippet and wrong for a signature: "Virágh Fanni Venture CO +36…" on one
+ * line is not what anybody wrote.
+ */
+export function signatureHtmlToText(html: string): string {
+  const broken = html.replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|li|tr|h[1-6]|table)>/gi, "\n");
+  const text = sanitizeHtml(broken, { allowedTags: [], allowedAttributes: {} })
+    .replace(/&nbsp;|\u00a0/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+  return text
+    .split("\n")
+    .map((l) => l.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 
 export function signatureFor(
   sending: Pick<OutboundConfig["sending"], "cachedSignature" | "fallbackSignature">,

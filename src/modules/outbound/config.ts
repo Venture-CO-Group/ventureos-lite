@@ -52,8 +52,10 @@ const warmupSchema = z.object({
 const sendingSchema = z.object({
   /** The MailAccount the motor sends through, once connected. */
   mailAccountId: z.string().nullable().default(null),
-  /** Open/click tracking on cold outbound. Off: plain text, no pixel. */
-  track: z.boolean().default(false),
+  // No open/click tracking on cold outbound: it leaves as plain text with no
+  // pixel and no rewritten link (spec §4.37 tracking is for 1:1 mail sent
+  // from the Inbox). A pixel needs HTML, and HTML-first cold mail is exactly
+  // what the deliverability guardrails rule out.
   /** Bounce rate above which the mailbox pauses (same as §4.16). */
   bounceThreshold: z.number().min(0).max(1).default(0.03),
   /** Set by the circuit breaker; cleared by an Owner. */
