@@ -29,6 +29,7 @@ export type PaletteActionId =
   | "go-prospector"
   | "go-audit"
   | "go-outreach"
+  | "go-outbound"
   | "go-campaigns"
   | "go-referrers"
   | "go-tasks"
@@ -121,6 +122,7 @@ export const PALETTE_ACTIONS: PaletteAction[] = [
   { id: "go-prospector", label: "Go to Prospector", keywords: ["google", "places", "find businesses", "search area"], href: "/prospector", group: "navigate" },
   { id: "go-audit", label: "Go to Site Audit", keywords: ["website", "score", "report"], href: "/audit", group: "navigate" },
   { id: "go-outreach", label: "Go to Outreach", keywords: ["message", "draft", "sequence"], href: "/outreach", group: "navigate" },
+  { id: "go-outbound", label: "Go to Outbound", keywords: ["approval", "queue", "products", "icp", "cold"], href: "/outbound", group: "navigate" },
   { id: "go-campaigns", label: "Go to Campaigns", keywords: ["cold", "email", "sequence"], href: "/campaigns", group: "navigate" },
   { id: "go-referrers", label: "Go to Referrers", keywords: ["referral", "partner", "ledger"], href: "/referrers", group: "navigate" },
   { id: "go-tasks", label: "Go to Tasks", keywords: ["board", "todo", "kanban", "subtask", "assign"], href: "/tasks", hint: "g t", group: "navigate" },
