@@ -502,7 +502,10 @@ address was found, the registry numbers and the audit score.
 
 - Approving creates the lead (source *Outbound engine*, stage Researched). It
   moves to Contacted when the message is actually sent.
-- An edit that removes every company-specific sentence cannot be approved.
+- The chip above the message says whether it still carries a company-specific
+  fact (highlighted in the text). It is information: once you edit the text,
+  your rewrite is approved on your judgement, fact or no fact. An *unedited*
+  machine draft without one cannot be approved or sent.
 - *Approve opened* only approves cards **you** have opened.
 - Follow-ups (up to two, 4 and 9 days after the previous touch by default)
   appear in the same queue. They must add a fact the first message did not use.

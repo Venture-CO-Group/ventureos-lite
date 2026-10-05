@@ -10,8 +10,9 @@
  *   - there is no auto-approve anywhere, and no code path that sets APPROVED
  *     other than `approveDraft` below.
  *
- * And the hook gate holds at approval too: an edit that removes every
- * company-specific sentence is refused.
+ * The hook gate (rule 10) is generation-time only: an unedited machine draft
+ * must still be grounded, but a draft a person has edited is approved on
+ * their judgement — whether or not it still cites a fact.
  */
 import type { CandidateReason, Prisma } from "@prisma/client";
 import { prismaUnsafe, type WorkspaceClient } from "@/lib/db";
@@ -21,7 +22,8 @@ import { cegadatTaxId } from "@/modules/registry/cegadat";
 import { onLeadCreated } from "@/modules/workflow/triggers";
 import { emitLeadCreated } from "@/modules/webhooks/emit";
 import { hasHook, type CandidateFact } from "./facts";
-import { stillGrounded, validateDraft, type PersonalisationPoint } from "./draft";
+import { hookRequiredAndMissing, isHumanEdited, type PersonalisationPoint } from "./draft";
+import { leakedPatternNames } from "./references";
 import { transition } from "./state";
 import { domainOf } from "./pool";
 import type { ResolvedContact } from "./contact";
@@ -193,18 +195,20 @@ export async function approveDraft(
   const body = (input.body ?? d.body).trim();
   if (!subject || !body) return { ok: false, error: "Subject and body cannot be empty." };
   const pts = points(d.personalisationPoints);
-  if (!stillGrounded({ subject, body }, pts)) {
-    return { ok: false, error: "The message no longer contains a company-specific fact. Keep at least one, or reject the draft." };
+  const final = { subject, body, originalSubject: d.originalSubject, originalBody: d.originalBody };
+  // The hook (rule 10) is a generation-time rule: it binds the machine's own
+  // text, and an unedited machine draft that has lost its grounding is refused.
+  // A human-edited draft is approved on the reviewer's judgement alone.
+  if (hookRequiredAndMissing(final, pts)) {
+    return { ok: false, error: "This machine-written draft carries no company-specific fact, so it cannot be approved as written. Edit it, or reject it." };
   }
+  // Rule 13 is separate and binds every text, a person's included: a
+  // targeting-pattern company is never named in outbound copy.
   const product = d.productId ? await db.product.findUnique({ where: { id: d.productId }, include: { references: true } }) : null;
-  // Re-run the name check on the edited text: a person can type a pattern
-  // reference's name just as easily as a model can.
-  const check = validateDraft(
-    { subject, body, personalisationPoints: pts.filter((p) => `${subject}\n${body}`.toLowerCase().includes(p.quote.toLowerCase())) },
-    facts(c.facts),
-    product?.references ?? [],
-  );
-  if (!check.ok && /targeting pattern|placeholder/.test(check.error)) return { ok: false, error: `Cannot approve: the message ${check.error}.` };
+  const leaked = leakedPatternNames(`${subject}\n${body}`, product?.references ?? []);
+  if (leaked.length > 0) {
+    return { ok: false, error: `Cannot approve: the message names ${leaked.join(", ")}, which is a targeting pattern and not a client (CLAUDE.md rule 13).` };
+  }
 
   if (d.step === 0) {
     const lead = await ensureLead(db, workspaceId, c, d, product?.name ?? "outbound");
@@ -215,7 +219,7 @@ export async function approveDraft(
         leadId: lead.leadId,
         type: "outbound_approved",
         byUserId: input.userId,
-        payload: { draftId: d.id, subject, edited: subject !== d.originalSubject || body !== d.originalBody },
+        payload: { draftId: d.id, subject, edited: isHumanEdited(final) },
       },
     });
   }
@@ -225,7 +229,7 @@ export async function approveDraft(
     data: {
       subject,
       body,
-      edited: subject !== d.originalSubject || body !== d.originalBody,
+      edited: isHumanEdited(final),
       status: "APPROVED",
       decidedById: input.userId,
       decidedAt: now,

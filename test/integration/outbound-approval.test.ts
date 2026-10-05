@@ -202,7 +202,7 @@ describe("the approval queue (spec §4.43.8)", () => {
     expect(await db.outreachDraft.findUnique({ where: { id: d.id } })).toMatchObject({ status: "APPROVED", decidedById: userId });
   });
 
-  it("refuses an edit that removes every company-specific fact", async () => {
+  it("approves a human rewrite that carries no company-specific fact — the hook is generation-time only", async () => {
     const { d } = await queued();
     const r = await approveDraft(getWorkspaceClient(ws), ws, {
       draftId: d.id,
@@ -210,6 +210,25 @@ describe("the approval queue (spec §4.43.8)", () => {
       subject: "Bemutatkozás",
       body: "Tisztelt Kovács Anna! Weboldalakat készítünk. Beszélhetnénk 15 percet?",
     });
+    expect(r).toEqual({ ok: true });
+    expect(await getWorkspaceClient(ws).outreachDraft.findUnique({ where: { id: d.id } })).toMatchObject({ status: "APPROVED", edited: true });
+  });
+
+  it("still refuses an UNEDITED machine draft that carries no grounded fact", async () => {
+    const { d } = await queued();
+    const db = getWorkspaceClient(ws);
+    // A machine draft whose cited quote is not in its own text: ungrounded, and nobody edited it.
+    await db.outreachDraft.update({
+      where: { id: d.id },
+      data: { body: "Tisztelt Kovács Anna! Weboldalakat készítünk. 15 perc?", originalBody: "Tisztelt Kovács Anna! Weboldalakat készítünk. 15 perc?" },
+    });
+    const r = await approveDraft(db, ws, { draftId: d.id, userId });
+    expect(r.ok).toBe(false);
+  });
+
+  it("still refuses a human edit that names a targeting-pattern company (rule 13)", async () => {
+    const { d } = await queued();
+    const r = await approveDraft(getWorkspaceClient(ws), ws, { draftId: d.id, userId, body: `${d.body} Mint a PwC-nél.` });
     expect(r.ok).toBe(false);
   });
 

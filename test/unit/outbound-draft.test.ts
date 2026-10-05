@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateDraft, stillGrounded, highlightRanges } from "@/modules/outbound/draft";
+import { validateDraft, stillGrounded, highlightRanges, isHumanEdited, hookRequiredAndMissing, hookStatus } from "@/modules/outbound/draft";
 import { outboundIcpBreakdown } from "@/modules/outbound/approval";
 import { linkedInOpener } from "@/modules/outbound/queue-view";
 import { composeMessage, signatureFor } from "@/modules/outbound/compose";
@@ -80,5 +80,23 @@ describe("prompt and LinkedIn opener", () => {
   });
   it("opens with the strongest fact and no AI", () => {
     expect(linkedInOpener("X Kft.", "Kovács Anna", facts)).toContain("no viewport tag");
+  });
+});
+
+describe("the hook binds machine text only (rule 10)", () => {
+  const pts = [{ factId: "audit:viewport", quote: "no viewport tag" }];
+  const machine = { subject: "S", body: "Az oldaluk: no viewport tag.", originalSubject: "S", originalBody: "Az oldaluk: no viewport tag." };
+  it("treats whitespace as no edit and a changed word as an edit", () => {
+    expect(isHumanEdited({ ...machine, body: "Az oldaluk:  no viewport tag. " })).toBe(false);
+    expect(isHumanEdited({ ...machine, body: "Az oldaluk lassú." })).toBe(true);
+  });
+  it("requires the hook only while the text is the machine's", () => {
+    expect(hookRequiredAndMissing(machine, pts)).toBe(false);
+    expect(hookRequiredAndMissing({ ...machine, body: "Semmi konkrét.", originalBody: "Semmi konkrét." }, pts)).toBe(true);
+    expect(hookRequiredAndMissing({ ...machine, body: "Saját szöveg, tény nélkül." }, [])).toBe(false);
+  });
+  it("reports the hook status as information", () => {
+    expect(hookStatus({ subject: "S", body: "no viewport tag" }, pts)).toEqual({ grounded: true, present: pts });
+    expect(hookStatus({ subject: "S", body: "x" }, pts).grounded).toBe(false);
   });
 });

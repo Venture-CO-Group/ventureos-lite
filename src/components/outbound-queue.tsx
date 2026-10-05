@@ -7,6 +7,7 @@ import { attempt } from "@/lib/client/server-action";
 import { approve, approveOpened, openDraft, reject, saveDraftEdit, toLinkedIn } from "@/modules/outbound/approval-actions";
 import type { QueueCard } from "@/modules/outbound/queue-view";
 import type { QueueStats } from "@/modules/outbound/approval";
+import { highlightRanges, hookStatus, isHumanEdited } from "@/modules/outbound/draft";
 
 /**
  * The approval queue (spec §4.43.8) — where the motor's output meets a
@@ -180,6 +181,12 @@ export function OutboundQueue({ cards, stats }: { cards: QueueCard[]; stats: Que
   }
 
   const openedSelected = [...selected].filter((id) => opened.has(id));
+  // Information, never a blocker for an edited draft (CLAUDE.md rule 10 is
+  // generation-time only): does the text on screen still carry a cited
+  // company-specific fact, and which?
+  const hook = hookStatus({ subject, body }, card.points);
+  const editedNow = isHumanEdited({ subject, body, originalSubject: card.originalSubject, originalBody: card.originalBody });
+  const factLabel = (id: string) => card.facts.find((f) => f.id === id)?.label ?? id;
 
   return (
     <div data-testid="approval-queue">
@@ -246,6 +253,23 @@ export function OutboundQueue({ cards, stats }: { cards: QueueCard[]; stats: Que
               {card.step > 0 ? ` · follow-up ${card.step}` : ""}
               {card.edited ? " · edited" : ""}
             </div>
+            <div
+              data-testid="hook-status"
+              data-grounded={hook.grounded ? "yes" : "no"}
+              className={`justify-self-start rounded-full border px-2.5 py-0.5 text-[11px] ${
+                hook.grounded
+                  ? "border-[rgba(61,220,151,0.35)] text-[#3DDC97]"
+                  : editedNow
+                    ? "border-line text-muted"
+                    : "border-[#FFD27A] text-[#FFD27A]"
+              }`}
+            >
+              {hook.grounded
+                ? `Company-specific fact: ${[...new Set(hook.present.map((p) => factLabel(p.factId)))].join(", ")}`
+                : editedNow
+                  ? "No company-specific fact in your rewrite — it sends on your approval"
+                  : "Machine draft without a company-specific fact — edit it or reject it"}
+            </div>
             {editing ? (
               <>
                 <input className={INPUT} value={subject} onChange={(e) => setSubject(e.target.value)} aria-label="Subject" />
@@ -275,7 +299,7 @@ export function OutboundQueue({ cards, stats }: { cards: QueueCard[]; stats: Que
               <>
                 <h3 className="text-[15px] font-semibold text-ink" data-testid="queue-subject">{subject}</h3>
                 <div className="whitespace-pre-wrap text-[13.5px] leading-relaxed" data-testid="queue-body">
-                  <Highlighted text={body} ranges={body === card.body ? card.highlights : []} />
+                  <Highlighted text={body} ranges={highlightRanges(body, card.points)} />
                 </div>
                 <div className="whitespace-pre-wrap border-t border-line pt-2 text-[12.5px] text-muted" data-testid="queue-signature">
                   {"--\n"}

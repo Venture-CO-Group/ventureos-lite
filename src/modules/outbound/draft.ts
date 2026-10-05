@@ -7,9 +7,13 @@
  * makes it true. A draft that cannot be grounded is not "sent with generic
  * copy" — the candidate leaves the funnel as NO_HOOK.
  *
- * It also re-checks at approval: a person may edit, and an edit that deletes
- * the only company-specific sentence turns a grounded message into a generic
- * one. Pure.
+ * SCOPE (CLAUDE.md hard rule 10): the hook is a GENERATION-time rule. It
+ * governs what the motor may write and queue on its own. Once a person has
+ * edited the text, their judgement supersedes it — exactly as approval
+ * supersedes the mandatory-edit rule on this path — so the hook is checked at
+ * approval and at send ONLY while the text is still the machine's own
+ * (`isHumanEdited` false). For edited copy `hookStatus` is information shown
+ * to the reviewer, never a refusal. Pure.
  */
 import type { CandidateFact } from "./facts";
 import { leakedPatternNames, type ReferenceRow } from "./references";
@@ -65,6 +69,42 @@ export function stillGrounded(
 ): boolean {
   const t = norm(`${text.subject}\n${text.body}`);
   return points.some((p) => t.includes(norm(p.quote)));
+}
+
+/**
+ * Has a person changed the machine's text? Compared against the stored
+ * original, which every draft keeps, so the answer cannot drift from a flag.
+ * Whitespace-only changes do not count as an edit.
+ */
+export function isHumanEdited(d: { subject: string; body: string; originalSubject: string; originalBody: string }): boolean {
+  const n = (s: string) => s.replace(/\s+/g, " ").trim();
+  return n(d.subject) !== n(d.originalSubject) || n(d.body) !== n(d.originalBody);
+}
+
+export interface HookStatus {
+  /** The text still states at least one cited company-specific fact. */
+  grounded: boolean;
+  /** The cited points whose quote is still in the text. */
+  present: PersonalisationPoint[];
+}
+
+/** What the reviewer sees: does this text carry a company-specific fact? Information only. */
+export function hookStatus(text: { subject: string; body: string }, points: readonly PersonalisationPoint[]): HookStatus {
+  const t = norm(`${text.subject}\n${text.body}`);
+  const present = points.filter((p) => t.includes(norm(p.quote)));
+  return { grounded: present.length > 0, present };
+}
+
+/**
+ * The send/approval gate for the hook: required only for unedited machine
+ * text. An edited draft passes on approval alone.
+ */
+export function hookRequiredAndMissing(
+  d: { subject: string; body: string; originalSubject: string; originalBody: string },
+  points: readonly PersonalisationPoint[],
+): boolean {
+  if (isHumanEdited(d)) return false;
+  return !stillGrounded(d, points);
 }
 
 /** Character ranges of each quote in the body, for highlighting in the queue. */
