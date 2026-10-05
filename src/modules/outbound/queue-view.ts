@@ -47,6 +47,8 @@ export interface QueueCard {
   mode: string;
   scheduledFor: string | null;
   createdAt: string;
+  /** A second look: restored from Rejected or Filtered out. */
+  restored: { at: string; note: string | null } | null;
 }
 
 export async function loadQueue(db: WorkspaceClient, workspaceId: string, userId: string, take = 60): Promise<QueueCard[]> {
@@ -121,6 +123,7 @@ export async function loadQueue(db: WorkspaceClient, workspaceId: string, userId
       mode: profile?.mode ?? "VOLUME",
       scheduledFor: d.scheduledFor?.toISOString() ?? null,
       createdAt: d.createdAt.toISOString(),
+      restored: c.restoredAt ? { at: c.restoredAt.toISOString(), note: c.restoreNote } : null,
     });
   }
   return out;

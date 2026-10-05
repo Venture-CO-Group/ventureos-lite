@@ -432,6 +432,12 @@ The centre of gravity of the motor — one screen built for batch review:
 
 **GDPR:** legitimate interest with a documented balancing test; unsubscribe in every message; `managers[]` names and email addresses are personal data and join the erasure cascade, including candidates that never became leads; candidate data without meaningful interaction is removed after 12 months.
 
+#### 4.43.12 History, undo and restore
+- **Undo** after every reject (the shared 6-second undo layer, server-side with an expected-state check). An undone rejection is retracted: kept in the trail, excluded from every rejection statistic.
+- **History** (`/outbound/history`): tabs Pending approval · Sent · Rejected · Filtered out · LinkedIn queue · Replied; filter by product, campaign (ICP profile), segment, reason, date; search company and contact; per-candidate detail with the full state history and actors, registry data, audit, drafts (original beside edited), delivery, reply and follow-up state.
+- **Restore** from Rejected or Filtered out, single or bulk (≤ 25, confirmed): re-runs suppression, already-a-client, CRM-duplicate, in-another-run and data-freshness checks and reports blockers; a draft older than 30 days is regenerated (the old one kept as superseded); every restore is audit-logged with actor and note, and the card is flagged restored. Restore edges are separate from the forward state machine and only a person can take them.
+- **Sent**: follow-up state per sequence, and cancelling the remaining follow-ups without touching the lead (audit-logged).
+
 #### 4.43.11 Build decisions (v6, 2026-10-01)
 Defaults taken where the approved design left a choice open; each is a setting or a one-line change if the Owner decides otherwise.
 

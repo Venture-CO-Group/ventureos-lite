@@ -8,6 +8,7 @@ import { approve, approveOpened, openDraft, reject, saveDraftEdit, toLinkedIn } 
 import type { QueueCard } from "@/modules/outbound/queue-view";
 import type { QueueStats } from "@/modules/outbound/approval";
 import { highlightRanges, hookStatus, isHumanEdited } from "@/modules/outbound/draft";
+import { useToast } from "./toast";
 
 /**
  * The approval queue (spec §4.43.8) — where the motor's output meets a
@@ -42,6 +43,7 @@ function typing(e: KeyboardEvent): boolean {
 
 export function OutboundQueue({ cards, stats }: { cards: QueueCard[]; stats: QueueStats }) {
   const router = useRouter();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [index, setIndex] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -97,9 +99,14 @@ export function OutboundQueue({ cards, stats }: { cards: QueueCard[]; stats: Que
         setError("Say why, in a few words, then pick Other again.");
         return;
       }
-      startTransition(async () => after(await attempt(reject({ draftId: card.draftId, reason, note: note.trim() || null }))));
+      startTransition(async () => {
+        const res = await attempt(reject({ draftId: card.draftId, reason, note: note.trim() || null }));
+        after(res);
+        // Six seconds to take back a mis-keyed X (the shared undo layer).
+        if (res.ok) toast.offerUndo(res.undo ?? null, `Rejected ${card.company.name}`);
+      });
     },
-    [card, note, after],
+    [card, note, after, toast],
   );
 
   const doLinkedIn = useCallback(() => {
@@ -214,6 +221,7 @@ export function OutboundQueue({ cards, stats }: { cards: QueueCard[]; stats: Que
               <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setIndex(i)}>
                 <span className="block truncate text-ink">{c.company.name}</span>
                 <span className="block truncate text-[11px] text-muted">
+                  {c.restored ? "restored · " : ""}
                   {c.step > 0 ? `follow-up ${c.step} · ` : ""}
                   {c.product}
                   {opened.has(c.draftId) ? "" : " · new"}
@@ -253,6 +261,11 @@ export function OutboundQueue({ cards, stats }: { cards: QueueCard[]; stats: Que
               {card.step > 0 ? ` · follow-up ${card.step}` : ""}
               {card.edited ? " · edited" : ""}
             </div>
+            {card.restored && (
+              <div data-testid="restored-flag" className="justify-self-start rounded-full border border-accent px-2.5 py-0.5 text-[11px] text-ink">
+                Restored {card.restored.at.slice(0, 10)} — a second look{card.restored.note ? `: ${card.restored.note}` : ""}
+              </div>
+            )}
             <div
               data-testid="hook-status"
               data-grounded={hook.grounded ? "yes" : "no"}

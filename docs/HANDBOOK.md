@@ -514,6 +514,32 @@ The **LinkedIn queue** holds companies with no usable address. *Draft in
 Outreach Studio* hands one over as a lead; from there the Studio's own rules
 apply unchanged, including the mandatory human edit.
 
+### History, undo and restore
+
+**Undo a reject.** Every reject shows a six-second *Undo* toast. Undoing puts
+the card straight back in the queue; the rejection is marked retracted and
+never reaches the rejection-reason statistics.
+
+**Outbound → History** lists every candidate by where it ended up — Pending
+approval, Sent, Rejected, Filtered out, LinkedIn queue, Replied — with who
+decided, when and why. Filter by product, campaign, segment, reason and date;
+search company or contact. A row opens the full record: every state change and
+who made it, the company data, the audit, each message as it stood (with the
+machine's original beside an edited one), and for sent mail the delivery status
+and any reply.
+
+**Restore** (one candidate from its page, or up to 25 from the table) puts a
+rejected or filtered-out company back in the queue for a second look. It is
+re-checked first — suppression, already a client, already in the CRM, being
+worked elsewhere, and a datasheet older than 90 days is refreshed — and
+anything that blocks is reported instead of overridden. A draft older than 30
+days is regenerated against today's data rather than resent. Every restore is
+audit-logged with your note, and the card arrives flagged *restored*.
+
+**Sent tab** shows each sequence's state: touches sent, when the next is due,
+whether it stopped on a reply or a bounce. *Cancel follow-ups* ends a sequence
+without touching the lead.
+
 ### Sending
 
 Every five minutes the sender sends at most one approved message: business

@@ -442,6 +442,8 @@ export async function scheduleFollowups(workspaceId: string, deps: SendDeps, lim
     const nextStep = sentDrafts.length;
     if (nextStep === 0 || nextStep > offsets.length) continue;
     if (drafts.some((d) => d.step === nextStep)) continue;
+    // Cancelled by hand from the Sent tab: the sequence ends where it is.
+    if (c.followupsCancelledAt) continue;
     // A bounced or cancelled sequence gets no follow-up.
     if (sentDrafts.some((d) => d.bouncedAt)) continue;
     const lastSent = sentDrafts[sentDrafts.length - 1]!;

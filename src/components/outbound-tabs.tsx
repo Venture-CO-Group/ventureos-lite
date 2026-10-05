@@ -7,6 +7,7 @@ import Link from "next/link";
 const TABS = [
   { href: "/outbound", label: "Approval queue" },
   { href: "/outbound/linkedin", label: "LinkedIn queue" },
+  { href: "/outbound/history", label: "History" },
   { href: "/outbound/runs", label: "Runs" },
   { href: "/outbound/insights", label: "Insights" },
   { href: "/outbound/products", label: "Products & ICP" },
