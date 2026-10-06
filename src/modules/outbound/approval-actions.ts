@@ -15,6 +15,7 @@ import {
   routeToLinkedIn,
 } from "./approval";
 import { domainOf } from "./pool";
+import { recordUndo, type UndoToken } from "@/modules/undo/store";
 import type { ResolvedContact } from "./contact";
 
 /**
@@ -61,16 +62,36 @@ export async function approve(raw: unknown): Promise<Result> {
   return r;
 }
 
-export async function reject(raw: unknown): Promise<Result> {
+export async function reject(raw: unknown): Promise<Result<{ undo?: UndoToken | null }>> {
   const ctx = await context();
   if (!ctx) return DENIED;
   const p = z
     .object({ draftId: z.string().min(1), reason: z.enum(REVIEW_REASONS), note: z.string().max(1000).nullish() })
     .safeParse(raw);
   if (!p.success) return { ok: false, error: "Pick a reason — a rejection without one teaches the system nothing." };
-  const r = await rejectDraft(getWorkspaceClient(ctx.workspaceId), ctx.workspaceId, { ...p.data, userId: ctx.userId });
-  if (r.ok) done();
-  return r;
+  const db = getWorkspaceClient(ctx.workspaceId);
+  const before = await db.outreachDraft.findUnique({ where: { id: p.data.draftId }, select: { candidateId: true, step: true } });
+  const r = await rejectDraft(db, ctx.workspaceId, { ...p.data, userId: ctx.userId });
+  if (!r.ok || !before) return r;
+  // The common case is a mis-keyed X in fast review: offer the undo toast.
+  // Server-side inverse with an expected-state check, like every other undo.
+  const cand = await db.prospectCandidate.findUnique({ where: { id: before.candidateId }, select: { name: true } });
+  const undo =
+    before.step === 0
+      ? await recordUndo(ctx.workspaceId, ctx.userId, {
+          kind: "outbound_reject",
+          label: `Rejected ${cand?.name ?? "draft"}`,
+          inverse: { entity: "prospectCandidate", targets: [{ id: before.candidateId, set: { state: "PENDING_APPROVAL" } }] },
+          expected: { [before.candidateId]: { state: "REJECTED" } },
+        })
+      : await recordUndo(ctx.workspaceId, ctx.userId, {
+          kind: "outbound_reject",
+          label: `Rejected follow-up to ${cand?.name ?? "company"}`,
+          inverse: { entity: "outreachDraft", targets: [{ id: p.data.draftId, set: { status: "PENDING" } }] },
+          expected: { [p.data.draftId]: { status: "REJECTED" } },
+        });
+  done();
+  return { ok: true, undo };
 }
 
 export async function toLinkedIn(draftId: string): Promise<Result> {

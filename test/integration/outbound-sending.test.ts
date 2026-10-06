@@ -217,6 +217,32 @@ describe("sending (spec §4.43.9)", () => {
   });
 });
 
+describe("the hook gate at send time (rule 10, generation-time only)", () => {
+  it("sends a human-edited draft with zero personalisation points", async () => {
+    const { draft } = await approvedDraft();
+    const db = getWorkspaceClient(ws);
+    await db.outreachDraft.update({
+      where: { id: draft.id },
+      data: { body: "Tisztelt Kovács Anna! Saját szavaimmal írok: beszélhetnénk 15 percet?", personalisationPoints: [], edited: true },
+    });
+    const { g, sent } = gmailStub();
+    expect(await sendTick(ws, { now: () => NOW, gmail: g })).toBe("sent");
+    expect(sent).toHaveLength(1);
+    expect((await db.outreachDraft.findUnique({ where: { id: draft.id } }))!.status).toBe("SENT");
+  });
+
+  it("does not send an unedited machine draft without a hook", async () => {
+    const { draft } = await approvedDraft();
+    const db = getWorkspaceClient(ws);
+    const generic = "Tisztelt Kovács Anna! Weboldalakat készítünk. 15 perc?";
+    await db.outreachDraft.update({ where: { id: draft.id }, data: { body: generic, originalBody: generic, originalSubject: draft.subject } });
+    const { g, sent } = gmailStub();
+    expect(await sendTick(ws, { now: () => NOW, gmail: g })).toBe("nothing_due");
+    expect(sent).toHaveLength(0);
+    expect(await db.outreachDraft.findUnique({ where: { id: draft.id } })).toMatchObject({ status: "FAILED" });
+  });
+});
+
 describe("unsubscribe, replies and follow-ups", () => {
   it("unsubscribes the whole company across every campaign", async () => {
     const a = await approvedDraft({ domain: "kozos.example", tax: "12345678242" });

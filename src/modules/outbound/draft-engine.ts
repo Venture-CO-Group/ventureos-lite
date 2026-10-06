@@ -195,7 +195,7 @@ export async function draftFollowup(
   const previous = await db.outreachDraft.findMany({ where: { candidateId, status: "SENT" }, orderBy: { step: "asc" } });
   const first = previous[0];
   if (!first || previous.length !== step) return "skipped";
-  if (await db.outreachDraft.findUnique({ where: { candidateId_step: { candidateId, step } } })) return "skipped";
+  if (await db.outreachDraft.findFirst({ where: { candidateId, step, supersededAt: null }, select: { id: true } })) return "skipped";
 
   const facts = factsOf(c.facts);
   const used = new Set(previous.flatMap((d) => (Array.isArray(d.personalisationPoints) ? (d.personalisationPoints as unknown as PersonalisationPoint[]).map((p) => p.factId) : [])));

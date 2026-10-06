@@ -3,7 +3,7 @@ import { localFilter, auditFilter, type FilterProfile } from "@/modules/outbound
 import { resolveContact, addressMatchesName, isRoleAddress, extractRepresentedBy } from "@/modules/outbound/contact";
 import { buildFacts, hasHook } from "@/modules/outbound/facts";
 import { dedupeKeyFor, legalFormFromName, scorePoolRow, fragmentsInName } from "@/modules/outbound/pool";
-import { ALLOWED, canTransition } from "@/modules/outbound/state";
+import { ALLOWED, canTransition, canRestore } from "@/modules/outbound/state";
 import { poolRowsFromCsv } from "@/modules/outbound/sources";
 import { DEFAULT_SEGMENTS } from "@/modules/outbound/segments-seed";
 import { isRecipientSuppressed, isCompanySuppressed } from "@/modules/mail/suppression";
@@ -219,6 +219,13 @@ describe("pool", () => {
 describe("state machine", () => {
   it("never leaves a terminal state", () => {
     for (const s of ["FILTERED_OUT", "REJECTED", "REPLIED", "LINKEDIN_QUEUE"] as const) expect(ALLOWED[s]).toEqual([]);
+  });
+  it("lets only a restore take a candidate back out of Rejected or Filtered out", () => {
+    expect(canTransition("REJECTED", "PENDING_APPROVAL")).toBe(false);
+    expect(canRestore("REJECTED", "PENDING_APPROVAL")).toBe(true);
+    expect(canRestore("FILTERED_OUT", "CONTACT_RESOLVED")).toBe(true);
+    expect(canRestore("REJECTED", "SENT")).toBe(false);
+    expect(canRestore("SENT", "PENDING_APPROVAL")).toBe(false);
   });
   it("cannot be sent without being approved, or approved without being drafted", () => {
     expect(canTransition("CONTACT_RESOLVED", "SENT")).toBe(false);

@@ -385,6 +385,7 @@ async function topUp(
         priority: score,
         website: row.website,
         state: "SOURCED",
+        stateChangedAt: ctx.deps.now(),
       },
     });
     await db.candidateEvent.create({
@@ -640,7 +641,11 @@ async function resolveAndDraft(ctx: RunContext, c: Candidate, sheet: CompanyData
     },
     ctx.deps.verify,
   );
-  const data = { contact: contact as unknown as Prisma.InputJsonValue };
+  const data = {
+    contact: contact as unknown as Prisma.InputJsonValue,
+    contactName: contact.name ?? contact.managerName,
+    contactEmail: contact.email,
+  };
 
   if (contact.kind === "none") {
     await transition(db, ctx.workspaceId, c, "LINKEDIN_QUEUE", {

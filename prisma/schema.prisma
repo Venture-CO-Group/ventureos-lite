@@ -3772,6 +3772,20 @@ model ProspectCandidate {
   contact       Json?
   companyId     String?          @map("company_id")
   leadId        String?          @map("lead_id")
+  /// When the candidate entered its current state, and who moved it there
+  /// (null for the system). The history tables sort and filter on these.
+  stateChangedAt   DateTime?     @map("state_changed_at")
+  stateChangedById String?       @map("state_changed_by_id")
+  /// Denormalised from `contact` so history search works on both flavours.
+  contactName   String?          @map("contact_name")
+  contactEmail  String?          @map("contact_email")
+  /// A second look: restored from Rejected or Filtered out by a person.
+  restoredAt    DateTime?        @map("restored_at")
+  restoredById  String?          @map("restored_by_id")
+  restoreNote   String?          @map("restore_note") @db.Text
+  restoreCount  Int              @default(0) @map("restore_count")
+  /// Remaining follow-ups cancelled by hand from the Sent tab.
+  followupsCancelledAt DateTime? @map("followups_cancelled_at")
   attempts      Int              @default(0)
   /// A transient failure parks the candidate until then (§4.43.10/3).
   parkedUntil   DateTime?        @map("parked_until")
@@ -3787,6 +3801,7 @@ model ProspectCandidate {
   @@index([workspaceId])
   @@index([workspaceId, state])
   @@index([workspaceId, profileId, state])
+  @@index([workspaceId, state, stateChangedAt])
   @@index([poolId])
   @@map("prospect_candidates")
 }
@@ -3801,6 +3816,9 @@ model CandidateEvent {
   detail       String?          @db.Text
   userId       String?          @map("user_id")
   at           DateTime         @default(now())
+  /// A rejection undone inside the undo window. Kept for the trail, excluded
+  /// from every rejection statistic.
+  retractedAt  DateTime?        @map("retracted_at")
 
   candidate ProspectCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
 
@@ -3865,10 +3883,13 @@ model OutreachDraft {
   /// Set when the mailbox reported this message undeliverable.
   bouncedAt             DateTime?        @map("bounced_at")
   claudeCostUsd         Decimal?         @map("claude_cost_usd")
+  /// Replaced by a regenerated draft when a stale candidate was restored.
+  /// Kept, not deleted: the history shows what was written the first time.
+  supersededAt          DateTime?        @map("superseded_at")
   createdAt             DateTime         @default(now()) @map("created_at")
   updatedAt             DateTime         @updatedAt @map("updated_at")
 
-  @@unique([candidateId, step])
+  @@index([candidateId, step])
   @@index([workspaceId])
   @@index([workspaceId, status])
   @@map("outreach_drafts")

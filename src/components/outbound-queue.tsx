@@ -7,6 +7,8 @@ import { attempt } from "@/lib/client/server-action";
 import { approve, approveOpened, openDraft, reject, saveDraftEdit, toLinkedIn } from "@/modules/outbound/approval-actions";
 import type { QueueCard } from "@/modules/outbound/queue-view";
 import type { QueueStats } from "@/modules/outbound/approval";
+import { highlightRanges, hookStatus, isHumanEdited } from "@/modules/outbound/draft";
+import { useToast } from "./toast";
 
 /**
  * The approval queue (spec §4.43.8) — where the motor's output meets a
@@ -41,6 +43,7 @@ function typing(e: KeyboardEvent): boolean {
 
 export function OutboundQueue({ cards, stats }: { cards: QueueCard[]; stats: QueueStats }) {
   const router = useRouter();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [index, setIndex] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -96,9 +99,14 @@ export function OutboundQueue({ cards, stats }: { cards: QueueCard[]; stats: Que
         setError("Say why, in a few words, then pick Other again.");
         return;
       }
-      startTransition(async () => after(await attempt(reject({ draftId: card.draftId, reason, note: note.trim() || null }))));
+      startTransition(async () => {
+        const res = await attempt(reject({ draftId: card.draftId, reason, note: note.trim() || null }));
+        after(res);
+        // Six seconds to take back a mis-keyed X (the shared undo layer).
+        if (res.ok) toast.offerUndo(res.undo ?? null, `Rejected ${card.company.name}`);
+      });
     },
-    [card, note, after],
+    [card, note, after, toast],
   );
 
   const doLinkedIn = useCallback(() => {
@@ -180,6 +188,12 @@ export function OutboundQueue({ cards, stats }: { cards: QueueCard[]; stats: Que
   }
 
   const openedSelected = [...selected].filter((id) => opened.has(id));
+  // Information, never a blocker for an edited draft (CLAUDE.md rule 10 is
+  // generation-time only): does the text on screen still carry a cited
+  // company-specific fact, and which?
+  const hook = hookStatus({ subject, body }, card.points);
+  const editedNow = isHumanEdited({ subject, body, originalSubject: card.originalSubject, originalBody: card.originalBody });
+  const factLabel = (id: string) => card.facts.find((f) => f.id === id)?.label ?? id;
 
   return (
     <div data-testid="approval-queue">
@@ -207,6 +221,7 @@ export function OutboundQueue({ cards, stats }: { cards: QueueCard[]; stats: Que
               <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setIndex(i)}>
                 <span className="block truncate text-ink">{c.company.name}</span>
                 <span className="block truncate text-[11px] text-muted">
+                  {c.restored ? "restored · " : ""}
                   {c.step > 0 ? `follow-up ${c.step} · ` : ""}
                   {c.product}
                   {opened.has(c.draftId) ? "" : " · new"}
@@ -246,6 +261,28 @@ export function OutboundQueue({ cards, stats }: { cards: QueueCard[]; stats: Que
               {card.step > 0 ? ` · follow-up ${card.step}` : ""}
               {card.edited ? " · edited" : ""}
             </div>
+            {card.restored && (
+              <div data-testid="restored-flag" className="justify-self-start rounded-full border border-accent px-2.5 py-0.5 text-[11px] text-ink">
+                Restored {card.restored.at.slice(0, 10)} — a second look{card.restored.note ? `: ${card.restored.note}` : ""}
+              </div>
+            )}
+            <div
+              data-testid="hook-status"
+              data-grounded={hook.grounded ? "yes" : "no"}
+              className={`justify-self-start rounded-full border px-2.5 py-0.5 text-[11px] ${
+                hook.grounded
+                  ? "border-[rgba(61,220,151,0.35)] text-[#3DDC97]"
+                  : editedNow
+                    ? "border-line text-muted"
+                    : "border-[#FFD27A] text-[#FFD27A]"
+              }`}
+            >
+              {hook.grounded
+                ? `Company-specific fact: ${[...new Set(hook.present.map((p) => factLabel(p.factId)))].join(", ")}`
+                : editedNow
+                  ? "No company-specific fact in your rewrite — it sends on your approval"
+                  : "Machine draft without a company-specific fact — edit it or reject it"}
+            </div>
             {editing ? (
               <>
                 <input className={INPUT} value={subject} onChange={(e) => setSubject(e.target.value)} aria-label="Subject" />
@@ -275,7 +312,7 @@ export function OutboundQueue({ cards, stats }: { cards: QueueCard[]; stats: Que
               <>
                 <h3 className="text-[15px] font-semibold text-ink" data-testid="queue-subject">{subject}</h3>
                 <div className="whitespace-pre-wrap text-[13.5px] leading-relaxed" data-testid="queue-body">
-                  <Highlighted text={body} ranges={body === card.body ? card.highlights : []} />
+                  <Highlighted text={body} ranges={highlightRanges(body, card.points)} />
                 </div>
                 <div className="whitespace-pre-wrap border-t border-line pt-2 text-[12.5px] text-muted" data-testid="queue-signature">
                   {"--\n"}

@@ -23,6 +23,7 @@ export async function undoAction(undoId: string): Promise<UndoResult> {
     revalidatePath("/pipeline");
     revalidatePath("/deals");
     revalidatePath("/content");
+    revalidatePath("/outbound");
     revalidatePath("/");
   }
   return res;

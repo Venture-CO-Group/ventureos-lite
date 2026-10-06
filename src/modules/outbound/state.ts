@@ -33,6 +33,20 @@ export const ALLOWED: Record<CandidateState, readonly CandidateState[]> = {
   LINKEDIN_QUEUE: [],
 };
 
+/**
+ * The ways back (history and recovery). Not part of the forward flow: only a
+ * person can take these, through `restoreCandidate` or the reject undo, and
+ * `transition` refuses them unless the caller says it is a restore.
+ */
+export const RESTORE_EDGES: Partial<Record<CandidateState, readonly CandidateState[]>> = {
+  REJECTED: ["PENDING_APPROVAL", "CONTACT_RESOLVED"],
+  FILTERED_OUT: ["CONTACT_RESOLVED", "PENDING_APPROVAL"],
+};
+
+export function canRestore(from: CandidateState, to: CandidateState): boolean {
+  return RESTORE_EDGES[from]?.includes(to) ?? false;
+}
+
 /** In the funnel and moving — what a run counts toward its target. */
 export const QUALIFIED_STATES: readonly CandidateState[] = [
   "FILTERED_IN",
@@ -82,15 +96,20 @@ export async function transition(
     userId?: string | null;
     data?: Prisma.ProspectCandidateUpdateInput;
     at?: Date;
+    /** A person taking one of the RESTORE_EDGES. */
+    restore?: boolean;
   } = {},
 ): Promise<CandidateState> {
-  if (!canTransition(candidate.state, to)) throw new IllegalTransitionError(candidate.state, to);
+  const allowed = canTransition(candidate.state, to) || (opts.restore === true && canRestore(candidate.state, to));
+  if (!allowed) throw new IllegalTransitionError(candidate.state, to);
   const at = opts.at ?? new Date();
   await db.prospectCandidate.update({
     where: { id: candidate.id },
     data: {
       ...(opts.data ?? {}),
       state: to,
+      stateChangedAt: at,
+      stateChangedById: opts.userId ?? null,
       ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
       ...(opts.detail !== undefined ? { reasonDetail: opts.detail } : {}),
     },

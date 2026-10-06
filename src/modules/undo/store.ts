@@ -20,6 +20,7 @@
  */
 
 import { getWorkspaceClient } from "@/lib/db";
+import { retractRejection, retractFollowupRejection } from "@/modules/outbound/review-undo";
 
 /** The toast offers six seconds; the row survives long enough to be clicked. */
 export const UNDO_WINDOW_MS = 10 * 60_000;
@@ -33,7 +34,9 @@ export type UndoKind =
   | "bulk_owner"
   | "lead_not_now"
   | "content_status"
-  | "board_archive";
+  | "board_archive"
+  /** A reject in the outbound approval queue (history & recovery). */
+  | "outbound_reject";
 
 /** One row the inverse touches: put `field` back to `value`. */
 export interface InverseTarget {
@@ -54,7 +57,16 @@ export interface InversePlan {
  * the point of keeping the list closed. An entity that is not here cannot be
  * declared undoable in `contract.ts` without the declaration being a lie.
  */
-export type InverseEntity = "lead" | "deal" | "task" | "contentPost" | "taskBoard";
+export type InverseEntity =
+  | "lead"
+  | "deal"
+  | "task"
+  | "contentPost"
+  | "taskBoard"
+  /** Undone through `retractRejection`, which also resets the draft and retracts the event. */
+  | "prospectCandidate"
+  /** A rejected follow-up draft. */
+  | "outreachDraft";
 
 /** Field -> value the action LEFT, per row. The undo checks these still hold. */
 export interface ExpectedState {
@@ -134,7 +146,11 @@ async function readRows(
           ? await db.task.findMany({ where: { id: { in: ids } } })
           : entity === "taskBoard"
             ? await db.taskBoard.findMany({ where: { id: { in: ids } } })
-            : await db.contentPost.findMany({ where: { id: { in: ids } } });
+            : entity === "prospectCandidate"
+              ? await db.prospectCandidate.findMany({ where: { id: { in: ids } } })
+              : entity === "outreachDraft"
+                ? await db.outreachDraft.findMany({ where: { id: { in: ids } } })
+                : await db.contentPost.findMany({ where: { id: { in: ids } } });
   return new Map(rows.map((r) => [r.id, r as unknown as Record<string, unknown>]));
 }
 
@@ -208,6 +224,12 @@ export async function undo(
       restored += (await db.task.updateMany({ where: { id: target.id }, data })).count;
     } else if (plan.entity === "taskBoard") {
       restored += (await db.taskBoard.updateMany({ where: { id: target.id }, data })).count;
+    } else if (plan.entity === "prospectCandidate") {
+      // Several rows move together (candidate, draft, the rejection event),
+      // so the outbound module does it rather than a field restore.
+      if (await retractRejection(db, workspaceId, target.id, userId, new Date(nowMs))) restored += 1;
+    } else if (plan.entity === "outreachDraft") {
+      if (await retractFollowupRejection(db, target.id)) restored += 1;
     } else {
       restored += (await db.contentPost.updateMany({ where: { id: target.id }, data })).count;
     }

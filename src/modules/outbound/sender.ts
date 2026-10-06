@@ -49,6 +49,7 @@ import {
 import { transition } from "./state";
 import { domainOf } from "./pool";
 import { draftFollowup, type DraftDeps } from "./draft-engine";
+import { hookRequiredAndMissing, type PersonalisationPoint } from "./draft";
 
 /** What the sender needs from Gmail — the real provider in production, a stub in tests. */
 export interface GmailLike {
@@ -176,6 +177,17 @@ export async function sendTick(workspaceId: string, deps: SendDeps): Promise<Sen
     const lead = c.leadId ? await db.lead.findUnique({ where: { id: c.leadId }, select: { id: true, stage: true, icpScore: true } }) : null;
     if (d.step === 0 && lead?.stage === "RESEARCHED" && (lead.icpScore ?? 0) < threshold) {
       await db.outreachDraft.update({ where: { id: d.id }, data: { status: "FAILED", sendError: "below the ICP score gate" } });
+      continue;
+    }
+    // Hook gate at send time (rule 10) — for the machine's own text only. A
+    // draft a person edited goes out on its approval; an unedited machine
+    // draft that somehow lost its grounding never does.
+    const points = Array.isArray(d.personalisationPoints) ? (d.personalisationPoints as unknown as PersonalisationPoint[]) : [];
+    if (hookRequiredAndMissing(d, points)) {
+      await db.outreachDraft.update({
+        where: { id: d.id },
+        data: { status: "FAILED", sendError: "unedited machine draft without a company-specific fact" },
+      });
       continue;
     }
     return sendOne(db, workspaceId, { draft: d, candidate: c, lead, box, cfg, ws, gmail, now });
@@ -430,6 +442,8 @@ export async function scheduleFollowups(workspaceId: string, deps: SendDeps, lim
     const nextStep = sentDrafts.length;
     if (nextStep === 0 || nextStep > offsets.length) continue;
     if (drafts.some((d) => d.step === nextStep)) continue;
+    // Cancelled by hand from the Sent tab: the sequence ends where it is.
+    if (c.followupsCancelledAt) continue;
     // A bounced or cancelled sequence gets no follow-up.
     if (sentDrafts.some((d) => d.bouncedAt)) continue;
     const lastSent = sentDrafts[sentDrafts.length - 1]!;
