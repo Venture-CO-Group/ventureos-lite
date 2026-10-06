@@ -2,6 +2,7 @@ import { Worker } from "bullmq";
 import { checkEnvAtBoot } from "../lib/env";
 import {
   getRedisConnection,
+  trimFinishedJobs,
   wakeupsQueue,
   outboundQueue,
   FOLLOWUPS_QUEUE,
@@ -86,8 +87,16 @@ async function main(): Promise<void> {
 
   const connection = getRedisConnection();
 
+  // Housekeeping first: finished jobs used to be kept forever and filled
+  // Redis to its maxmemory, which made every later write fail (see
+  // JOB_RETENTION in lib/queue).
+  const trimmed = await trimFinishedJobs().catch(() => ({}));
+  const total = Object.values(trimmed).reduce((s: number, n) => s + Math.max(0, n as number), 0);
   // eslint-disable-next-line no-console
-  console.log("[worker] starting — followups, audits, pdfs, callbacks, briefs, wakeups");
+  if (total > 0) console.log(`[worker] removed ${total} finished job(s) from Redis`);
+
+  // eslint-disable-next-line no-console
+  console.log("[worker] starting — followups, audits, pdfs, callbacks, briefs, wakeups, outbound");
 
   const followupWorker = new Worker(
     FOLLOWUPS_QUEUE,
