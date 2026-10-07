@@ -26,7 +26,7 @@ export interface RetentionReport {
 export async function processOutboundRetention(now: Date = new Date()): Promise<RetentionReport> {
   const report: RetentionReport = { candidates: 0, drafts: 0, pool: 0, sheets: 0, searches: 0 };
   const cutoff = new Date(now.getTime() - YEAR_MS);
-  const workspaces = await prismaUnsafe.workspace.findMany({ select: { id: true } });
+  const workspaces = await prismaUnsafe.workspace.findMany({ where: { deletedAt: null }, select: { id: true } });
   for (const { id } of workspaces) {
     const db = getWorkspaceClient(id);
     const stale = await db.prospectCandidate.findMany({

@@ -25,7 +25,7 @@ import { outboundSignal } from "../outbound/signal";
  */
 export async function processSignalEngine(nowMs: number = Date.now()): Promise<number> {
   const { sinceMs, untilMs } = weekWindow(nowMs);
-  const workspaces = await prismaUnsafe.workspace.findMany({ select: { id: true } });
+  const workspaces = await prismaUnsafe.workspace.findMany({ where: { deletedAt: null }, select: { id: true } });
 
   let processed = 0;
   for (const ws of workspaces) {
@@ -123,7 +123,7 @@ export async function processSignalEngine(nowMs: number = Date.now()): Promise<n
  * Dashboard card. Idempotent per day. Returns workspaces updated.
  */
 export async function processDailyInsight(nowMs: number = Date.now()): Promise<number> {
-  const workspaces = await prismaUnsafe.workspace.findMany({ select: { id: true } });
+  const workspaces = await prismaUnsafe.workspace.findMany({ where: { deletedAt: null }, select: { id: true } });
   const today = new Date(nowMs);
   const dayStart = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
   const dayIndex = today.getUTCDay();

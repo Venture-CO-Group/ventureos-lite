@@ -18,6 +18,7 @@ import { auditRetentionCutoff, auditRetentionDaysFrom } from "./retention";
  */
 export async function processAuditLogRetention(now: Date = new Date()): Promise<number> {
   const workspaces = await prismaUnsafe.workspace.findMany({
+    where: { deletedAt: null },
     select: { id: true, featureFlags: true },
   });
 

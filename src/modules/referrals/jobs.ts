@@ -29,6 +29,7 @@ export function referralSettingsFrom(raw: unknown): ReferralSettings {
 
 export async function processReferralSweep(now: Date = new Date()): Promise<number> {
   const workspaces = await prismaUnsafe.workspace.findMany({
+    where: { deletedAt: null },
     select: { id: true, featureFlags: true },
   });
   let drafted = 0;

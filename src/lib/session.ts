@@ -56,7 +56,9 @@ export async function tryGetActiveContext(): Promise<ActiveContext | null> {
    */
   const memberships = (
     await prismaUnsafe.membership.findMany({
-      where: { userId: session.userId },
+      // A deleted workspace is no workspace, from the moment it is deleted —
+      // not from the moment the purge job gets round to it.
+      where: { userId: session.userId, workspace: { deletedAt: null } },
       orderBy: { createdAt: "asc" },
       select: { workspaceId: true, role: true, state: true },
     })

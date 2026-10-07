@@ -66,6 +66,7 @@ export async function anonymizeLead(
  */
 export async function processAnonymizationSweep(nowMs: number = Date.now()): Promise<number> {
   const workspaces = await prismaUnsafe.workspace.findMany({
+    where: { deletedAt: null },
     select: { id: true, retentionDays: true, featureFlags: true },
   });
 

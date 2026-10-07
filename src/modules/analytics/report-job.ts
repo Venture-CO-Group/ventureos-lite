@@ -159,7 +159,7 @@ export async function generateWeeklyReport(
 
 /** Cross-workspace Friday cron. Returns workspaces reported. */
 export async function processWeeklyReports(nowMs: number = Date.now()): Promise<number> {
-  const workspaces = await prismaUnsafe.workspace.findMany({ select: { id: true } });
+  const workspaces = await prismaUnsafe.workspace.findMany({ where: { deletedAt: null }, select: { id: true } });
   for (const ws of workspaces) {
     try {
       await generateWeeklyReport(ws.id, nowMs);

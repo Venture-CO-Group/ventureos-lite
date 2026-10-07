@@ -34,7 +34,7 @@ export async function getPublicIntakeWorkspaceId(): Promise<string> {
     return ws.id;
   }
 
-  const all = await prismaUnsafe.workspace.findMany({ select: { id: true }, take: 2 });
+  const all = await prismaUnsafe.workspace.findMany({ where: { deletedAt: null }, select: { id: true }, take: 2 });
   if (all.length === 1) return all[0]!.id;
   if (all.length === 0) {
     throw new PublicIntakeUnavailable("No workspace exists to receive public audits.");

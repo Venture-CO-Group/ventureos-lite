@@ -17,7 +17,7 @@ import { createTaskFromSignal } from "@/modules/tasks/from-signal";
  * noise would bury the signal that matters.
  */
 export async function processKeywordTracking(now: Date = new Date()): Promise<number> {
-  const workspaces = await prismaUnsafe.workspace.findMany({ select: { id: true } });
+  const workspaces = await prismaUnsafe.workspace.findMany({ where: { deletedAt: null }, select: { id: true } });
   let checked = 0;
 
   for (const ws of workspaces) {

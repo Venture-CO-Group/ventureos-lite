@@ -545,6 +545,7 @@ export async function verify(workspaceId: string): Promise<IntegrityReport> {
 /** Every workspace, oldest first — the migration runs across all of them. */
 export async function allWorkspaceIds(): Promise<Array<{ id: string; name: string }>> {
   return prismaUnsafe.workspace.findMany({
+    where: { deletedAt: null },
     orderBy: { createdAt: "asc" },
     select: { id: true, name: true },
   });

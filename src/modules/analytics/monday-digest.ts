@@ -22,6 +22,7 @@ import { buildBriefing, briefingDigestLines } from "@/modules/outbound/briefing"
  */
 export async function processMondayDigests(nowMs: number = Date.now()): Promise<number> {
   const workspaces = await prismaUnsafe.workspace.findMany({
+    where: { deletedAt: null },
     select: { id: true, mailgunConfig: true, brand: true },
   });
 

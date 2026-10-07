@@ -88,6 +88,7 @@ export function localHourFor(timezone: string | null, at: Date): number {
 
 export async function processTaskDigests(now: Date = new Date()): Promise<number> {
   const workspaces = await prismaUnsafe.workspace.findMany({
+    where: { deletedAt: null },
     select: { id: true, name: true, mailgunConfig: true, brand: true },
   });
 

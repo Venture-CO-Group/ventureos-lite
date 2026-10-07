@@ -15,7 +15,7 @@ import { runRulesForQuote, markAcceptedQuotes } from "./store";
 const LOOKBACK_DAYS = 60;
 
 export async function processQuoteRuleSweep(now: Date = new Date()): Promise<number> {
-  const workspaces = await prismaUnsafe.workspace.findMany({ select: { id: true } });
+  const workspaces = await prismaUnsafe.workspace.findMany({ where: { deletedAt: null }, select: { id: true } });
   let fired = 0;
 
   for (const ws of workspaces) {

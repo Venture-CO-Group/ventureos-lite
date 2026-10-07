@@ -189,7 +189,7 @@ export async function processWorkflowOverdueSweep(
   nowMs: number = Date.now(),
 ): Promise<number> {
   const { prismaUnsafe } = await import("@/lib/db");
-  const workspaces = await prismaUnsafe.workspace.findMany({ select: { id: true } });
+  const workspaces = await prismaUnsafe.workspace.findMany({ where: { deletedAt: null }, select: { id: true } });
   let fired = 0;
 
   for (const ws of workspaces) {

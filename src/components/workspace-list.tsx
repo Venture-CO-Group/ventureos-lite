@@ -4,11 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   repairWorkspace,
-  renameWorkspace,
   switchWorkspace,
   type WorkspaceSummary,
 } from "@/modules/workspaces/actions";
+import { undeleteWorkspace } from "@/modules/workspaces/admin-actions";
+import type { DeletedWorkspace } from "@/modules/workspaces/admin";
 import { serverActionError } from "@/lib/client/server-action";
+import { WorkspaceManage } from "./workspace-manage";
 
 /**
  * The workspaces you belong to, and what is actually in them.
@@ -37,13 +39,19 @@ function Stat({ label, value, bad }: { label: string; value: number; bad?: boole
   );
 }
 
-export function WorkspaceList({ workspaces }: { workspaces: WorkspaceSummary[] }) {
+export function WorkspaceList({
+  workspaces,
+  deleted = [],
+}: {
+  workspaces: WorkspaceSummary[];
+  /** Deleted workspaces this Owner can still restore. */
+  deleted?: DeletedWorkspace[];
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draftName, setDraftName] = useState("");
+  const [managing, setManaging] = useState<string | null>(null);
 
   async function repair(id: string) {
     setBusy(id);
@@ -62,13 +70,14 @@ export function WorkspaceList({ workspaces }: { workspaces: WorkspaceSummary[] }
     }
   }
 
-  async function rename(id: string) {
+  async function restore(id: string) {
     setBusy(id);
+    setMsg(null);
     setError(null);
     try {
-      const res = await renameWorkspace(id, draftName);
+      const res = await undeleteWorkspace(id);
       if (res.ok) {
-        setEditing(null);
+        setMsg("Restored. It is back in the switcher for everybody who was a member.");
         router.refresh();
       } else setError(res.error);
     } catch (e) {
@@ -126,70 +135,44 @@ export function WorkspaceList({ workspaces }: { workspaces: WorkspaceSummary[] }
             }`}
           >
             <div className="flex flex-wrap items-center gap-2">
-              {editing === w.id ? (
-                <>
-                  <input
-                    value={draftName}
-                    onChange={(e) => setDraftName(e.target.value)}
-                    className="min-w-[180px] flex-1 rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
-                  />
-                  <button
-                    onClick={() => rename(w.id)}
-                    disabled={busy === w.id}
-                    className="rounded-[8px] border border-accent bg-accent-soft px-2.5 py-1.5 text-[11.5px] font-semibold text-[#E4D3FF] disabled:opacity-60"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={() => setEditing(null)}
-                    className="rounded-[8px] border border-line bg-panel px-2.5 py-1.5 text-[11.5px] text-muted hover:text-ink"
-                  >
-                    Cancel
-                  </button>
-                </>
-              ) : (
-                <>
-                  <b className="text-[13.5px]">{w.name}</b>
-                  {w.active && (
-                    <span className="rounded-full bg-[rgba(61,220,151,0.15)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#3DDC97]">
-                      active
-                    </span>
-                  )}
-                  <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-muted">
-                    {w.role.toLowerCase()}
-                  </span>
-                  {w.needsProvisioning && (
-                    <span
-                      data-testid="needs-provisioning"
-                      className="rounded-full bg-[rgba(245,184,65,0.15)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-warn"
-                    >
-                      incomplete
-                    </span>
-                  )}
-                  <div className="ml-auto flex gap-2">
-                    {!w.active && (
-                      <button
-                        onClick={() => activate(w.id)}
-                        disabled={busy === w.id}
-                        className="rounded-[8px] border border-line bg-panel px-2.5 py-1.5 text-[11.5px] font-semibold text-ink hover:bg-panel-2 disabled:opacity-60"
-                      >
-                        Switch to it
-                      </button>
-                    )}
-                    {w.role === "OWNER" && (
-                      <button
-                        onClick={() => {
-                          setEditing(w.id);
-                          setDraftName(w.name);
-                        }}
-                        className="rounded-[8px] border border-line bg-panel px-2.5 py-1.5 text-[11.5px] text-muted hover:text-ink"
-                      >
-                        Rename
-                      </button>
-                    )}
-                  </div>
-                </>
+              <b className="text-[13.5px]">{w.name}</b>
+              {w.active && (
+                <span className="rounded-full bg-[rgba(61,220,151,0.15)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#3DDC97]">
+                  active
+                </span>
               )}
+              <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-muted">
+                {w.role.toLowerCase()}
+              </span>
+              {w.needsProvisioning && (
+                <span
+                  data-testid="needs-provisioning"
+                  className="rounded-full bg-[rgba(245,184,65,0.15)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-warn"
+                >
+                  incomplete
+                </span>
+              )}
+              <div className="ml-auto flex gap-2">
+                {!w.active && (
+                  <button
+                    onClick={() => activate(w.id)}
+                    disabled={busy === w.id}
+                    className="rounded-[8px] border border-line bg-panel px-2.5 py-1.5 text-[11.5px] font-semibold text-ink hover:bg-panel-2 disabled:opacity-60"
+                  >
+                    Switch to it
+                  </button>
+                )}
+                {w.role === "OWNER" && (
+                  <button
+                    onClick={() => setManaging(managing === w.id ? null : w.id)}
+                    data-testid="manage-workspace"
+                    aria-expanded={managing === w.id}
+                    className="rounded-[8px] border border-line bg-panel px-2.5 py-1.5 text-[11.5px] font-semibold text-ink hover:bg-panel-2"
+                  >
+                    Manage
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="mt-3 flex flex-wrap gap-4">
@@ -199,6 +182,14 @@ export function WorkspaceList({ workspaces }: { workspaces: WorkspaceSummary[] }
               <Stat label="templates" value={w.templates} bad={w.templates === 0} />
               <Stat label="targets" value={w.targets} bad={w.targets === 0} />
             </div>
+
+            {managing === w.id && (
+              <WorkspaceManage
+                workspaceId={w.id}
+                workspaceName={w.name}
+                onClose={() => setManaging(null)}
+              />
+            )}
 
             {w.needsProvisioning && w.role === "OWNER" && (
               <div className="mt-3 rounded-[9px] border border-[rgba(245,184,65,0.35)] bg-[rgba(245,184,65,0.08)] px-3 py-2.5">
@@ -220,6 +211,35 @@ export function WorkspaceList({ workspaces }: { workspaces: WorkspaceSummary[] }
           </div>
         ))}
       </div>
+
+      {deleted.length > 0 && (
+        <div className="mt-4" data-testid="deleted-workspaces">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+            Deleted — restorable
+          </div>
+          <div className="grid gap-2">
+            {deleted.map((d) => (
+              <div
+                key={d.id}
+                className="flex flex-wrap items-center gap-2 rounded-[11px] border border-line bg-panel-2 p-3 text-[12.5px]"
+              >
+                <b className="text-muted line-through">{d.name}</b>
+                <span className="text-[11.5px] text-muted">
+                  erased for good on {d.purgeAfter.slice(0, 10)}
+                </span>
+                <button
+                  onClick={() => restore(d.id)}
+                  disabled={busy === d.id}
+                  data-testid="restore-workspace"
+                  className="ml-auto min-h-[36px] rounded-[8px] border border-line bg-panel px-2.5 py-1.5 text-[11.5px] font-semibold text-ink hover:bg-panel-2 disabled:opacity-60"
+                >
+                  Restore
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

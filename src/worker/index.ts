@@ -32,6 +32,7 @@ import { processPublicAuditReport } from "../modules/public-audit/report-job";
 import { processLeadsPdf } from "../modules/leads/export-job";
 import { processScheduledExports } from "../modules/leads/schedule-job";
 import { processAuditLogRetention } from "../modules/auditlog/jobs";
+import { purgeDueWorkspaces } from "../modules/workspaces/admin";
 import { processTaskDigests } from "../modules/tasks/digest-job";
 import {
   processWebhookDeliveries,
@@ -366,6 +367,10 @@ async function main(): Promise<void> {
         const n = await processWebhookLogRetention();
         // eslint-disable-next-line no-console
         console.log(`[worker] purged ${n} webhook delivery record(s)`);
+      } else if (job.name === "workspace-purge") {
+        const n = await purgeDueWorkspaces();
+        // eslint-disable-next-line no-console
+        console.log(`[worker] purged ${n} deleted workspace(s)`);
       } else if (job.name === "audit-log-retention") {
         const n = await processAuditLogRetention();
         // eslint-disable-next-line no-console
@@ -445,6 +450,16 @@ async function main(): Promise<void> {
    * `audit_log.pruned` row behind — otherwise a gap in the log is
    * indistinguishable from somebody covering their tracks.
    */
+  /**
+   * Deleted workspaces, erased once their grace period is over. Nightly, after
+   * the backup (03:30) so the last backup before a purge still holds the data
+   * for exactly as long as the grace period promised.
+   */
+  await wakeupsQueue().add(
+    "workspace-purge",
+    {},
+    { repeat: { pattern: "15 4 * * *" }, jobId: "workspace-purge" },
+  );
   await wakeupsQueue().add(
     "audit-log-retention",
     {},
