@@ -1,4 +1,7 @@
 import { beginAccept } from "@/modules/members/accept";
+import { currentSessionToken } from "@/lib/auth";
+import { resolveSession } from "@/lib/auth/sessions";
+import { prismaUnsafe } from "@/lib/db";
 import { AcceptInviteForm } from "@/components/accept-invite-form";
 
 /**
@@ -30,6 +33,21 @@ export default async function InvitePage({
   const { token } = await params;
   const result = await beginAccept(token);
 
+  // Who is signed in on this browser, if anybody — so an existing account can
+  // join with one button, and a wrong account is told so rather than refused
+  // after the click.
+  let signedInAs: string | null = null;
+  if (result.ok && result.state.step === "signin") {
+    const session = await resolveSession(await currentSessionToken());
+    if (session) {
+      const user = await prismaUnsafe.user.findUnique({
+        where: { id: session.userId },
+        select: { email: true },
+      });
+      signedInAs = user?.email ?? null;
+    }
+  }
+
   return (
     <main className="grid min-h-screen place-items-center px-5 py-10">
       <div className="w-full max-w-[420px]">
@@ -58,7 +76,7 @@ export default async function InvitePage({
         </div>
 
         {result.ok ? (
-          <AcceptInviteForm token={token} state={result.state} />
+          <AcceptInviteForm token={token} state={result.state} signedInAs={signedInAs} />
         ) : (
           <div className="rounded-card border border-line bg-panel p-5 text-center">
             <p className="text-[13px] text-[#FFB3C2]" data-testid="invite-invalid">

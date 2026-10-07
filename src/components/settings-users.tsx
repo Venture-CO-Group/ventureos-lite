@@ -874,17 +874,24 @@ export function SettingsUsers({
               setInviting(false);
               setLink({
                 user: payload.email,
-                userId: res.userId,
+                userId: res.userId ?? undefined,
                 url: res.url,
                 expiresAt: res.expiresAt,
                 kind: "invite",
               });
-              setMsg({
-                kind: "ok",
-                text: res.existing
-                  ? `${payload.email} already had an account and has been added to this workspace.`
-                  : `${payload.email} was invited.`,
-              });
+              setMsg(
+                res.emailError
+                  ? {
+                      kind: "err",
+                      text: `${payload.email} already has an account. The invitation was created but the email did not go out (${res.emailError}) — send them the link.`,
+                    }
+                  : {
+                      kind: "ok",
+                      text: res.existing
+                        ? `${payload.email} already has an account, so they were sent an invitation: they sign in with their own login and press Join.`
+                        : `${payload.email} was invited.`,
+                    },
+              );
               router.refresh();
             })
           }
@@ -898,9 +905,9 @@ export function SettingsUsers({
           </h3>
           <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
             Single use, valid until {link.expiresAt.slice(0, 16).replace("T", " ")}.
-            They choose their own password — nobody else ever knows it. Send it
-            over a channel you trust: anyone holding this link can set that
-            password.
+            {link.kind === "invite" && !link.userId
+              ? " They already have an account: they sign in with their own login and press Join. The link works only for that account."
+              : " They choose their own password — nobody else ever knows it. Send it over a channel you trust: anyone holding this link can set that password."}
           </p>
           <code
             data-testid="reset-link-url"

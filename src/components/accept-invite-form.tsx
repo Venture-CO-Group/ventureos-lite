@@ -4,7 +4,11 @@ import { useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { serverActionError } from "@/lib/client/server-action";
-import { submitAcceptPassword, submitAcceptTotp } from "@/modules/members/actions";
+import {
+  submitAcceptAsSignedIn,
+  submitAcceptPassword,
+  submitAcceptTotp,
+} from "@/modules/members/actions";
 import type { AcceptState } from "@/modules/members/accept";
 
 /**
@@ -25,7 +29,16 @@ const INPUT =
   "w-full rounded-[9px] border border-line bg-[rgba(0,5,29,0.5)] px-3 py-2.5 text-[13px] text-ink outline-none focus:border-accent";
 const CARD = "rounded-card border border-line bg-panel p-5";
 
-export function AcceptInviteForm({ token, state }: { token: string; state: AcceptState }) {
+export function AcceptInviteForm({
+  token,
+  state,
+  signedInAs = null,
+}: {
+  token: string;
+  state: AcceptState;
+  /** The address of whoever is signed in on this browser, if anybody. */
+  signedInAs?: string | null;
+}) {
   const router = useRouter();
   const [step, setStep] = useState<AcceptState["step"]>(state.step);
   const [name, setName] = useState("");
@@ -39,22 +52,77 @@ export function AcceptInviteForm({ token, state }: { token: string; state: Accep
    * Somebody who already has a login here.
    *
    * No password step: one person, one login, however many workspaces. They
-   * sign in and the invitation is waiting — which is also why this branch does
-   * not try to verify an authenticator they already have.
+   * join from a signed-in session with one button. This branch used to say
+   * "sign in and you will be in" and stop — and nothing ever activated the
+   * membership, so after signing in they were not in.
    */
-  if (step === "done") {
+  if (step === "signin") {
+    const invitedAddress = state.email.toLowerCase();
+    const isRightAccount = signedInAs?.toLowerCase() === invitedAddress;
+    const loginHref = `/login?next=${encodeURIComponent(`/invite/${token}`)}`;
+
+    async function join() {
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await submitAcceptAsSignedIn({ token });
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        router.replace("/");
+        router.refresh();
+      } catch (e) {
+        setError(serverActionError(e));
+      } finally {
+        setBusy(false);
+      }
+    }
+
     return (
       <div className={CARD}>
-        <p className="text-[13px] leading-relaxed text-ink" data-testid="invite-signin">
-          You already have an account here. Sign in and you will be in{" "}
-          {state.workspaceName}.
-        </p>
-        <a
-          href="/login"
-          className="mt-3 block rounded-[10px] border-[1.5px] border-transparent bg-canvas px-4 py-2.5 text-center text-[13px] font-semibold text-ink shadow-glow [background-clip:padding-box,border-box] [background-image:linear-gradient(#00051D,#00051D),linear-gradient(135deg,#310B59,#7427C6)] [background-origin:border-box]"
-        >
-          Sign in
-        </a>
+        {error && (
+          <p role="alert" data-testid="invite-error" className="mb-3 text-[12.5px] text-[#FFB3C2]">
+            {error}
+          </p>
+        )}
+        {isRightAccount ? (
+          <>
+            <p className="text-[13px] leading-relaxed text-ink" data-testid="invite-signin">
+              You are signed in as {state.email}. Join {state.workspaceName} with
+              your existing account.
+            </p>
+            <button
+              type="button"
+              onClick={() => void join()}
+              disabled={busy}
+              data-testid="invite-join"
+              className="mt-3 block min-h-[44px] w-full rounded-[10px] border-[1.5px] border-transparent bg-canvas px-4 py-2.5 text-center text-[13px] font-semibold text-ink shadow-glow [background-clip:padding-box,border-box] [background-image:linear-gradient(#00051D,#00051D),linear-gradient(135deg,#310B59,#7427C6)] [background-origin:border-box] disabled:opacity-60"
+            >
+              {busy ? "Joining…" : `Join ${state.workspaceName}`}
+            </button>
+          </>
+        ) : signedInAs ? (
+          <p className="text-[13px] leading-relaxed text-ink" data-testid="invite-signin">
+            This invitation is for {state.email}, but you are signed in as{" "}
+            {signedInAs}. Sign out, then open this link again and sign in as{" "}
+            {state.email}.
+          </p>
+        ) : (
+          <>
+            <p className="text-[13px] leading-relaxed text-ink" data-testid="invite-signin">
+              You already have an account here. Sign in, and you will come back to
+              this page to join {state.workspaceName}.
+            </p>
+            <a
+              href={loginHref}
+              data-testid="invite-signin-link"
+              className="mt-3 block min-h-[44px] rounded-[10px] border-[1.5px] border-transparent bg-canvas px-4 py-2.5 text-center text-[13px] font-semibold text-ink shadow-glow [background-clip:padding-box,border-box] [background-image:linear-gradient(#00051D,#00051D),linear-gradient(135deg,#310B59,#7427C6)] [background-origin:border-box]"
+            >
+              Sign in
+            </a>
+          </>
+        )}
       </div>
     );
   }

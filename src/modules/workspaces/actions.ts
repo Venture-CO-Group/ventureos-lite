@@ -10,6 +10,7 @@ import { prismaUnsafe, getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
 import { setSessionWorkspace } from "@/lib/auth/sessions";
 import { requireOwner } from "@/lib/authz";
+import { canSignIn } from "@/modules/members/lifecycle";
 import { GRANTS, OWNER_GRANTS, type Grant } from "@/lib/grants";
 import { NO_PASSWORD } from "@/lib/auth/password";
 import { getBudgetStatus, type BudgetStatus } from "@/lib/ai/budget-status";
@@ -103,11 +104,16 @@ export async function getShellContext(): Promise<ShellContext> {
       density: true,
     },
   });
-  const memberships = await prismaUnsafe.membership.findMany({
-    where: { userId },
-    include: { workspace: { select: { id: true, name: true } } },
-    orderBy: { createdAt: "asc" },
-  });
+  // Only memberships that are access. An INVITED or REMOVED row is not a
+  // workspace you can open, and listing one gave a switcher entry that
+  // "switched" and landed you back where you were.
+  const memberships = (
+    await prismaUnsafe.membership.findMany({
+      where: { userId },
+      include: { workspace: { select: { id: true, name: true } } },
+      orderBy: { createdAt: "asc" },
+    })
+  ).filter((m) => canSignIn(m.state));
   const favourites = await listPins(workspaceId, userId, "favourite");
   const workspaces: WorkspaceOption[] = memberships.map((m) => ({
     id: m.workspace.id,
@@ -331,9 +337,11 @@ export async function switchWorkspace(
   const { userId, sessionId } = await getActiveContext();
   const member = await prismaUnsafe.membership.findUnique({
     where: { userId_workspaceId: { userId, workspaceId } },
-    select: { id: true, suspendedAt: true },
+    select: { id: true, state: true },
   });
-  if (!member || member.suspendedAt) {
+  // The state, not `suspendedAt`: an INVITED membership has no suspension and
+  // is still not access (the same rule `tryGetActiveContext` applies).
+  if (!member || !canSignIn(member.state)) {
     return { ok: false, error: "You do not have access to that workspace." };
   }
   await setSessionWorkspace(sessionId, workspaceId);
@@ -412,9 +420,9 @@ export async function createWorkspace(
   if (input.copyFrom && copyGroups.length > 0) {
     const sourceMember = await prismaUnsafe.membership.findUnique({
       where: { userId_workspaceId: { userId, workspaceId: input.copyFrom } },
-      select: { role: true, suspendedAt: true },
+      select: { role: true, state: true },
     });
-    if (!sourceMember || sourceMember.suspendedAt || sourceMember.role !== "OWNER") {
+    if (!sourceMember || !canSignIn(sourceMember.state) || sourceMember.role !== "OWNER") {
       copyNote = "A beállítások nem jöttek át: csak olyan munkaterületről lehet másolni, aminek Ownere vagy.";
     } else {
       const res = await copyWorkspaceSettings(input.copyFrom, ws.id, copyGroups);
@@ -463,7 +471,7 @@ export async function createWorkspace(
 export async function copyableWorkspaces(): Promise<{ id: string; name: string }[]> {
   const { userId, workspaceId } = await getActiveContext();
   const rows = await prismaUnsafe.membership.findMany({
-    where: { userId, role: "OWNER", suspendedAt: null },
+    where: { userId, role: "OWNER", state: "ACTIVE" },
     select: { workspace: { select: { id: true, name: true } } },
     orderBy: { createdAt: "asc" },
   });
@@ -502,7 +510,7 @@ export interface WorkspaceSummary {
 export async function listWorkspaces(): Promise<WorkspaceSummary[]> {
   const { userId, workspaceId } = await getActiveContext();
   const memberships = await prismaUnsafe.membership.findMany({
-    where: { userId },
+    where: { userId, state: "ACTIVE" },
     include: {
       workspace: { select: { id: true, name: true, legalName: true, createdAt: true } },
     },
@@ -517,7 +525,7 @@ export async function listWorkspaces(): Promise<WorkspaceSummary[]> {
     memberships.map(async (m) => {
       const id = m.workspace.id;
       const [members, leads, pipelines, templates, targets] = await Promise.all([
-        prismaUnsafe.membership.count({ where: { workspaceId: id } }),
+        prismaUnsafe.membership.count({ where: { workspaceId: id, state: "ACTIVE" } }),
         prismaUnsafe.lead.count({ where: { workspaceId: id } }),
         prismaUnsafe.pipeline.count({ where: { workspaceId: id } }),
         prismaUnsafe.template.count({ where: { workspaceId: id } }),
@@ -548,15 +556,26 @@ export async function listWorkspaces(): Promise<WorkspaceSummary[]> {
  * the same idempotent routine a new workspace runs, so it adds only what is
  * absent and never touches a pipeline somebody has tuned.
  */
+/**
+ * Is this person a live Owner of THAT workspace — not of the active one?
+ *
+ * Every mutation that names a workspace re-checks against the workspace it
+ * touches. `requireOwner()` answers for the ACTIVE workspace only, and an Owner
+ * of one workspace is nobody in another.
+ */
+async function isOwnerOf(userId: string, workspaceId: string): Promise<boolean> {
+  const member = await prismaUnsafe.membership.findUnique({
+    where: { userId_workspaceId: { userId, workspaceId } },
+    select: { role: true, state: true },
+  });
+  return member?.role === "OWNER" && canSignIn(member.state);
+}
+
 export async function repairWorkspace(
   workspaceId: string,
 ): Promise<{ ok: true; added: string } | { ok: false; error: string }> {
   const { userId } = await getActiveContext();
-  const member = await prismaUnsafe.membership.findUnique({
-    where: { userId_workspaceId: { userId, workspaceId } },
-    select: { role: true },
-  });
-  if (member?.role !== "OWNER") {
+  if (!(await isOwnerOf(userId, workspaceId))) {
     return { ok: false, error: "Only an Owner of that workspace can repair it." };
   }
 
@@ -597,11 +616,7 @@ export async function renameWorkspace(
     return { ok: false, error: "A workspace name is between 1 and 120 characters." };
   }
   const { userId } = await getActiveContext();
-  const member = await prismaUnsafe.membership.findUnique({
-    where: { userId_workspaceId: { userId, workspaceId } },
-    select: { role: true },
-  });
-  if (member?.role !== "OWNER") {
+  if (!(await isOwnerOf(userId, workspaceId))) {
     return { ok: false, error: "Only an Owner of that workspace can rename it." };
   }
   await prismaUnsafe.workspace.update({ where: { id: workspaceId }, data: { name: trimmed } });

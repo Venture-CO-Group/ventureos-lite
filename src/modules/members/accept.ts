@@ -35,7 +35,13 @@ import { findByToken } from "./invitation-store";
  */
 
 export interface AcceptState {
-  step: "password" | "totp" | "done";
+  /**
+   * `signin` is somebody who already has a login: they join by signing in and
+   * pressing one button, never by choosing a second password. (It used to be
+   * `done`, which told them "sign in and you will be in" — and then nothing
+   * ever made the membership ACTIVE, so they never were.)
+   */
+  step: "password" | "totp" | "signin";
   email: string;
   workspaceName: string;
   /**
@@ -56,6 +62,19 @@ export interface AcceptState {
   qr?: string;
   secret?: string;
   minPasswordLength: number;
+}
+
+/**
+ * Whether this address can already sign in.
+ *
+ * One rule for both the form and the actions behind it: the page deciding to
+ * show a password step and the action deciding to accept a password must not
+ * be able to disagree.
+ */
+function hasUsableLogin(
+  user: { passwordHash: string; deletedAt: Date | null } | null,
+): boolean {
+  return !!user && !user.deletedAt && user.passwordHash !== NO_PASSWORD && user.passwordHash.length > 1;
 }
 
 /** A first look, for rendering the form. */
@@ -82,13 +101,15 @@ export async function beginAccept(
   ]);
   const brand = brandFrom(ws?.brand);
 
-  const hasAccount = !!user && !user.deletedAt && user.passwordHash !== NO_PASSWORD && user.passwordHash.length > 1;
+  const hasAccount = hasUsableLogin(user);
   return {
     ok: true,
     state: {
-      // Somebody who already has a login goes straight to the authenticator
-      // step if they have not set one up, and straight to done if they have.
-      step: hasAccount && user?.totpEnabled ? "done" : hasAccount ? "totp" : "password",
+      // Somebody who already has a login joins from a signed-in session. The
+      // old branch sent a 2FA-less account to a "totp" step with no QR code to
+      // scan — a dead end — and a 2FA account to "done", which activated
+      // nothing.
+      step: hasAccount ? "signin" : "password",
       email: invitation.email,
       workspaceName: ws?.name ?? "the workspace",
       markBold: brand.markBold,
@@ -127,6 +148,23 @@ export async function acceptSetPassword(input: {
     // Every problem at once. A password form that reports one rule at a time
     // is a form somebody submits four times.
     return { ok: false, error: `The password ${problems.map((p) => p.message).join(", and ")}.` };
+  }
+
+  /**
+   * Never for an account that can already sign in.
+   *
+   * The invitation URL is shown to the Owner who issued it. Without this check
+   * that Owner could post the token here and set a new password — and a new
+   * authenticator — on somebody else's existing account: an account takeover
+   * by anybody who owns ANY workspace. The form never offers this step to an
+   * existing account; the action must not accept it either.
+   */
+  const existing = await prismaUnsafe.user.findUnique({
+    where: { email: invitation.email },
+    select: { passwordHash: true, deletedAt: true },
+  });
+  if (hasUsableLogin(existing)) {
+    return { ok: false, error: "You already have an account. Sign in, then accept the invitation." };
   }
 
   const name = input.name.trim() || nameFromEmail(invitation.email);
@@ -195,6 +233,32 @@ export async function acceptVerifyTotp(input: {
     };
   }
 
+  await activateFromInvitation(invitation, user.id, now, {
+    totpEnabled: true,
+    totpLastStep: result.step,
+    mustEnrollTotp: false,
+  });
+
+  return { ok: true, email: invitation.email };
+}
+
+type OpenInvitation = NonNullable<Awaited<ReturnType<typeof findByToken>>>;
+
+/**
+ * Spend the invitation and make the membership real — one transaction.
+ *
+ * The invitation is consumed in the SAME transaction as the membership, so a
+ * token cannot be used twice by two tabs racing each other, and a membership
+ * cannot exist for an invitation that is still open. Shared by both ways in:
+ * a new account verifying its first code, and an existing account pressing
+ * "Join" from a signed-in session.
+ */
+async function activateFromInvitation(
+  invitation: OpenInvitation,
+  userId: string,
+  now: Date,
+  userData: Record<string, unknown>,
+): Promise<void> {
   const isOwner = invitation.role === "OWNER";
   const grants = Array.isArray(invitation.grants) ? (invitation.grants as string[]) : [];
 
@@ -207,13 +271,12 @@ export async function acceptVerifyTotp(input: {
     });
     if (consumed.count === 0) throw new Error("already-accepted");
 
-    await tx.user.update({
-      where: { id: user.id },
-      data: { totpEnabled: true, totpLastStep: result.step, mustEnrollTotp: false },
-    });
+    if (Object.keys(userData).length > 0) {
+      await tx.user.update({ where: { id: userId }, data: userData });
+    }
 
     await tx.membership.upsert({
-      where: { userId_workspaceId: { userId: user.id, workspaceId: invitation.workspaceId } },
+      where: { userId_workspaceId: { userId, workspaceId: invitation.workspaceId } },
       update: {
         state: "ACTIVE",
         role: invitation.role,
@@ -227,7 +290,7 @@ export async function acceptVerifyTotp(input: {
         removedBy: null,
       },
       create: {
-        userId: user.id,
+        userId,
         workspaceId: invitation.workspaceId,
         state: "ACTIVE",
         role: invitation.role,
@@ -239,17 +302,69 @@ export async function acceptVerifyTotp(input: {
 
   await recordMemberEvent({
     workspaceId: invitation.workspaceId,
-    userId: user.id,
-    actorUserId: user.id,
+    userId,
+    actorUserId: userId,
     kind: "accepted",
     after: { role: invitation.role, grants },
   });
   // The Owner who invited them finds out without having to check.
   await notifyInvitationAccepted({
     workspaceId: invitation.workspaceId,
-    userId: user.id,
+    userId,
     inviterId: invitation.invitedBy,
   });
+}
 
-  return { ok: true, email: invitation.email };
+/**
+ * Somebody who already has a login accepts from a signed-in session.
+ *
+ * ── WHY A SESSION, NOT JUST THE TOKEN ───────────────────────────────────────
+ *
+ * For a new person the token is enough, because they then prove themselves by
+ * choosing a password and enrolling an authenticator. An existing account has
+ * already done both, and asking for them again would be a second password for
+ * one person. So the proof is the one they already have: a session, signed in
+ * with their own password and code, belonging to the invited address. The token
+ * alone, in somebody else's browser, joins nobody to anything.
+ *
+ * An account without an authenticator joins, and is then sent to enrol on its
+ * next click — invitees do not get to skip 2FA by arriving through this door.
+ */
+export async function acceptAsExistingUser(input: {
+  token: string;
+  sessionUserId: string;
+  now?: Date;
+}): Promise<{ ok: true; workspaceId: string } | { ok: false; error: string }> {
+  const now = input.now ?? new Date();
+  const row = await findByToken(input.token);
+  const verdict = acceptVerdict(row, now);
+  if (!verdict.ok) return { ok: false, error: verdict.message };
+  const invitation = row!;
+
+  const user = await prismaUnsafe.user.findUnique({
+    where: { id: input.sessionUserId },
+    select: { id: true, email: true, totpEnabled: true, deletedAt: true },
+  });
+  if (!user || user.deletedAt) return { ok: false, error: "Sign in again, then accept." };
+  if (user.email.toLowerCase() !== invitation.email.toLowerCase()) {
+    return {
+      ok: false,
+      error: `This invitation is for ${invitation.email}. Sign in as that account to accept it.`,
+    };
+  }
+
+  try {
+    await activateFromInvitation(
+      invitation,
+      user.id,
+      now,
+      user.totpEnabled ? {} : { mustEnrollTotp: true },
+    );
+  } catch (e) {
+    if ((e as Error).message === "already-accepted") {
+      return { ok: false, error: "This invitation was already used." };
+    }
+    throw e;
+  }
+  return { ok: true, workspaceId: invitation.workspaceId };
 }
