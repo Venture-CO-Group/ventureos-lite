@@ -104,6 +104,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Keeps Server Action ids stable across deploys (see Dockerfile).
+      secrets:
+        - next_actions_key
     image: ventureos-app:latest
     restart: unless-stopped
     <<: [*app-env, *logging]
@@ -241,6 +244,10 @@ services:
       resources:
         limits:
           memory: 192M
+
+secrets:
+  next_actions_key:
+    environment: NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
 
 volumes:
   db-data:

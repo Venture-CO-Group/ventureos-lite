@@ -33,7 +33,41 @@ function isRedirect(e: unknown): boolean {
   return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
 }
 
+/**
+ * The page was loaded from an older deployment than the one now serving it.
+ *
+ * Every Server Action is addressed by an id the BUILD derives, and a tab opened
+ * before a deploy still carries the old ids. The server answers
+ * "Failed to find Server Action" and the client throws an
+ * `UnrecognizedActionError` — no digest, nothing the operator can act on, and
+ * in a handler without a catch, nothing at all. That was the reported "Create
+ * workspace does nothing": the code was fine, the page was stale.
+ *
+ * The only remedy is a reload, so that is what we say.
+ */
+export const STALE_DEPLOYMENT_EVENT = "venture:stale-deployment";
+
+export function isStaleDeployment(e: unknown): boolean {
+  const err = e as { name?: unknown; message?: unknown } | null;
+  if (!err) return false;
+  if (err.name === "UnrecognizedActionError") return true;
+  return typeof err.message === "string" && /Server Action .* was not found on the server/i.test(err.message);
+}
+
+export const STALE_DEPLOYMENT_MESSAGE =
+  "The app was updated since this page was opened. Reload the page and try again.";
+
+function announceStale(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(STALE_DEPLOYMENT_EVENT));
+  }
+}
+
 export function serverActionError(e: unknown): string {
+  if (isStaleDeployment(e)) {
+    announceStale();
+    return STALE_DEPLOYMENT_MESSAGE;
+  }
   const digest = (e as { digest?: unknown } | null)?.digest;
   if (typeof digest === "string" && digest.length > 0) {
     return `Something went wrong on the server. Reference ${digest.slice(0, 12)} — it is in the server log.`;
