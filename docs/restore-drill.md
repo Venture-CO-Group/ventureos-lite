@@ -42,7 +42,7 @@ utána eldobja. Nyolc-tíz perc, negyedévente egyszer.
 ## Hogyan futtasd
 
 ```bash
-cd /opt/ventureos-lite
+cd /opt/ventureos
 ./scripts/restore-drill.sh
 ```
 
@@ -73,7 +73,7 @@ A szkript **nem nullával tér vissza**, ha bármelyik ellenőrzés elhasalt, te
 cronból is használható:
 
 ```
-0 4 1 */3 * cd /opt/ventureos-lite && ./scripts/restore-drill.sh >> /var/log/ventureos-drill.log 2>&1
+0 4 1 */3 * cd /opt/ventureos && ./scripts/restore-drill.sh >> /var/log/ventureos-drill.log 2>&1
 ```
 
 Ha meg akarod nézni a visszaállított adatbázist a próba után is:
@@ -105,7 +105,7 @@ docker compose -f docker-compose.prod.yml exec db \
 Ez nem a próba. Ez az, ha tényleg elveszett az adat.
 
 ```bash
-cd /opt/ventureos-lite
+cd /opt/ventureos
 
 # 1. Állítsd le az appot, hogy senki ne írjon közben.
 docker compose -f docker-compose.prod.yml stop app worker

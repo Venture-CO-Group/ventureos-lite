@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createWorkspace, addMember } from "@/modules/workspaces/actions";
+import { createWorkspace } from "@/modules/workspaces/actions";
 import { COPY_GROUPS } from "@/modules/workspaces/copy-plan";
-import { GRANTS } from "@/lib/grants";
+import { serverActionError } from "@/lib/client/server-action";
 
 const INPUT =
   "rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2.5 py-2 text-[12.5px] text-ink outline-none placeholder:text-muted focus:border-accent";
@@ -40,17 +40,11 @@ export function WorkspaceAdmin({
   const [copyFrom, setCopyFrom] = useState(copyableWorkspaces[0]?.id ?? "");
   const [copyGroups, setCopyGroups] = useState<string[]>([]);
 
-  // add member
-  const [email, setEmail] = useState("");
-  const [memberName, setMemberName] = useState("");
-  const [role, setRole] = useState("BDR");
-  const [grants, setGrants] = useState<string[]>([]);
-
   if (!isOwner) {
     return (
       <div className="rounded-card border border-line bg-panel p-[18px]">
         <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Workspaces</div>
-        <p className="text-[12.5px] text-muted">Only an Owner can provision workspaces and assign members.</p>
+        <p className="text-[12.5px] text-muted">Only an Owner can create workspaces.</p>
       </div>
     );
   }
@@ -59,47 +53,37 @@ export function WorkspaceAdmin({
     if (!name.trim()) return;
     setBusy(true);
     setMsg(null);
-    const res = await createWorkspace({
-      name, legalName, brandColor, logoUrl, mailgunDomain,
-      claudeBudget: Number(claudeBudget), retentionDays: Number(retentionDays),
-      ...(copyGroups.length > 0 && copyFrom ? { copyFrom, copyGroups } : {}),
-    });
-    setBusy(false);
-    if (res.ok) {
-      setMsg(
-        res.copied
-          ? `Workspace created, and copied — ${res.copied} Switch to it from the sidebar.`
-          : "Workspace created. Switch to it from the sidebar.",
-      );
-      setName("");
-      setLegalName("");
-      setCopyGroups([]);
-      router.refresh();
-    } else setMsg(res.error);
-  }
-
-  async function invite() {
-    if (!email.trim()) return;
-    setBusy(true);
-    setMsg(null);
-    const res = await addMember({ email, name: memberName, role, grants });
-    setBusy(false);
-    if (res.ok) {
-      setMsg(`${email} assigned as ${role}.`);
-      setEmail("");
-      setMemberName("");
-      setGrants([]);
-      router.refresh();
-    } else setMsg(res.error);
+    try {
+      const res = await createWorkspace({
+        name, legalName, brandColor, logoUrl, mailgunDomain,
+        claudeBudget: Number(claudeBudget), retentionDays: Number(retentionDays),
+        ...(copyGroups.length > 0 && copyFrom ? { copyFrom, copyGroups } : {}),
+      });
+      if (res.ok) {
+        setMsg(
+          `Workspace created${res.copied ? `, and copied — ${res.copied}` : "."} Add people to it with Manage on its row above.`,
+        );
+        setName("");
+        setLegalName("");
+        setCopyGroups([]);
+        router.refresh();
+      } else setMsg(res.error);
+    } catch (e) {
+      // A throw used to leave the button disabled for good and say nothing —
+      // the reported "Create workspace does nothing".
+      setMsg(serverActionError(e));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <div className="rounded-card border border-line bg-panel p-[18px]">
       <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Workspaces</div>
-      <p className="mb-3 text-[11.5px] text-muted">Provision a new workspace and assign members. Owner-only, audit-logged.</p>
+      <p className="mb-3 text-[11.5px] text-muted">Create a new workspace. You become its first Owner; add people from its row above. Audit-logged.</p>
       {msg && <p className="mb-3 text-[12px] text-[#C9CEE3]">{msg}</p>}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4">
         {/* provision */}
         <div className="grid gap-2 rounded-[11px] border border-line bg-panel-2 p-3.5">
           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">New workspace</div>
@@ -183,35 +167,6 @@ export function WorkspaceAdmin({
           )}
           <button onClick={provision} disabled={busy || !name.trim()} className="mt-1 w-fit rounded-[9px] border border-accent bg-accent-soft px-3 py-1.5 text-[12px] font-semibold text-[#E4D3FF] disabled:opacity-60">
             Create workspace
-          </button>
-        </div>
-
-        {/* invite member */}
-        <div className="grid gap-2 rounded-[11px] border border-line bg-panel-2 p-3.5">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Assign a member (this workspace)</div>
-          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email *" className={INPUT} />
-          <input value={memberName} onChange={(e) => setMemberName(e.target.value)} placeholder="Name" className={INPUT} />
-          <select value={role} onChange={(e) => setRole(e.target.value)} className={INPUT}>
-            <option value="BDR">BDR</option>
-            <option value="ADMIN">Admin</option>
-            <option value="OWNER">Owner</option>
-          </select>
-          <div className="text-[11px] text-muted">Grants</div>
-          <div className="grid gap-1">
-            {GRANTS.map((g) => (
-              <label key={g} className="flex items-center gap-2 text-[12px] text-[#C9CEE3]">
-                <input
-                  type="checkbox"
-                  checked={grants.includes(g)}
-                  onChange={(e) => setGrants((cur) => (e.target.checked ? [...cur, g] : cur.filter((x) => x !== g)))}
-                  style={{ accentColor: "#7427C6" }}
-                />
-                {g}
-              </label>
-            ))}
-          </div>
-          <button onClick={invite} disabled={busy || !email.trim()} className="mt-1 w-fit rounded-[9px] border border-line bg-panel px-3 py-1.5 text-[12px] font-semibold hover:bg-panel-2 disabled:opacity-60">
-            Assign member
           </button>
         </div>
       </div>

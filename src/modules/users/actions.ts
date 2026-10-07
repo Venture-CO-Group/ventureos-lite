@@ -2,6 +2,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
+import { issueInvitation } from "@/modules/members/invitation-store";
 import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
@@ -829,7 +830,16 @@ const inviteSchema = z.object({
 export async function inviteUser(
   raw: unknown,
 ): Promise<
-  | { ok: true; userId: string; url: string; expiresAt: string; existing: boolean }
+  | {
+      ok: true;
+      /** Only for a NEW account, whose reset link this panel may email. */
+      userId: string | null;
+      url: string;
+      expiresAt: string;
+      existing: boolean;
+      /** Set when an existing account's invitation email did not go out. */
+      emailError?: string;
+    }
   | { ok: false; error: string }
 > {
   try {
@@ -851,48 +861,57 @@ export async function inviteUser(
     select: { id: true },
   });
 
-  // An account may already exist from another workspace. Reuse it rather than
-  // refusing: one person, one login, however many workspaces.
-  const user = existingUser
-    ? existingUser
-    : await prismaUnsafe.user.create({
-        data: {
-          email: normalized,
-          name,
-          passwordHash: NO_PASSWORD,
-          mustChangePassword: true,
-        },
-        select: { id: true },
-      });
-
-  const already = await prismaUnsafe.membership.findUnique({
-    where: { userId_workspaceId: { userId: user.id, workspaceId } },
-    select: { id: true, state: true },
-  });
-  if (already) {
-    // Re-inviting somebody who is already here restores them rather than
-    // erroring — that is almost always what was meant.
-    await prismaUnsafe.membership.update({
-      where: { id: already.id },
-      data: {
-        role,
-        state: "ACTIVE",
-        suspendedAt: null,
-        suspendedBy: null,
-        clientCompanyId: role === "CLIENT" ? (clientCompanyId ?? null) : null,
-      },
+  /**
+   * An account that already exists gets an INVITATION, never a reset link.
+   *
+   * This used to issue a password-reset link for the existing account and show
+   * it to the Owner — so the Owner of any workspace could type the address of
+   * somebody in ANOTHER workspace (the super admin included) and set their
+   * password. An account takeover behind an "Invite" button. The invitation
+   * flow lets that person join with the login they already have, and nobody
+   * else ever touches their password.
+   */
+  if (existingUser) {
+    const res = await issueInvitation({
+      workspaceId,
+      actorUserId: actorId,
+      email: normalized,
+      name,
+      role,
+      clientCompanyId: role === "CLIENT" ? (clientCompanyId ?? null) : null,
     });
-  } else {
-    await prismaUnsafe.membership.create({
-      data: {
-        userId: user.id,
-        workspaceId,
-        role,
-        grants: [],
-        clientCompanyId: role === "CLIENT" ? (clientCompanyId ?? null) : null,
-      },
-    });
+    if (!res.ok) return res;
+    revalidatePath("/settings");
+    return {
+      ok: true,
+      userId: null,
+      url: res.url,
+      expiresAt: res.expiresAt,
+      existing: true,
+      ...(res.emailError ? { emailError: res.emailError } : {}),
+    };
   }
+
+  // A brand-new account: nobody has a password on it yet, so the reset link
+  // is theirs to choose one with.
+  const user = await prismaUnsafe.user.create({
+    data: {
+      email: normalized,
+      name,
+      passwordHash: NO_PASSWORD,
+      mustChangePassword: true,
+    },
+    select: { id: true },
+  });
+  await prismaUnsafe.membership.create({
+    data: {
+      userId: user.id,
+      workspaceId,
+      role,
+      grants: [],
+      clientCompanyId: role === "CLIENT" ? (clientCompanyId ?? null) : null,
+    },
+  });
 
   const link = await issueResetLink(user.id, actorId);
   await audit({
@@ -904,13 +923,13 @@ export async function inviteUser(
       email: normalized,
       role,
       clientCompanyId: clientCompanyId ?? null,
-      existingAccount: !!existingUser,
+      existingAccount: false,
     },
   });
   revalidatePath("/settings");
   // The user id travels back so the panel can offer to EMAIL the link (P6/6.4)
   // — the token is stored hashed, so nothing can re-derive the URL later.
-  return { ok: true, userId: user.id, ...link, existing: !!existingUser };
+  return { ok: true, userId: user.id, ...link, existing: false };
 }
 
 // ---------------------------------------------------------------------------

@@ -92,6 +92,7 @@ function huf(n: number): string {
 export async function processQuarterlyWinLoss(nowMs: number = Date.now()): Promise<number> {
   const { sinceMs, untilMs, label } = prevQuarterRange(nowMs);
   const workspaces = await prismaUnsafe.workspace.findMany({
+    where: { deletedAt: null },
     select: { id: true, mailgunConfig: true, brand: true },
   });
 

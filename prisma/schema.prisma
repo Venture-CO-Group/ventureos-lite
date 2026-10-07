@@ -694,10 +694,17 @@ model Workspace {
   /// Outbound motor settings (playbook-v6): registry quota, nightly schedule,
   /// workspace cap, warm-up ramp. Parsed by src/modules/outbound/config.ts.
   outboundConfig Json?       @map("outbound_config")
+  /// Deletion is two-step. `deletedAt` takes the workspace out of every
+  /// switcher, session and background job at once; the purge job erases its
+  /// data once `purgeAfter` passes. Until then an Owner can restore it.
+  deletedAt     DateTime?    @map("deleted_at")
+  deletedBy     String?      @map("deleted_by")
+  purgeAfter    DateTime?    @map("purge_after")
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
   memberships   Membership[]
 
+  @@index([deletedAt])
   @@map("workspaces")
 }
 

@@ -14,7 +14,7 @@ function agentKeyOf(featureFlags: unknown): string {
  * the lead + Invoice status → PAID). Returns the number marked paid.
  */
 export async function processInvoicePolls(): Promise<number> {
-  const workspaces = await prismaUnsafe.workspace.findMany({ select: { id: true, featureFlags: true } });
+  const workspaces = await prismaUnsafe.workspace.findMany({ where: { deletedAt: null }, select: { id: true, featureFlags: true } });
   const provider = getSzamlaProvider();
 
   let paidCount = 0;

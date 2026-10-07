@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Bricolage_Grotesque } from "next/font/google";
 import { appUrl } from "@/lib/env";
 import { VENTURE_BRAND } from "@/modules/workspaces/brand";
+import { StaleDeploymentBanner } from "@/components/stale-deployment-banner";
 import "./globals.css";
 
 // Inter — UI text. Bricolage Grotesque — display/numerals (used lowercase).
@@ -78,6 +79,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${bricolage.variable}`}>
       <body className="min-h-screen bg-canvas font-sans text-ink antialiased">
         {children}
+        <StaleDeploymentBanner />
       </body>
     </html>
   );

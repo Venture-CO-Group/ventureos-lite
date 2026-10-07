@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { attempt, attemptVoid, serverActionError } from "../../src/lib/client/server-action";
+import {
+  attempt,
+  attemptVoid,
+  isStaleDeployment,
+  serverActionError,
+  STALE_DEPLOYMENT_MESSAGE,
+} from "../../src/lib/client/server-action";
 import { stripComments } from "../helpers/strip-comments";
 
 const ROOT = join(__dirname, "..", "..");
@@ -220,5 +226,33 @@ describe("the reported call sites no longer swallow a throw", () => {
       .split("\n")
       .filter(Boolean);
     expect(hits, `still swallowing: ${hits.join(", ")}`).toEqual([]);
+  });
+});
+
+/**
+ * A tab opened before a deploy (the "Create workspace does nothing" report).
+ *
+ * The server log said `Failed to find Server Action`; the client threw an
+ * `UnrecognizedActionError` with no digest. The operator must be told to
+ * reload, not shown a reference into a log that has nothing to add.
+ */
+describe("a page older than the deployment says so", () => {
+  it("recognises Next's UnrecognizedActionError by name", () => {
+    const e = Object.assign(new Error("x"), { name: "UnrecognizedActionError" });
+    expect(isStaleDeployment(e)).toBe(true);
+    expect(serverActionError(e)).toBe(STALE_DEPLOYMENT_MESSAGE);
+  });
+
+  it("recognises it by message when the class name was minified away", () => {
+    const e = new Error(
+      'Server Action "00a1b472c3c94eb601616d9bb4d55d608dbdf52ada" was not found on the server. \nRead more: https://nextjs.org/docs/messages/failed-to-find-server-action',
+    );
+    expect(isStaleDeployment(e)).toBe(true);
+    expect(serverActionError(e)).toMatch(/reload/i);
+  });
+
+  it("does not mistake an ordinary failure for a stale page", () => {
+    expect(isStaleDeployment(new Error("boom"))).toBe(false);
+    expect(isStaleDeployment(null)).toBe(false);
   });
 });

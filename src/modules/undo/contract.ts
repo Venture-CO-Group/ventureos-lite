@@ -83,6 +83,15 @@ export const DESTRUCTIVE_ACTIONS: Record<string, Undoability> = {
   removeMember: permanent(
     "Access ends immediately. Their history stays, and re-inviting them creates a new membership rather than reviving this one.",
   ),
+  deleteWorkspace: permanent(
+    "The workspace disappears for everybody at once and its data is erased after 30 days. Until then an Owner can restore it from Settings → Workspaces, which is a first-class screen rather than an undo window.",
+  ),
+  purgeWorkspace: permanent(
+    "Run only by the nightly purge, after the 30-day grace period: every lead, document, file and log of the workspace is erased and cannot be restored.",
+  ),
+  purgeDueWorkspaces: permanent(
+    "A retention sweep, not a user action: it erases workspaces whose 30-day restore window has already ended.",
+  ),
   purgeExpiredNotifications: permanent(
     "A retention sweep, not a user action: it removes what is already past its keep-until date.",
   ),

@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # =============================================================================
 # Venture OS Lite — app image (Next.js 15 standalone).
 #
@@ -25,7 +26,15 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # already skips the env gate during the build phase; this makes it explicit and
 # also covers any module that reads config at import time.
 ENV SKIP_ENV_VALIDATION=1
-RUN npx prisma generate && npm run build
+# Server Action ids are salted with the build's encryption key. Without a fixed
+# key every build gets a random one, so EVERY action id changes on EVERY deploy
+# and any tab left open across a deploy fails with "Failed to find Server
+# Action" — which, to the person clicking, is a button that does nothing.
+# Passed as a BuildKit secret (never a build arg, which `docker history` would
+# show). Optional: with no secret the build falls back to a random key.
+RUN --mount=type=secret,id=next_actions_key \
+    NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$(cat /run/secrets/next_actions_key 2>/dev/null || true)" \
+    sh -c 'npx prisma generate && npm run build'
 
 # ---- runner -----------------------------------------------------------------
 FROM node:20-alpine AS runner

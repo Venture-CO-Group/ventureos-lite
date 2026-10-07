@@ -8,7 +8,12 @@ import {
   resendInvitation,
   revokeInvitation,
 } from "../../src/modules/members/invitation-store";
-import { beginAccept, acceptSetPassword, acceptVerifyTotp } from "../../src/modules/members/accept";
+import {
+  beginAccept,
+  acceptAsExistingUser,
+  acceptSetPassword,
+  acceptVerifyTotp,
+} from "../../src/modules/members/accept";
 import { codeForStep, totpStep } from "../../src/lib/auth/totp";
 
 /**
@@ -307,8 +312,69 @@ describe("what the accept page is told", () => {
     if (begun.ok) {
       // One person, one login, however many workspaces.
       expect(begun.state.hasAccount).toBe(true);
-      expect(begun.state.step).toBe("totp");
+      expect(begun.state.step).toBe("signin");
     }
+  });
+});
+
+/**
+ * An existing account joining another workspace.
+ *
+ * The reported bug: the accept page told them "sign in and you will be in",
+ * and nothing ever made the membership ACTIVE — so after signing in they were
+ * not in, and the workspace sat in their switcher refusing to open.
+ */
+describe("an existing account accepting", () => {
+  it("joins from its own signed-in session, and the membership becomes ACTIVE", async () => {
+    const existing = await prismaUnsafe.user.findUniqueOrThrow({ where: { email: EXISTING } });
+    const res = await issueInvitation({ workspaceId, actorUserId: ownerId, email: EXISTING, role: "BDR" });
+    if (!res.ok) throw new Error(res.error);
+
+    const before = await prismaUnsafe.membership.findUniqueOrThrow({
+      where: { userId_workspaceId: { userId: existing.id, workspaceId } },
+    });
+    expect(before.state).toBe("INVITED");
+
+    const out = await acceptAsExistingUser({ token: tokenFrom(res.url), sessionUserId: existing.id });
+    expect(out).toEqual({ ok: true, workspaceId });
+
+    const after = await prismaUnsafe.membership.findUniqueOrThrow({
+      where: { userId_workspaceId: { userId: existing.id, workspaceId } },
+    });
+    expect(after.state).toBe("ACTIVE");
+    // Invitees do not skip 2FA by arriving through this door.
+    const user = await prismaUnsafe.user.findUniqueOrThrow({ where: { id: existing.id } });
+    expect(user.mustEnrollTotp).toBe(true);
+    // Single use.
+    const again = await acceptAsExistingUser({ token: tokenFrom(res.url), sessionUserId: existing.id });
+    expect(again.ok).toBe(false);
+  });
+
+  it("refuses a session that belongs to somebody else", async () => {
+    const res = await issueInvitation({ workspaceId, actorUserId: ownerId, email: EXISTING, role: "BDR" });
+    if (!res.ok) throw new Error(res.error);
+    const out = await acceptAsExistingUser({ token: tokenFrom(res.url), sessionUserId: ownerId });
+    expect(out.ok).toBe(false);
+  });
+
+  /**
+   * The takeover this closes: the Owner who issued the invitation sees its URL,
+   * and the password step used to upsert the password and authenticator of
+   * whoever owned that address — including an account in another workspace.
+   */
+  it("never lets the token set a password on an account that already has one", async () => {
+    const existing = await prismaUnsafe.user.findUniqueOrThrow({ where: { email: EXISTING } });
+    const res = await issueInvitation({ workspaceId, actorUserId: ownerId, email: EXISTING, role: "BDR" });
+    if (!res.ok) throw new Error(res.error);
+    const out = await acceptSetPassword({
+      token: tokenFrom(res.url),
+      name: "Hijacker",
+      password: "another-perfectly-fine-password-1",
+    });
+    expect(out.ok).toBe(false);
+    const after = await prismaUnsafe.user.findUniqueOrThrow({ where: { id: existing.id } });
+    expect(after.passwordHash).toBe(existing.passwordHash);
+    expect(after.name).toBe(existing.name);
   });
 });
 

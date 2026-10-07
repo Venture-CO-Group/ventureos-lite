@@ -3,6 +3,7 @@ import { WorkspaceList } from "@/components/workspace-list";
 import { WorkspaceAdmin } from "@/components/workspace-admin";
 import { copyableWorkspaces, listWorkspaces } from "@/modules/workspaces/actions";
 import { isOwner } from "@/lib/authz";
+import { getRestorableWorkspaces } from "@/modules/workspaces/admin-actions";
 
 /**
  * Settings — WORKSPACES.
@@ -29,7 +30,11 @@ import { isOwner } from "@/lib/authz";
 export const dynamic = "force-dynamic";
 
 export default async function WorkspaceSettingsPage() {
-  const [workspaces, owner] = await Promise.all([listWorkspaces(), isOwner()]);
+  const [workspaces, owner, deleted] = await Promise.all([
+    listWorkspaces(),
+    isOwner(),
+    getRestorableWorkspaces(),
+  ]);
   // Owner memberships only, so the form cannot offer a source the action would
   // refuse (P6/6.1).
   const copySources = owner ? await copyableWorkspaces() : [];
@@ -41,9 +46,9 @@ export default async function WorkspaceSettingsPage() {
       title="workspaces"
       description={`${workspaces.length} ${
         workspaces.length === 1 ? "workspace" : "workspaces"
-      } · provision one, copy settings into it, or repair one.`}
+      } · create one, add people to it, edit or delete it.`}
     >
-      <WorkspaceList workspaces={workspaces} />
+      <WorkspaceList workspaces={workspaces} deleted={deleted} />
       <WorkspaceAdmin isOwner={owner} copyableWorkspaces={copySources} />
     </SettingsShell>
   );

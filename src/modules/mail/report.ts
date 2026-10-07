@@ -87,7 +87,7 @@ export async function sendFridayReport(workspaceId: string): Promise<void> {
 
 /** Cross-workspace system job (Friday cron). */
 export async function processFridayReports(): Promise<number> {
-  const workspaces = await prismaUnsafe.workspace.findMany({ select: { id: true } });
+  const workspaces = await prismaUnsafe.workspace.findMany({ where: { deletedAt: null }, select: { id: true } });
   for (const w of workspaces) await sendFridayReport(w.id);
   return workspaces.length;
 }

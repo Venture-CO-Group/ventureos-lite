@@ -211,7 +211,7 @@ export async function runNightFor(workspaceId: string, now: Date, opts: { enqueu
 }
 
 export async function processNightlySweep(now: Date = new Date()): Promise<NightResult[]> {
-  const workspaces = await prismaUnsafe.workspace.findMany({ select: { id: true, outboundConfig: true } });
+  const workspaces = await prismaUnsafe.workspace.findMany({ where: { deletedAt: null }, select: { id: true, outboundConfig: true } });
   const out: NightResult[] = [];
   for (const w of workspaces) {
     if (!parseOutboundConfig(w.outboundConfig).schedule.enabled) continue;

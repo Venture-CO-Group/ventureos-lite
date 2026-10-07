@@ -10,7 +10,7 @@
 # within 14 days. Do NOT lengthen the rotation without revisiting that promise.
 #
 # Usage:   scripts/backup.sh [target-dir]
-# Cron:    30 3 * * *  cd /opt/ventureos-lite && ./scripts/backup.sh >> /var/log/ventureos-backup.log 2>&1
+# Cron:    30 3 * * *  cd /opt/ventureos && ./scripts/backup.sh >> /var/log/ventureos-backup.log 2>&1
 # =============================================================================
 set -Eeuo pipefail
 

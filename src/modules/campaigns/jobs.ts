@@ -11,6 +11,7 @@ import { runCampaignSend, ColdGateError } from "./send";
  */
 export async function processColdSends(nowMs: number = Date.now()): Promise<number> {
   const workspaces = await prismaUnsafe.workspace.findMany({
+    where: { deletedAt: null },
     select: { id: true, featureFlags: true, mailgunConfig: true },
   });
 

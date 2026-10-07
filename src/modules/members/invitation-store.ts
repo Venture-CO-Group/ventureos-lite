@@ -41,6 +41,14 @@ export interface IssueResult {
   expiresAt: string;
   /** The invitee already had an account here, on this or another workspace. */
   existingAccount: boolean;
+  /**
+   * Why the email did not go out, when it did not.
+   *
+   * The invitation still exists and the link still works — the Owner just has
+   * to deliver it by hand. This used to be dropped on the floor, and the screen
+   * said "Invitation sent" for a message that never left.
+   */
+  emailError?: string;
 }
 
 export type IssueOutcome = IssueResult | { ok: false; error: string };
@@ -175,7 +183,7 @@ export async function issueInvitation(input: {
     });
   }
 
-  await sendInvitationEmail({
+  const sent = await sendInvitationEmail({
     workspaceId: input.workspaceId,
     email,
     name: input.name?.trim() || nameFromEmail(email),
@@ -190,6 +198,7 @@ export async function issueInvitation(input: {
     url: inviteLink(token),
     expiresAt: expiresAt.toISOString(),
     existingAccount: !!existingUser,
+    ...(sent.ok ? {} : { emailError: sent.error }),
   };
 }
 

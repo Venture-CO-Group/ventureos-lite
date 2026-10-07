@@ -82,12 +82,19 @@ export function SettingsInvitations({
           setMsg({ kind: "err", text: res.error });
           return;
         }
-        setMsg({
-          kind: "ok",
-          text: res.existingAccount
-            ? `Invitation sent. ${email} already has an account here, so they will sign in rather than choose a new password.`
-            : `Invitation sent to ${email}.`,
-        });
+        setMsg(
+          res.emailError
+            ? {
+                kind: "err",
+                text: `The invitation was created, but the email did not go out (${res.emailError}). Copy the link below and send it yourself.`,
+              }
+            : {
+                kind: "ok",
+                text: res.existingAccount
+                  ? `Invitation sent. ${email} already has an account, so they will sign in and press Join rather than choose a new password.`
+                  : `Invitation sent to ${email}.`,
+              },
+        );
         // Kept on screen as well as emailed: an invitation that silently fails
         // to arrive is worse than one the Owner can paste.
         setLink(res.url);

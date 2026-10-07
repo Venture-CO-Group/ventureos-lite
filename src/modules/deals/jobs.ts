@@ -20,7 +20,7 @@ import { MIN_CALIBRATION_N, probabilityProposals, type StageWinLoss } from "./lo
  * rate of Won (100%) and Lost (0%), which is no information at all.
  */
 export async function processStageProbabilityCalibration(): Promise<number> {
-  const workspaces = await prismaUnsafe.workspace.findMany({ select: { id: true } });
+  const workspaces = await prismaUnsafe.workspace.findMany({ where: { deletedAt: null }, select: { id: true } });
   let raisedTotal = 0;
 
   for (const ws of workspaces) {

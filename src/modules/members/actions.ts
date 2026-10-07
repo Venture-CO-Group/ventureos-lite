@@ -23,7 +23,9 @@ import {
   revokeInvitation,
   type PendingInvitation,
 } from "./invitation-store";
-import { acceptSetPassword, acceptVerifyTotp } from "./accept";
+import { acceptAsExistingUser, acceptSetPassword, acceptVerifyTotp } from "./accept";
+import { currentSessionToken } from "@/lib/auth";
+import { resolveSession, setSessionWorkspace } from "@/lib/auth/sessions";
 
 /**
  * Member management, Owner-gated (§2).
@@ -54,7 +56,7 @@ const inviteSchema = z.object({
 export async function inviteMember(
   raw: unknown,
 ): Promise<
-  | { ok: true; url: string; expiresAt: string; existingAccount: boolean }
+  | { ok: true; url: string; expiresAt: string; existingAccount: boolean; emailError?: string }
   | { ok: false; error: string }
 > {
   const gate = await requireOwnerAction();
@@ -85,6 +87,7 @@ export async function inviteMember(
     url: res.url,
     expiresAt: res.expiresAt,
     existingAccount: res.existingAccount,
+    ...(res.emailError ? { emailError: res.emailError } : {}),
   };
 }
 
@@ -261,4 +264,39 @@ export async function submitAcceptTotp(
 
   const res = await acceptVerifyTotp(parsed.data);
   return res.ok ? { ok: true } : res;
+}
+
+/**
+ * "Join" for somebody who already has a login (§2).
+ *
+ * The session is read here, from the cookie, and never from the request body:
+ * which account is joining is the one thing the caller must not be able to
+ * choose. On success the session switches straight into the new workspace, so
+ * the next screen they see is the place they were invited to.
+ */
+export async function submitAcceptAsSignedIn(
+  raw: unknown,
+): Promise<{ ok: true } | { ok: false; error: string; needsSignIn?: boolean }> {
+  const parsed = z.object({ token: z.string().min(16).max(200) }).safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "This invitation link is not valid." };
+
+  const session = await resolveSession(await currentSessionToken());
+  if (!session) {
+    return { ok: false, error: "Sign in first, then accept.", needsSignIn: true };
+  }
+
+  const limit = await takeRateLimit(`invite-join:${parsed.data.token.slice(0, 24)}`, {
+    windowMs: 15 * 60_000,
+    max: 20,
+  });
+  if (!limit.allowed) return { ok: false, error: "Too many attempts. Try again shortly." };
+
+  const res = await acceptAsExistingUser({
+    token: parsed.data.token,
+    sessionUserId: session.userId,
+  });
+  if (!res.ok) return res;
+  await setSessionWorkspace(session.sessionId, res.workspaceId);
+  revalidatePath("/", "layout");
+  return { ok: true };
 }

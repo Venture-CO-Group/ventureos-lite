@@ -673,7 +673,7 @@ Red flags:
 There is a script for this now, and it runs on the server:
 
 ```bash
-cd /opt/ventureos-lite
+cd /opt/ventureos
 ./scripts/restore-drill.sh
 ```
 
@@ -690,7 +690,7 @@ the files archive rather than extracting it. It exits non-zero if anything
 failed, so it works from cron:
 
 ```
-0 4 1 */3 * cd /opt/ventureos-lite && ./scripts/restore-drill.sh >> /var/log/ventureos-drill.log 2>&1
+0 4 1 */3 * cd /opt/ventureos && ./scripts/restore-drill.sh >> /var/log/ventureos-drill.log 2>&1
 ```
 
 **What each failure means, and the order for a REAL restore** — including the

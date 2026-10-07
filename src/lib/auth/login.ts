@@ -126,7 +126,7 @@ export async function attemptLogin(input: LoginInput): Promise<LoginOutcome> {
   const membership = await prismaUnsafe.membership.findFirst({
     // The state, not `suspendedAt`: an INVITED membership has a null
     // suspension and is not access, and a REMOVED one is history (§1).
-    where: { userId: user.id, state: "ACTIVE" },
+    where: { userId: user.id, state: "ACTIVE", workspace: { deletedAt: null } },
     orderBy: { createdAt: "asc" },
     select: { workspaceId: true },
   });
