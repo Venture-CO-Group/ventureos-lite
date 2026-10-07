@@ -185,8 +185,8 @@ free -h    # a Swap sorban látszania kell a 2 GB-nak
 ```bash
 mkdir -p /opt
 cd /opt
-git clone <A-REPO-URL-JE> ventureos-lite
-cd /opt/ventureos-lite
+git clone <A-REPO-URL-JE> ventureos
+cd /opt/ventureos
 ```
 
 > A `<A-REPO-URL-JE>` helyére a saját Git-tárolód címe kerül. Privát repónál
@@ -310,7 +310,7 @@ chmod 600 .env
 ## 5. lépés — Első indítás
 
 ```bash
-cd /opt/ventureos-lite
+cd /opt/ventureos
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
@@ -403,7 +403,7 @@ Az adatbázis még üres. Töltsd fel a kezdőadatokkal (munkaterület, sablonok
 foglalási oldal, az első felhasználó):
 
 ```bash
-cd /opt/ventureos-lite
+cd /opt/ventureos
 docker compose -f docker-compose.prod.yml run --rm worker npm run db:seed
 ```
 
@@ -467,7 +467,7 @@ feltöltött fájlokról (PDF-ek, képernyőképek), és 14 napnyit tart meg bel
 Először próbáld ki kézzel:
 
 ```bash
-cd /opt/ventureos-lite
+cd /opt/ventureos
 ./scripts/backup.sh
 ```
 
@@ -499,7 +499,7 @@ crontab -e
 Illeszd be a fájl végére ezt az egy sort:
 
 ```
-30 3 * * * cd /opt/ventureos-lite && ./scripts/backup.sh >> /var/log/ventureos-backup.log 2>&1
+30 3 * * * cd /opt/ventureos && ./scripts/backup.sh >> /var/log/ventureos-backup.log 2>&1
 ```
 
 Mentés: `Ctrl+O`, `Enter`, `Ctrl+X`. Ellenőrzés: `crontab -l`.
@@ -525,7 +525,7 @@ pontosan addig érződik ugyanannak, amíg el nem jön az a reggel, amikor
 kiderül.
 
 ```bash
-cd /opt/ventureos-lite
+cd /opt/ventureos
 ./scripts/restore-drill.sh
 ```
 
@@ -537,7 +537,7 @@ Az élő adatbázishoz nem ér hozzá, és mentési fájlt nem töröl. Nyolc-t�
 Negyedévente, cronból:
 
 ```
-0 4 1 */3 * cd /opt/ventureos-lite && ./scripts/restore-drill.sh >> /var/log/ventureos-drill.log 2>&1
+0 4 1 */3 * cd /opt/ventureos && ./scripts/restore-drill.sh >> /var/log/ventureos-drill.log 2>&1
 ```
 
 A hibák jelentése, és a **valódi** visszaállítás rendje — beleértve azt, hogy
@@ -551,7 +551,7 @@ a [`docs/restore-drill.md`](restore-drill.md) fájlban van.
 Amikor új verzió készül el:
 
 ```bash
-cd /opt/ventureos-lite
+cd /opt/ventureos
 
 # 1. Biztonsági mentés ELŐSZÖR — mindig
 ./scripts/backup.sh
@@ -772,7 +772,7 @@ docker compose -f docker-compose.prod.yml logs migrate
 > benne.
 
 ```bash
-cd /opt/ventureos-lite
+cd /opt/ventureos
 
 # 1. Melyik mentésből?
 ls -lh /var/backups/ventureos/
@@ -804,7 +804,7 @@ curl -s https://ventureco.agency/api/health
 ### 6. Teljes újraindítás (ha semmi nem segít)
 
 ```bash
-cd /opt/ventureos-lite
+cd /opt/ventureos
 ./scripts/backup.sh                                      # előbb mentés!
 docker compose -f docker-compose.prod.yml down           # a KÖTETEK megmaradnak
 docker compose -f docker-compose.prod.yml up -d --build
@@ -818,7 +818,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 ## Gyors parancs-összefoglaló
 
 ```bash
-cd /opt/ventureos-lite
+cd /opt/ventureos
 
 # állapot és naplók
 docker compose -f docker-compose.prod.yml ps
