@@ -117,6 +117,9 @@ describe(".env.production.example completeness", () => {
       "POSTGRES_DB",
       "BACKUP_DIR",
       "RETENTION_DAYS",
+      // Read by Next.js itself at build and run time, and handed to the image
+      // build as a BuildKit secret by docker-compose.prod.yml.
+      "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY",
     ]);
     const dead = [...active].filter(
       (v) => !read.has(v) && !infra.has(v) && !COMPOSE_ONLY.has(v),
