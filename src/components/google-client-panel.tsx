@@ -46,7 +46,7 @@ function Copyable({ value, testId }: { value: string; testId: string }) {
     <div className="flex items-start gap-2">
       <code
         data-testid={testId}
-        className="block min-w-0 flex-1 break-all rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2.5 py-2 text-[11.5px] text-ink"
+        className="block min-w-0 flex-1 whitespace-pre-wrap break-all rounded-[8px] border border-line bg-[rgba(0,5,29,0.5)] px-2.5 py-2 text-[11.5px] text-ink"
       >
         {value}
       </code>
