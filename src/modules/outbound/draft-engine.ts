@@ -27,7 +27,7 @@ import { nameableReferences } from "./references";
 import { hasHook, type CandidateFact } from "./facts";
 import { validateDraft, type PersonalisationPoint } from "./draft";
 import { transition } from "./state";
-import { COLD_OUTBOUND_ADDRESS } from "./config";
+import { outboundMailAccount } from "./mailbox";
 import type { ResolvedContact } from "./contact";
 
 export interface DraftDeps {
@@ -42,10 +42,7 @@ function factsOf(raw: unknown): CandidateFact[] {
 }
 
 async function senderName(workspaceId: string): Promise<string> {
-  const account = await prismaUnsafe.mailAccount.findFirst({
-    where: { workspaceId, accountEmail: COLD_OUTBOUND_ADDRESS },
-    select: { userId: true },
-  });
+  const account = await outboundMailAccount(workspaceId);
   const user = account ? await prismaUnsafe.user.findUnique({ where: { id: account.userId }, select: { name: true } }) : null;
   return user?.name ?? "";
 }

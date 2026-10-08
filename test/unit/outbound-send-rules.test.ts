@@ -11,21 +11,42 @@ import {
   bouncedAddresses,
   isFreemail,
 } from "@/modules/outbound/send-rules";
+import type { SendingPolicy } from "@/modules/mail/sending-policy";
 import { signatureHtmlToText } from "@/modules/outbound/compose";
 
-/** Playbook-v6 F5: the sender's rules (CLAUDE.md hard rule 11). */
+/**
+ * Playbook-v6 F5: the sender's rules (CLAUDE.md hard rule 11), per workspace.
+ * The Venture workspace's configuration is the example: transactional mail on
+ * mg.ventureco.group, cold outbound from fanni.viragh@ventureco.agency.
+ */
+const VENTURE: SendingPolicy = {
+  workspaceId: "venture",
+  outboundAddress: "fanni.viragh@ventureco.agency",
+  transactionalDomain: "mg.ventureco.group",
+  coldDomain: "cold.ventureco.agency",
+  foreignDomains: new Set(["seyuselfies.com"]),
+};
+
 describe("the cold sender guard", () => {
-  it("allows only the cold outbound identity", () => {
-    expect(assertColdSender("Fanni.Viragh@ventureco.agency")).toBe("fanni.viragh@ventureco.agency");
+  it("allows only the workspace's configured cold outbound identity", () => {
+    expect(assertColdSender("Fanni.Viragh@ventureco.agency", VENTURE)).toBe("fanni.viragh@ventureco.agency");
   });
-  it("refuses the .group domain outright — a refusal, not a warning", () => {
-    expect(() => assertColdSender("fanni@ventureco.group")).toThrow(ColdSenderError);
-    expect(() => assertColdSender("offers@mg.ventureco.group")).toThrow(ColdSenderError);
+  it("refuses anything on the transactional registrable domain — a refusal, not a warning", () => {
+    const misconfigured = { ...VENTURE, outboundAddress: "fanni@ventureco.group" };
+    expect(() => assertColdSender("fanni@ventureco.group", misconfigured)).toThrow(ColdSenderError);
+    expect(() => assertColdSender("offers@mg.ventureco.group", { ...VENTURE, outboundAddress: "offers@mg.ventureco.group" })).toThrow(ColdSenderError);
   });
   it("refuses another address on the right domain, and nothing at all", () => {
-    expect(() => assertColdSender("tamas@ventureco.agency")).toThrow(ColdSenderError);
-    expect(() => assertColdSender("")).toThrow(ColdSenderError);
-    expect(() => assertColdSender(null)).toThrow(ColdSenderError);
+    expect(() => assertColdSender("tamas@ventureco.agency", VENTURE)).toThrow(ColdSenderError);
+    expect(() => assertColdSender("", VENTURE)).toThrow(ColdSenderError);
+    expect(() => assertColdSender(null, VENTURE)).toThrow(ColdSenderError);
+  });
+  it("refuses everything when the workspace configured no address", () => {
+    expect(() => assertColdSender("fanni.viragh@ventureco.agency", { ...VENTURE, outboundAddress: null })).toThrow(ColdSenderError);
+  });
+  it("refuses a domain another workspace has configured, even if this one names it", () => {
+    const thief = { ...VENTURE, outboundAddress: "anna@seyuselfies.com" };
+    expect(() => assertColdSender("anna@seyuselfies.com", thief)).toThrow(/another workspace/);
   });
 });
 

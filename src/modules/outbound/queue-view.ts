@@ -7,7 +7,8 @@
 import { prismaUnsafe, type WorkspaceClient } from "@/lib/db";
 import { cachedDatasheet } from "@/modules/registry/registry-service";
 import { brandFrom } from "@/modules/workspaces/brand";
-import { parseOutboundConfig, COLD_OUTBOUND_ADDRESS } from "./config";
+import { parseOutboundConfig } from "./config";
+import { outboundMailAccount } from "./mailbox";
 import { composeMessage, signatureFor, PREVIEW_UNSUBSCRIBE_URL } from "./compose";
 import { highlightRanges, type PersonalisationPoint } from "./draft";
 import type { CandidateFact } from "./facts";
@@ -68,7 +69,7 @@ export async function loadQueue(db: WorkspaceClient, workspaceId: string, userId
       select: { id: true, score: true },
     }),
     prismaUnsafe.workspace.findUnique({ where: { id: workspaceId }, select: { outboundConfig: true, brand: true } }),
-    prismaUnsafe.mailAccount.findFirst({ where: { workspaceId, accountEmail: COLD_OUTBOUND_ADDRESS }, select: { userId: true } }),
+    outboundMailAccount(workspaceId),
   ]);
   const senderUser = sender ? await prismaUnsafe.user.findUnique({ where: { id: sender.userId }, select: { name: true } }) : null;
   const cfg = parseOutboundConfig(ws?.outboundConfig);

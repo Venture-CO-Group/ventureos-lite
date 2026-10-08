@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { prismaUnsafe, getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
 import { isOwner } from "@/lib/authz";
-import { COLD_OUTBOUND_ADDRESS, outboundConfigSchema, parseOutboundConfig, warmupDailyCap, type OutboundConfig } from "./config";
+import { loadSendingPolicy } from "@/modules/mail/sending-domains";
+import { validateOutboundAddress } from "@/modules/mail/sending-policy";
+import { outboundConfigSchema, parseOutboundConfig, warmupDailyCap, type OutboundConfig } from "./config";
 import { quotaMeter, type QuotaMeter } from "@/modules/registry/registry-service";
 
 /**
@@ -15,7 +17,8 @@ import { quotaMeter, type QuotaMeter } from "@/modules/registry/registry-service
  * mailbox reputation the motor may spend without anybody clicking.
  */
 export interface MailboxStatus {
-  address: string;
+  /** The configured cold outbound address; null until an Owner sets one. */
+  address: string | null;
   connected: boolean;
   health: string | null;
   connectedBy: string | null;
@@ -28,10 +31,13 @@ export async function getOutboundSettings(): Promise<{ config: OutboundConfig; m
   const { workspaceId } = await getActiveContext();
   const ws = await prismaUnsafe.workspace.findUnique({ where: { id: workspaceId }, select: { outboundConfig: true } });
   const config = parseOutboundConfig(ws?.outboundConfig);
-  const account = await prismaUnsafe.mailAccount.findFirst({
-    where: { workspaceId, accountEmail: COLD_OUTBOUND_ADDRESS },
-    select: { health: true, userId: true, credentialId: true },
-  });
+  // The configured address, and its mailbox in THIS workspace.
+  const account = config.sending.senderAddress
+    ? await prismaUnsafe.mailAccount.findFirst({
+        where: { workspaceId, accountEmail: config.sending.senderAddress },
+        select: { health: true, userId: true, credentialId: true },
+      })
+    : null;
   const user = account ? await prismaUnsafe.user.findUnique({ where: { id: account.userId }, select: { name: true } }) : null;
   const now = new Date();
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -40,7 +46,7 @@ export async function getOutboundSettings(): Promise<{ config: OutboundConfig; m
     config,
     meter: await quotaMeter(workspaceId),
     mailbox: {
-      address: COLD_OUTBOUND_ADDRESS,
+      address: config.sending.senderAddress,
       connected: !!account?.credentialId && account.health !== "reconnect_needed",
       health: account?.health ?? null,
       connectedBy: user?.name ?? null,
@@ -95,6 +101,14 @@ export async function saveOutboundSettings(
   const { workspaceId, userId } = await getActiveContext();
   const ws = await prismaUnsafe.workspace.findUnique({ where: { id: workspaceId }, select: { outboundConfig: true } });
   const before = parseOutboundConfig(ws?.outboundConfig);
+
+  // The sending identity is checked here with the same rules the send-time
+  // guard applies, so a bad address is refused in the form, not by the
+  // scheduler (CLAUDE.md hard rule 11, per workspace).
+  if (next.sending.senderAddress && next.sending.senderAddress !== before.sending.senderAddress) {
+    const problem = validateOutboundAddress(next.sending.senderAddress, await loadSendingPolicy(workspaceId));
+    if (problem) return { ok: false, error: problem };
+  }
 
   // Ramp start dates and the circuit breaker's state are the system's to set,
   // not the form's: a stale tab must not restart a warm-up or clear a pause.

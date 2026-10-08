@@ -18,6 +18,8 @@
  * immediately before the call (CLAUDE.md hard rule 11). This module imports
  * nothing from the Mailgun campaign sender.
  */
+import { outboundMailAccount } from "./mailbox";
+import { loadSendingPolicy } from "@/modules/mail/sending-domains";
 import { randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { getWorkspaceClient, prismaUnsafe, type WorkspaceClient } from "@/lib/db";
@@ -32,7 +34,7 @@ import { onLeadStageChanged } from "@/modules/workflow/triggers";
 import { safeDeliver } from "@/modules/notifications/notify";
 import { workspaceOwners } from "@/modules/notifications/recipients";
 import { brandFrom } from "@/modules/workspaces/brand";
-import { COLD_OUTBOUND_ADDRESS, parseOutboundConfig, warmupDailyCap, type OutboundConfig } from "./config";
+import { parseOutboundConfig, warmupDailyCap, type OutboundConfig } from "./config";
 import { composeMessage, signatureFor, signatureHtmlToText } from "./compose";
 import {
   asksToStop,
@@ -96,9 +98,8 @@ async function saveConfig(workspaceId: string, cfg: OutboundConfig): Promise<voi
 
 /** The cold mailbox and its credentials, or null when it is not connected. */
 async function coldMailbox(workspaceId: string) {
-  const account = await prismaUnsafe.mailAccount.findFirst({
-    where: { workspaceId, accountEmail: COLD_OUTBOUND_ADDRESS, enabled: true },
-  });
+  // The configured address's mailbox, in THIS workspace only.
+  const account = await outboundMailAccount(workspaceId, { enabledOnly: true });
   if (!account?.credentialId || account.health === "reconnect_needed") return null;
   const credential = await prismaUnsafe.googleCredential.findUnique({ where: { id: account.credentialId } });
   if (!credential || credential.invalidatedAt) return null;
@@ -217,10 +218,15 @@ async function sendOne(
   const { draft: d, candidate: c, box, gmail, now } = x;
   let cfg = x.cfg;
 
-  // THE guard. Asserted on the mailbox the message is about to leave from.
+  // THE guard. Asserted on the mailbox the message is about to leave from,
+  // against this workspace's configured identity and every other workspace's
+  // claims (CLAUDE.md hard rule 11, per workspace).
   let from: string;
   try {
-    from = assertColdSender(box.account.accountEmail);
+    if (box.account.workspaceId !== workspaceId) {
+      throw new ColdSenderError("that mailbox belongs to another workspace");
+    }
+    from = assertColdSender(box.account.accountEmail, await loadSendingPolicy(workspaceId));
   } catch (e) {
     if (e instanceof ColdSenderError) {
       await db.outreachDraft.update({ where: { id: d.id }, data: { sendError: e.message } });

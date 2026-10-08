@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { attempt } from "@/lib/client/server-action";
 import { saveOutboundSettings, resumeSending, type MailboxStatus } from "@/modules/outbound/settings-actions";
 import type { OutboundConfig } from "@/modules/outbound/config";
-import { COLD_OUTBOUND_ADDRESS } from "@/modules/outbound/config";
 
 /**
  * Admin → Outbound (playbook-v6). One form per concern — quota, schedule,
@@ -145,9 +144,22 @@ export function SettingsOutbound({ config, isOwner, mailbox }: { config: Outboun
 
       <div className="grid gap-2">
         <h3 className="font-display text-[16px] font-bold lowercase">sending</h3>
+        <label className="grid gap-1">
+          <span className={LABEL}>Send cold outbound only from</span>
+          <input
+            type="email"
+            className={INPUT}
+            value={c.sending.senderAddress ?? ""}
+            placeholder="name@your-outbound-domain.com"
+            onChange={(e) => patch("sending", { senderAddress: e.target.value.trim() || null })}
+            disabled={disabled}
+            data-testid="outbound-sender-address"
+          />
+        </label>
         <p className="text-[12px] text-muted">
-          Cold outbound sends only from <b className="text-ink">{COLD_OUTBOUND_ADDRESS}</b>, through that account&apos;s own
-          Gmail. Connect it under Settings → Email while signed in as that user.
+          One address, on a domain of its own: it may not share a domain with this workspace&apos;s
+          transactional mail, nor use a domain another workspace has configured. Connect its Gmail under
+          Settings → Email while signed in as that user, in this workspace. Nothing sends until both are set.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Num label="Min seconds between sends" value={c.sending.spacingMinSec} onChange={(n) => patch("sending", { spacingMinSec: n })} disabled={disabled} />

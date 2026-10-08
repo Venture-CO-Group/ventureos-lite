@@ -9,10 +9,6 @@
  */
 import { z } from "zod";
 
-/** The only sending identity cold outbound may use (CLAUDE.md hard rule 11). */
-export const COLD_OUTBOUND_ADDRESS = "fanni.viragh@ventureco.agency";
-export const COLD_OUTBOUND_DOMAIN = "ventureco.agency";
-
 const registrySchema = z.object({
   /** Detail lookups per month on the plan. Haladó: 5,000. */
   monthlyLimit: z.number().int().min(0).max(1_000_000).default(5000),
@@ -52,6 +48,15 @@ const warmupSchema = z.object({
 });
 
 const sendingSchema = z.object({
+  /**
+   * The ONE address this workspace's cold outbound may leave from (CLAUDE.md
+   * hard rule 11, per workspace). Its Gmail mailbox must be connected in this
+   * workspace. Null until an Owner configures it — and with none, nothing
+   * sends. The Venture workspace's value is fanni.viragh@ventureco.agency,
+   * set by migration rather than written here, so no other workspace can
+   * inherit it.
+   */
+  senderAddress: z.string().trim().toLowerCase().email().nullable().default(null),
   /** The MailAccount the motor sends through, once connected. */
   mailAccountId: z.string().nullable().default(null),
   // No open/click tracking on cold outbound: it leaves as plain text with no
