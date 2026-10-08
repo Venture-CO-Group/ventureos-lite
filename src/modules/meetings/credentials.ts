@@ -34,6 +34,7 @@ function toAccount(row: {
   accessToken: string;
   refreshToken: string | null;
   expiryDate: Date | null;
+  clientRef: string | null;
 }): CalendarAccount {
   return {
     id: row.id,
@@ -46,6 +47,7 @@ function toAccount(row: {
       refreshToken: row.refreshToken,
       expiryDate: row.expiryDate,
       calendarId: row.calendarId,
+      clientRef: row.clientRef,
     },
   };
 }
@@ -53,7 +55,9 @@ function toAccount(row: {
 /** Every connected account, write target first. */
 export async function listCalendarAccounts(userId: string): Promise<CalendarAccount[]> {
   const rows = await prismaUnsafe.googleCredential.findMany({
-    where: { userId },
+    // A credential whose client was replaced cannot refresh; it is shown as
+    // "reconnect" in settings, never used.
+    where: { userId, invalidatedAt: null },
     orderBy: [{ purpose: "asc" }, { createdAt: "asc" }],
   });
   return rows.map(toAccount);
@@ -66,7 +70,7 @@ export async function listCalendarAccounts(userId: string): Promise<CalendarAcco
  */
 export async function getWriteAccount(userId: string): Promise<CalendarAccount | null> {
   const rows = await prismaUnsafe.googleCredential.findMany({
-    where: { userId },
+    where: { userId, invalidatedAt: null },
     orderBy: [{ createdAt: "asc" }],
   });
   if (rows.length === 0) return null;

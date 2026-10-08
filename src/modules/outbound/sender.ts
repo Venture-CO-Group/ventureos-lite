@@ -101,13 +101,18 @@ async function coldMailbox(workspaceId: string) {
   });
   if (!account?.credentialId || account.health === "reconnect_needed") return null;
   const credential = await prismaUnsafe.googleCredential.findUnique({ where: { id: account.credentialId } });
-  if (!credential) return null;
+  if (!credential || credential.invalidatedAt) return null;
   const user = await prismaUnsafe.user.findUnique({ where: { id: account.userId }, select: { name: true } });
   return {
     account,
     credentialId: credential.id,
     senderName: user?.name ?? null,
-    creds: { accessToken: credential.accessToken, refreshToken: credential.refreshToken, expiryDate: credential.expiryDate } as MailCredentials,
+    creds: {
+      accessToken: credential.accessToken,
+      refreshToken: credential.refreshToken,
+      expiryDate: credential.expiryDate,
+      clientRef: credential.clientRef,
+    } as MailCredentials,
   };
 }
 

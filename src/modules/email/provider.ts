@@ -15,6 +15,8 @@ export interface MailCredentials {
   accessToken: string;
   refreshToken: string | null;
   expiryDate: Date | null;
+  /** The OAuth client that issued these tokens; a refresh must use it. */
+  clientRef?: string | null;
 }
 
 /** Credentials the provider refreshed mid-call, for the caller to persist. */

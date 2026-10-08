@@ -7,11 +7,15 @@
  * The provider owns token refresh and returns any refreshed credentials so the
  * caller can persist them back to GoogleCredential.
  */
+import { refreshGoogleAccessToken } from "@/modules/google/clients";
+
 export interface CalendarCredentials {
   accessToken: string;
   refreshToken: string | null;
   expiryDate: Date | null;
   calendarId: string | null;
+  /** The OAuth client that issued these tokens; a refresh must use it. */
+  clientRef?: string | null;
 }
 
 export interface CalendarEventInput {
@@ -60,7 +64,6 @@ export interface CalendarProvider {
   ): Promise<FreeBusyResult>;
 }
 
-const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CAL_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 const FREEBUSY_URL = "https://www.googleapis.com/calendar/v3/freeBusy";
 
@@ -78,24 +81,13 @@ class GoogleCalendarProvider implements CalendarProvider {
       // No way to refresh — surface as a calendar failure (lands in Today Queue).
       throw new Error("google_calendar_not_connected");
     }
-    const body = new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID ?? "",
-      client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-      refresh_token: creds.refreshToken,
-      grant_type: "refresh_token",
+    // With the client that issued the token, not the env one (see
+    // modules/google/clients.ts).
+    const { accessToken, expiryDate } = await refreshGoogleAccessToken({
+      refreshToken: creds.refreshToken,
+      clientRef: creds.clientRef,
     });
-    const res = await fetch(TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
-    });
-    if (!res.ok) throw new Error(`google_token_refresh ${res.status}: ${await res.text()}`);
-    const data = (await res.json()) as { access_token: string; expires_in: number };
-    const expiryDate = new Date(Date.now() + data.expires_in * 1000);
-    return {
-      accessToken: data.access_token,
-      refreshed: { accessToken: data.access_token, expiryDate },
-    };
+    return { accessToken, refreshed: { accessToken, expiryDate } };
   }
 
   async createEvent(

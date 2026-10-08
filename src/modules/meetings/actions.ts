@@ -125,6 +125,7 @@ export async function bookMeeting(
           refreshToken: acct.creds.refreshToken,
           expiryDate: acct.creds.expiryDate,
           calendarId: acct.creds.calendarId,
+          clientRef: acct.creds.clientRef,
         }
       : { accessToken: "", refreshToken: null, expiryDate: null, calendarId: null };
 
