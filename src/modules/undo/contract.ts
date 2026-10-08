@@ -92,6 +92,12 @@ export const DESTRUCTIVE_ACTIONS: Record<string, Undoability> = {
   purgeDueWorkspaces: permanent(
     "A retention sweep, not a user action: it erases workspaces whose 30-day restore window has already ended.",
   ),
+  deleteGoogleClient: permanent(
+    "Every mailbox and calendar connected through this workspace's Google client stops syncing until its owner reconnects; they are notified. Pasting the same client back does not revive those connections.",
+  ),
+  removeWorkspaceGoogleClient: permanent(
+    "Every mailbox and calendar connected through this workspace's Google client stops syncing until its owner reconnects; they are notified. Pasting the same client back does not revive those connections.",
+  ),
   purgeExpiredNotifications: permanent(
     "A retention sweep, not a user action: it removes what is already past its keep-until date.",
   ),

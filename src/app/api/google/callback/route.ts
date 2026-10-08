@@ -31,14 +31,14 @@ export async function GET(req: Request) {
 
   if (result.ok) {
     return Response.redirect(
-      appLink(result.purpose === "test" ? "/settings/admin/integrations?google_test=ok" : "/meetings?google=connected"),
+      appLink(result.purpose === "test" ? "/settings/email?google_test=ok" : "/meetings?google=connected"),
       302,
     );
   }
   const code = failureCode(result.failure);
   const target =
     result.purpose === "test"
-      ? `/settings/admin/integrations?google_test=${encodeURIComponent(code)}`
+      ? `/settings/email?google_test=${encodeURIComponent(code)}`
       : `/settings/email?google_error=${encodeURIComponent(code)}`;
   return Response.redirect(appLink(target), 302);
 }

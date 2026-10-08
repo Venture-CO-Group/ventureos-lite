@@ -4,6 +4,7 @@ import { ApiCosts } from "@/components/api-costs";
 import { SettingsWebhooks } from "@/components/settings-webhooks";
 import { SzamlazzKey } from "@/components/szamlazz-key";
 import { ColdSignoff } from "@/components/cold-signoff";
+import { GoogleClientPanel } from "@/components/google-client-panel";
 import { requireSuperAdminPage } from "../gate";
 import { getIntegrations } from "@/modules/integrations/actions";
 import { listWebhooks } from "@/modules/webhooks/actions";
@@ -43,6 +44,7 @@ export default async function AdminIntegrationsPage() {
       description="API keys, what they cost, outbound webhooks and invoicing."
     >
       {integrations && <SettingsIntegrations data={integrations} />}
+      {owner && <GoogleClientPanel />}
       {apiCosts && <ApiCosts report={apiCosts} />}
       <SettingsWebhooks view={webhooks} />
       <SzamlazzKey hasKey={szamlazzKeySet} isOwner={owner} />

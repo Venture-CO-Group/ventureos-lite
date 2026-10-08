@@ -1,5 +1,6 @@
 import { SettingsShell } from "@/components/settings-shell";
 import { SettingsEmail } from "@/components/settings-email";
+import { GoogleClientPanel } from "@/components/google-client-panel";
 
 /**
  * Settings → email (P8/3).
@@ -12,7 +13,12 @@ import { SettingsEmail } from "@/components/settings-email";
  */
 export const dynamic = "force-dynamic";
 
-export default function SettingsEmailPage() {
+export default async function SettingsEmailPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ google_test?: string; google_error?: string }>;
+}) {
+  const { google_test: googleTest } = await searchParams;
   return (
     <SettingsShell
       group="personal"
@@ -21,6 +27,8 @@ export default function SettingsEmailPage() {
       description="Connect your own mailbox so replies land in the Inbox."
     >
       <SettingsEmail />
+      {/* Renders only for an Owner of the acting workspace. */}
+      <GoogleClientPanel testResult={googleTest ?? null} />
     </SettingsShell>
   );
 }

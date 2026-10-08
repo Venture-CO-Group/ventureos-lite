@@ -359,3 +359,28 @@ export async function notifyProposalPending(params: {
     discriminator: new Date().toISOString().slice(0, 10),
   });
 }
+
+/**
+ * A Google connection died because the workspace's OAuth client was replaced
+ * or removed (per-workspace Google clients). The person can only fix it by
+ * reconnecting, so that is where it points. One per change, per person.
+ */
+export async function notifyGoogleReconnect(params: {
+  workspaceId: string;
+  userId: string;
+  reason: string;
+  /** Identifies the change, so one replacement notifies once. */
+  changeKey: string;
+}): Promise<void> {
+  await safeDeliver({
+    workspaceId: params.workspaceId,
+    userIds: [params.userId],
+    type: "sync_failed",
+    title: "Reconnect your Google account",
+    body: `${params.reason} Your mailbox and calendar stop syncing until you connect again.`,
+    href: "/settings/email",
+    entityType: "WorkspaceGoogleClient",
+    entityId: params.workspaceId,
+    discriminator: params.changeKey,
+  });
+}
