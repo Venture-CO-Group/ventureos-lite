@@ -208,3 +208,41 @@ describe("rejections — nothing reaches Google", () => {
     expect(calls).toBe(0);
   });
 });
+
+describe("Google's own refusals come back as mapped codes", () => {
+  it("org_internal from the callback maps to the actionable message", async () => {
+    const { failureCode, googleErrorMessage } = await import("../../src/modules/google/errors");
+    const { state, nonce } = signState({ workspaceId: venture, userId, purpose: "connect" });
+    const out = await completeGoogleOAuth({
+      params: new URLSearchParams({ state, error: "org_internal" }),
+      cookieNonce: nonce,
+      session: { userId, workspaceId: venture },
+      doFetch: google().doFetch,
+    });
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(failureCode(out.failure)).toBe("org_internal");
+      expect(googleErrorMessage(failureCode(out.failure)).message).toMatch(/not part of the organisation/);
+    }
+  });
+
+  it("an invalid_client from the token exchange is mapped, not shown raw", async () => {
+    const { failureCode, googleErrorMessage } = await import("../../src/modules/google/errors");
+    const { state, nonce } = signState({ workspaceId: other, userId, purpose: "connect" });
+    const bad = (async () =>
+      new Response(JSON.stringify({ error: "invalid_client", error_description: "The OAuth client was not found." }), {
+        status: 401,
+      })) as typeof fetch;
+    const out = await completeGoogleOAuth({
+      params: new URLSearchParams({ state, code: "c" }),
+      cookieNonce: nonce,
+      session: { userId, workspaceId: other },
+      doFetch: bad,
+    });
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(failureCode(out.failure)).toBe("invalid_client");
+      expect(googleErrorMessage("invalid_client").field).toBe("clientId");
+    }
+  });
+});

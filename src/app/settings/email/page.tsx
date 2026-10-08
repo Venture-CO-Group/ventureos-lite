@@ -1,6 +1,7 @@
 import { SettingsShell } from "@/components/settings-shell";
 import { SettingsEmail } from "@/components/settings-email";
 import { GoogleClientPanel } from "@/components/google-client-panel";
+import { GoogleErrorBanner } from "@/components/google-connect-help";
 
 /**
  * Settings → email (P8/3).
@@ -18,7 +19,7 @@ export default async function SettingsEmailPage({
 }: {
   searchParams: Promise<{ google_test?: string; google_error?: string }>;
 }) {
-  const { google_test: googleTest } = await searchParams;
+  const { google_test: googleTest, google_error: googleError } = await searchParams;
   return (
     <SettingsShell
       group="personal"
@@ -26,6 +27,7 @@ export default async function SettingsEmailPage({
       title="email"
       description="Connect your own mailbox so replies land in the Inbox."
     >
+      <GoogleErrorBanner code={googleError} />
       <SettingsEmail />
       {/* Renders only for an Owner of the acting workspace. */}
       <GoogleClientPanel testResult={googleTest ?? null} />

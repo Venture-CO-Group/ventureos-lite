@@ -1,5 +1,6 @@
 "use client";
 import { attemptVoid } from "@/lib/client/server-action";
+import { GoogleConnectHelp } from "./google-connect-help";
 
 import { useEffect, useState } from "react";
 import {
@@ -87,6 +88,7 @@ export function SettingsEmail() {
           >
             Connect a mailbox
           </a>
+          <GoogleConnectHelp />
         </div>
       ) : (
         <div className="space-y-2">

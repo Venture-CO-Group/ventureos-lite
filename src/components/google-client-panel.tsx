@@ -10,6 +10,7 @@ import {
   saveWorkspaceGoogleClient,
 } from "@/modules/google/client-actions";
 import type { GoogleClientPanel as Panel } from "@/modules/google/client-admin";
+import { googleErrorMessage } from "@/modules/google/errors";
 
 /**
  * Settings → "Google connection" (per-workspace Google clients, item 3).
@@ -78,7 +79,7 @@ export function GoogleClientPanel({ testResult }: { testResult?: string | null }
     testResult
       ? testResult === "ok"
         ? { kind: "ok", text: "Test passed: Google accepted this workspace's client for your account." }
-        : { kind: "err", text: `Test failed (${testResult}).` }
+        : { kind: "err", text: `Test failed. ${googleErrorMessage(testResult).message}` }
       : null,
   );
   /** Set when a save would cut live connections and is waiting for a yes. */

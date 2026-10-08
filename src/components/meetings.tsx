@@ -1,5 +1,6 @@
 "use client";
 import { attemptVoid } from "@/lib/client/server-action";
+import { GoogleConnectHelp } from "./google-connect-help";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -383,6 +384,7 @@ export function Meetings({
                 >
                   Connect Google Calendar
                 </a>
+                <GoogleConnectHelp />
               </>
             )}
           </div>
