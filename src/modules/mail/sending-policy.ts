@@ -12,11 +12,16 @@
  *   - approved 1:1 cold outbound (Gmail) — the Outbound Motor, from ONE
  *     configured address.
  *
- * Cold mail, in either cold lane, may never leave from a domain that shares a
- * registrable domain with the workspace's transactional domain — a complaint
- * on cold mail must never be able to burn the reputation quotes and invoices
- * depend on. (That is the general form of "nothing cold from .group" for the
- * Venture workspace, whose transactional domain is mg.ventureco.group.)
+ * The two cold lanes are held to different domain rules, on purpose:
+ *   - cold BULK (Mailgun campaigns) may never use a domain that shares a
+ *     registrable domain with the workspace's transactional domain — a
+ *     complaint on a campaign must never be able to burn the reputation
+ *     quotes and invoices depend on;
+ *   - the 1:1 Gmail outbound lane sends from a person's own mailbox, a small
+ *     approved volume authenticated by the company's Google Workspace, so it
+ *     may use the company's main domain; it may only never be the
+ *     transactional SENDING domain itself. (The Venture workspace: Fanni
+ *     sends from fanni.viragh@ventureco.group; mg.ventureco.group is refused.)
  *
  * And no workspace may send through a domain another workspace has
  * configured as its own: a sender identity belongs to one company.
@@ -69,6 +74,12 @@ function sharesTransactional(domain: string, policy: SendingPolicy): boolean {
   return !!tx && registrableDomain(domain) === tx;
 }
 
+/** The transactional sending domain itself (not merely its registrable domain). */
+function isTransactional(domain: string, policy: SendingPolicy): boolean {
+  const tx = (policy.transactionalDomain ?? "").trim().toLowerCase();
+  return !!tx && domain === tx;
+}
+
 function foreign(domain: string, policy: SendingPolicy): boolean {
   const r = registrableDomain(domain);
   return !!r && policy.foreignDomains.has(r);
@@ -90,9 +101,9 @@ export function assertOutboundFrom(address: string | null | undefined, policy: S
       `cold outbound may only be sent from ${configured}, not ${a || "an unknown address"}`,
     );
   }
-  if (sharesTransactional(domain, policy)) {
+  if (isTransactional(domain, policy)) {
     throw new ColdSenderError(
-      `${a} shares a domain with this workspace's transactional domain (${policy.transactionalDomain})`,
+      `${a} is on this workspace's transactional sending domain (${policy.transactionalDomain})`,
     );
   }
   if (foreign(domain, policy)) {
@@ -122,8 +133,8 @@ export function validateOutboundAddress(address: string, policy: SendingPolicy):
   const a = address.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a)) return "Enter a full email address.";
   const domain = domainOfAddress(a);
-  if (sharesTransactional(domain, policy)) {
-    return `${domain} shares a domain with this workspace's transactional domain (${policy.transactionalDomain}). Cold outbound needs its own domain.`;
+  if (isTransactional(domain, policy)) {
+    return `${domain} is this workspace's transactional sending domain. Cold outbound may not send from it.`;
   }
   if (foreign(domain, policy)) return `${domain} is already configured by another workspace.`;
   return null;

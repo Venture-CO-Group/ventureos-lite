@@ -567,7 +567,8 @@ The motor finds companies for a product, checks them against the product's ICP
 profile, audits their site, finds a person to write to, drafts a message
 built on one fact about that company — and puts it in **Outbound → Approval
 queue** for a person to approve. Approved mail leaves from
-**fanni.viragh@ventureco.agency** through that account's own Gmail. Nothing is
+the workspace's configured address — for Venture, Fanni's own
+**fanni.viragh@ventureco.group** — through that account's own Gmail. Nothing is
 sent without an approval, and nothing is drafted without a company-specific
 fact (CLAUDE.md hard rules 6, 10, 11).
 
@@ -579,10 +580,12 @@ fact (CLAUDE.md hard rules 6, 10, 11).
 2. **Counsel sign-off.** Admin → Integrations → the cold-email sign-off. The
    outbound sender is gated on the same record as the Mailgun campaigns; until
    it exists, approved mail waits and nothing goes out.
-3. **The mailbox.** Sign in **as Fanni**, Settings → Email → connect
-   *fanni.viragh@ventureco.agency*. The motor only ever sends from that exact
-   address; a `.group` mailbox is refused in code. Admin → Outbound shows
-   "Mailbox connected" and today's send cap once it is.
+3. **The mailbox.** Admin → Outbound → *Send cold outbound only from* holds
+   the address (Venture: *fanni.viragh@ventureco.group*). Then sign in **as
+   Fanni**, in this workspace, Settings → Email → connect that mailbox. The
+   motor only ever sends from that exact address; the transactional domain
+   `mg.ventureco.group` and any other address are refused in code. Admin →
+   Outbound shows "Mailbox connected" and today's send cap once it is.
 4. **The schedule.** Admin → Outbound → *Fill the approval queue overnight*.
    Default 03:00 Budapest time, Monday to Friday. Leave it off until you have
    run one campaign by hand and liked the result.

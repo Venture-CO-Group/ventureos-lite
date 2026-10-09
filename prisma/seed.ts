@@ -35,7 +35,7 @@ async function main() {
         // The Venture workspace's cold outbound identity (CLAUDE.md rule 11).
         // Configuration of THIS workspace, not a code default any other
         // workspace could inherit.
-        outboundConfig: { sending: { senderAddress: "fanni.viragh@ventureco.agency" } },
+        outboundConfig: { sending: { senderAddress: "fanni.viragh@ventureco.group" } },
       },
     });
   }

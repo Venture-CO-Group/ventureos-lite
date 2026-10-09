@@ -52,7 +52,7 @@ const sendingSchema = z.object({
    * The ONE address this workspace's cold outbound may leave from (CLAUDE.md
    * hard rule 11, per workspace). Its Gmail mailbox must be connected in this
    * workspace. Null until an Owner configures it — and with none, nothing
-   * sends. The Venture workspace's value is fanni.viragh@ventureco.agency,
+   * sends. The Venture workspace's value is fanni.viragh@ventureco.group,
    * set by migration rather than written here, so no other workspace can
    * inherit it.
    */

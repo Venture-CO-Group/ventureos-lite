@@ -32,13 +32,17 @@ describe("another company's workspace", () => {
   });
 
   it("can never send through the Venture domains", () => {
-    expect(() => assertOutboundFrom("fanni.viragh@ventureco.agency", { ...SEYU, outboundAddress: "fanni.viragh@ventureco.agency" })).toThrow(ColdSenderError);
+    expect(() => assertOutboundFrom("fanni.viragh@ventureco.group", { ...SEYU, outboundAddress: "fanni.viragh@ventureco.group" })).toThrow(ColdSenderError);
     expect(validateOutboundAddress("x@ventureco.agency", SEYU)).toMatch(/another workspace/);
     expect(() => assertColdBulkDomain("cold.ventureco.agency", SEYU)).toThrow(/another workspace/);
   });
 
-  it("may not send cold mail on its own transactional domain", () => {
-    expect(validateOutboundAddress("sales@seyuselfies.com", SEYU)).toMatch(/transactional/);
+  it("1:1 outbound may use the company's main domain, but never the transactional sending domain", () => {
+    expect(validateOutboundAddress("sales@seyuselfies.com", SEYU)).toBeNull();
+    expect(validateOutboundAddress("sales@mg.seyuselfies.com", SEYU)).toMatch(/transactional/);
+  });
+
+  it("cold BULK may not share even the registrable domain with transactional mail", () => {
     expect(() => assertColdBulkDomain("news.seyuselfies.com", SEYU)).toThrow(/transactional/);
   });
 

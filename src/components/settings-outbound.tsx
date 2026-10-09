@@ -157,8 +157,8 @@ export function SettingsOutbound({ config, isOwner, mailbox }: { config: Outboun
           />
         </label>
         <p className="text-[12px] text-muted">
-          One address, on a domain of its own: it may not share a domain with this workspace&apos;s
-          transactional mail, nor use a domain another workspace has configured. Connect its Gmail under
+          One address — a person&apos;s own mailbox. It may not be on this workspace&apos;s transactional
+          sending domain, nor on a domain another workspace has configured. Connect its Gmail under
           Settings → Email while signed in as that user, in this workspace. Nothing sends until both are set.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
