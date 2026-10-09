@@ -344,6 +344,8 @@ Do these before generating any document from it:
 3. **Settings → admin → workspaces** — see §5. New workspaces default to **$2/day**.
 4. **Settings → admin → sales** — scoring thresholds, if this entity targets a different
    customer profile.
+5. If the company has its **own Google Workspace**, its Google connection —
+   see §2b. Without it, its people cannot connect Gmail or Calendar.
 
 ### Switching
 
@@ -352,6 +354,132 @@ a member of, and your choice is stored on the session row server-side — there 
 no client-writable value to tamper with. A session pointing at a workspace you
 are not a member of is ignored and repaired to one of your own. Verified by the
 isolation test suite.
+
+---
+
+## 2b. Connecting a company's own Google Workspace
+
+**Why this exists.** The installation's Google app is an *Internal* app in the
+Venture CO Group Google Workspace. Google only lets accounts from that
+organisation through it; anybody else who presses *Connect Google* sees
+Google's own page saying **`Error 403: org_internal`**. Making the app public
+instead would send Gmail access through Google's verification and a paid
+security assessment. So a group company that runs its **own** Google Workspace
+gives its workspace here its own Internal app — or joins the Venture Google
+organisation as a secondary domain (option A below), which needs no app at all.
+
+Nothing changes for the Venture workspace: with no client of its own, a
+workspace keeps using the installation's.
+
+### Option A — add the company's domain to the existing Google organisation
+
+For a group company whose mailboxes may live in the **same** Google Workspace
+organisation as Venture CO Group. The Venture Google admin does it, once:
+
+1. **admin.google.com → Account → Domains → Manage domains → Add a domain.**
+   Enter the company's domain (e.g. `seyuselfies.com`) and choose
+   **Secondary domain**.
+2. Verify ownership with the TXT record Google shows, at the company's DNS
+   provider. Then set up the MX records Google lists, if the domain's mail is to
+   be delivered into these mailboxes.
+3. Create the people's accounts on that domain in the same admin console.
+
+From then on those accounts are part of the organisation the installation's app
+is Internal to, and *Connect Google* simply works for them. Configure nothing in
+this app. (Mailboxes move into Venture's Google organisation and billing — if
+the company must keep its own Google Workspace, use option B.)
+
+### Option B — the company's own Internal OAuth client
+
+Send this section to **the other company's Google Workspace administrator**. It
+takes about fifteen minutes; they need a super-admin account in *their*
+organisation. Everything they must copy is also shown, verbatim, on
+**Settings → Email → Google connection** in their workspace here (an Owner of
+that workspace sees it).
+
+1. **Create a Google Cloud project inside your organisation.**
+   console.cloud.google.com → project picker → **New project**. Under
+   *Organization* pick **your** organisation (not "No organization"), name it
+   e.g. "Venture OS connection", **Create**, and select it.
+
+2. **Enable the two APIs.** **APIs & Services → Library**, search for and
+   **Enable**:
+   - **Gmail API**
+   - **Google Calendar API**
+
+3. **Configure the OAuth consent screen as Internal.**
+   **APIs & Services → OAuth consent screen** (in newer consoles: *Google Auth
+   Platform → Branding / Audience*).
+   - *User type / Audience*: **Internal**. (This is what avoids Google's
+     verification: only your organisation's accounts can use it.)
+   - App name, support email, developer contact: anything sensible.
+   - *Scopes / Data access* → **Add or remove scopes**, and add exactly these:
+     ```
+     https://www.googleapis.com/auth/calendar.events
+     https://www.googleapis.com/auth/calendar.readonly
+     https://www.googleapis.com/auth/gmail.readonly
+     https://www.googleapis.com/auth/gmail.send
+     openid
+     email
+     ```
+     Save.
+
+4. **Create the OAuth client.** **APIs & Services → Credentials → Create
+   credentials → OAuth client ID** (or *Google Auth Platform → Clients →
+   Create client*).
+   - *Application type*: **Web application**.
+   - *Name*: e.g. "Venture OS".
+   - *Authorised JavaScript origins*: leave empty.
+   - *Authorised redirect URIs* → **Add URI**, and paste **exactly**:
+     ```
+     https://ventureco.agency/api/google/callback
+     ```
+     Same scheme, same host, same path, **no trailing slash**. (The exact value
+     for this installation is shown under *Google connection*; it is
+     `GOOGLE_REDIRECT_URI`.)
+   - **Create.** Google shows a **Client ID** (ends in
+     `.apps.googleusercontent.com`) and a **Client secret** (starts with
+     `GOCSPX-`). Copy both — the secret is only shown in full now.
+
+5. **Paste them into the workspace.** An Owner of the company's workspace here:
+   **Settings → Email → Google connection** → paste *Client id* and *Client
+   secret* → **Save**. The secret is encrypted at rest and never shown again;
+   paste a new one to rotate it.
+
+6. **Test.** Press **Test connection** and sign in with an account from your
+   organisation. It runs the full Google round-trip, stores nothing, and the
+   panel shows *Status: ok*. If Google shows an error instead:
+   - `org_internal` — the account you signed in with is not in the organisation
+     that owns the client. Use one that is.
+   - `redirect_uri_mismatch` — step 4's redirect URI is not exactly the one on
+     the panel.
+   - `invalid_client` — the client id or secret was mistyped; copy both again.
+
+7. **Everyone connects.** Each person in that workspace presses *Connect a
+   mailbox* (Settings → Email) or *Connect Google Calendar* (Meetings) while
+   working **in that workspace**. A connection belongs to the client of the
+   workspace it was made in — the same person connecting from another workspace
+   goes through that workspace's client.
+
+### Replacing or removing the client
+
+Rotating only the **secret** (same client id) disconnects nobody. Pasting a
+**different client id**, or **Remove**, ends every connection made through the
+old client: Google will not refresh a token for any client but the one that
+issued it. The panel says how many connections that is and asks before saving;
+those mailboxes and calendars are then marked *reconnect needed* and their
+owners get a notification. All of it is in the audit log
+(`google_client.*`).
+
+### The workspace's own sending domains
+
+A group company's workspace also sends from **its own** domains, never
+Venture's (CLAUDE.md rule 11, per workspace): its transactional Mailgun domain
+(Settings → admin → integrations; otherwise the installation default
+`mg.ventureco.group`), its cold-campaign domain, and its one cold outbound
+address (Admin → Outbound → *Send cold outbound only from*). A cold address
+may not share a domain with the workspace's transactional domain, and a domain
+another workspace configured first is refused, at save and at send.
 
 ---
 
@@ -439,7 +567,8 @@ The motor finds companies for a product, checks them against the product's ICP
 profile, audits their site, finds a person to write to, drafts a message
 built on one fact about that company — and puts it in **Outbound → Approval
 queue** for a person to approve. Approved mail leaves from
-**fanni.viragh@ventureco.agency** through that account's own Gmail. Nothing is
+the workspace's configured address — for Venture, Fanni's own
+**fanni.viragh@ventureco.group** — through that account's own Gmail. Nothing is
 sent without an approval, and nothing is drafted without a company-specific
 fact (CLAUDE.md hard rules 6, 10, 11).
 
@@ -451,10 +580,12 @@ fact (CLAUDE.md hard rules 6, 10, 11).
 2. **Counsel sign-off.** Admin → Integrations → the cold-email sign-off. The
    outbound sender is gated on the same record as the Mailgun campaigns; until
    it exists, approved mail waits and nothing goes out.
-3. **The mailbox.** Sign in **as Fanni**, Settings → Email → connect
-   *fanni.viragh@ventureco.agency*. The motor only ever sends from that exact
-   address; a `.group` mailbox is refused in code. Admin → Outbound shows
-   "Mailbox connected" and today's send cap once it is.
+3. **The mailbox.** Admin → Outbound → *Send cold outbound only from* holds
+   the address (Venture: *fanni.viragh@ventureco.group*). Then sign in **as
+   Fanni**, in this workspace, Settings → Email → connect that mailbox. The
+   motor only ever sends from that exact address; the transactional domain
+   `mg.ventureco.group` and any other address are refused in code. Admin →
+   Outbound shows "Mailbox connected" and today's send cap once it is.
 4. **The schedule.** Admin → Outbound → *Fill the approval queue overnight*.
    Default 03:00 Budapest time, Monday to Friday. Leave it off until you have
    run one campaign by hand and liked the result.

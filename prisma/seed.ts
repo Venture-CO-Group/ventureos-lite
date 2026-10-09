@@ -32,6 +32,10 @@ async function main() {
         icpConfig: DEFAULT_ICP_CONFIG,
         claudeBudget: 2,
         retentionDays: 365,
+        // The Venture workspace's cold outbound identity (CLAUDE.md rule 11).
+        // Configuration of THIS workspace, not a code default any other
+        // workspace could inherit.
+        outboundConfig: { sending: { senderAddress: "fanni.viragh@ventureco.group" } },
       },
     });
   }

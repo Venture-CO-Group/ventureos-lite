@@ -160,6 +160,8 @@ const BUSINESS_TABLES = [
   "prospect_candidates",
   "candidate_events",
   "outreach_drafts",
+  /** A workspace's own Google OAuth client — its secret is that company's. */
+  "workspace_google_clients",
 ];
 
 /**

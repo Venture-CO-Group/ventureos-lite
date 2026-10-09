@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { prismaUnsafe, getWorkspaceClient } from "../../src/lib/db";
 import { sendTick, processReplies, scheduleFollowups, unsubscribeByToken, type GmailLike } from "../../src/modules/outbound/sender";
-import { COLD_OUTBOUND_ADDRESS } from "../../src/modules/outbound/config";
+/**
+ * This workspace's configured cold outbound address. Deliberately NOT the
+ * Venture address: the shared test database's first workspace carries that
+ * one, and a domain another workspace configured is refused (rule 11).
+ */
+const COLD_OUTBOUND_ADDRESS = "sender@outbound-sending-test.example";
 import type { CallClaudeParams, CallClaudeResult } from "../../src/lib/ai/call-claude";
 import type { OutboundDraftOutput } from "../../src/lib/ai/prompts/outbound-draft";
 
@@ -86,7 +91,7 @@ beforeEach(async () => {
     await prismaUnsafe[t].deleteMany({ where: { workspaceId: ws } });
   }
   await prismaUnsafe.googleCredential.deleteMany({ where: { userId: senderId } });
-  await prismaUnsafe.workspace.update({ where: { id: ws }, data: { featureFlags: SIGNOFF, outboundConfig: {} } });
+  await prismaUnsafe.workspace.update({ where: { id: ws }, data: { featureFlags: SIGNOFF, outboundConfig: { sending: { senderAddress: COLD_OUTBOUND_ADDRESS } } } });
   const cred = await prismaUnsafe.googleCredential.create({
     data: { userId: senderId, accountEmail: COLD_OUTBOUND_ADDRESS, accessToken: "a", refreshToken: "r", expiryDate: new Date(NOW.getTime() + 3600_000) },
   });
@@ -174,6 +179,40 @@ describe("sending (spec §4.43.9)", () => {
     const cred = await prismaUnsafe.googleCredential.create({ data: { userId: senderId, accountEmail: "fanni@ventureco.group", accessToken: "a" } });
     await prismaUnsafe.mailAccount.create({ data: { workspaceId: ws, userId: senderId, accountEmail: "fanni@ventureco.group", credentialId: cred.id } });
     await approvedDraft();
+    const { g, sent } = gmailStub();
+    expect(await sendTick(ws, { now: () => NOW, gmail: g })).toBe("no_mailbox");
+    expect(sent).toHaveLength(0);
+  });
+
+  it("refuses to send from a domain another workspace configured first", async () => {
+    // Another company configured outbound-sending-test.example FIRST — it is
+    // theirs, and this workspace naming it too does not make it shared.
+    const thief = await prismaUnsafe.workspace.create({
+      data: {
+        name: `${NAMES[0]} claimant`,
+        createdAt: new Date("2020-01-01T00:00:00Z"),
+        outboundConfig: { sending: { senderAddress: "boss@outbound-sending-test.example" } },
+      },
+    });
+    try {
+      const { draft } = await approvedDraft();
+      const { g, sent } = gmailStub();
+      expect(await sendTick(ws, { now: () => NOW, gmail: g })).toBe("refused_sender");
+      expect(sent).toHaveLength(0);
+      const after = await getWorkspaceClient(ws).outreachDraft.findUniqueOrThrow({ where: { id: draft.id } });
+      expect(after.sendError).toMatch(/another workspace/);
+    } finally {
+      await prismaUnsafe.workspace.delete({ where: { id: thief.id } });
+    }
+  });
+
+  it("refuses a mailbox address the workspace did not configure", async () => {
+    await approvedDraft();
+    // The mailbox is connected, but the configured sender is a different address.
+    await prismaUnsafe.workspace.update({
+      where: { id: ws },
+      data: { outboundConfig: { sending: { senderAddress: "other@outbound-sending-test.example" } } },
+    });
     const { g, sent } = gmailStub();
     expect(await sendTick(ws, { now: () => NOW, gmail: g })).toBe("no_mailbox");
     expect(sent).toHaveLength(0);

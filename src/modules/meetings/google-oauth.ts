@@ -51,7 +51,12 @@ export const GOOGLE_SCOPES = [
  */
 export const GOOGLE_PROMPT = "select_account consent";
 
-export function googleConsentUrl(opts: { clientId: string; redirectUri: string }): string {
+export function googleConsentUrl(opts: {
+  clientId: string;
+  redirectUri: string;
+  /** Signed state (modules/google/oauth-state.ts). Required by the callback. */
+  state?: string;
+}): string {
   const params = new URLSearchParams({
     client_id: opts.clientId,
     redirect_uri: opts.redirectUri,
@@ -61,5 +66,6 @@ export function googleConsentUrl(opts: { clientId: string; redirectUri: string }
     prompt: GOOGLE_PROMPT,
     include_granted_scopes: "true",
   });
+  if (opts.state) params.set("state", opts.state);
   return `${AUTH_URL}?${params.toString()}`;
 }

@@ -2,34 +2,20 @@
  * The cold outbound sender's rules, pure (playbook-v6 F5, spec §4.43.9).
  */
 import { createHash } from "node:crypto";
-import { COLD_OUTBOUND_ADDRESS, COLD_OUTBOUND_DOMAIN } from "./config";
+import { assertOutboundFrom, type SendingPolicy } from "@/modules/mail/sending-policy";
 
-/** Raised when anything tries to send cold outbound from the wrong identity. */
-export class ColdSenderError extends Error {
-  constructor(address: string) {
-    super(
-      `Refused: cold outbound may only be sent from ${COLD_OUTBOUND_ADDRESS}, not ${address || "an unknown address"} (CLAUDE.md hard rule 11).`,
-    );
-    this.name = "ColdSenderError";
-    Object.setPrototypeOf(this, ColdSenderError.prototype);
-  }
-}
+export { ColdSenderError } from "@/modules/mail/sending-policy";
 
 /**
- * THE guard (CLAUDE.md hard rule 11). Asserted on the mailbox the message is
- * about to leave from, immediately before the send call — in code, so a
- * misconfigured setting, a second connected mailbox or a future call site
- * cannot route cold mail through the transactional .group reputation. A
- * refusal, never a warning.
+ * THE guard (CLAUDE.md hard rule 11), per workspace. Asserted on the mailbox
+ * the message is about to leave from, immediately before the send call — in
+ * code, so a misconfigured setting, a second connected mailbox or a future
+ * call site cannot route cold mail through the transactional reputation or
+ * another workspace's domain. A refusal, never a warning. The rules live in
+ * modules/mail/sending-policy.ts.
  */
-export function assertColdSender(address: string | null | undefined): string {
-  const a = (address ?? "").trim().toLowerCase();
-  const domain = a.split("@")[1] ?? "";
-  // Any .group domain — the transactional reputation (quotes, contracts,
-  // invoices) — is refused by name, before the exact-match check below.
-  if (domain === "group" || domain.endsWith(".group")) throw new ColdSenderError(a);
-  if (a !== COLD_OUTBOUND_ADDRESS || domain !== COLD_OUTBOUND_DOMAIN) throw new ColdSenderError(a);
-  return a;
+export function assertColdSender(address: string | null | undefined, policy: SendingPolicy): string {
+  return assertOutboundFrom(address, policy);
 }
 
 /** RFC 2047 for a header value that is not plain ASCII. */

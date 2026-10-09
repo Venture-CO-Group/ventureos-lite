@@ -1,3 +1,5 @@
+import { loadSendingPolicy } from "../mail/sending-domains";
+import { assertColdBulkDomain, ColdSenderError } from "../mail/sending-policy";
 import type { WorkspaceClient } from "../../lib/db";
 import { getMailProvider, MailStreamError } from "../mail/provider";
 import { coldUnsubscribeLink } from "../../lib/public-links";
@@ -139,6 +141,15 @@ export async function runCampaignSend(
   if (eligible.length === 0) return { sent: 0, skipped: "nobody-due" };
 
   const identity = resolveColdIdentity(ctx.mailgunConfig, ctx.featureFlags);
+  // Per-workspace rule 11: the cold domain may not share a registrable domain
+  // with this workspace's transactional domain, nor be another workspace's.
+  // A violation is a misconfiguration — it aborts the run like a stream error.
+  try {
+    assertColdBulkDomain(identity.domain, await loadSendingPolicy(ctx.workspaceId));
+  } catch (e) {
+    if (e instanceof ColdSenderError) throw new MailStreamError(e.message);
+    throw e;
+  }
   const mail = getMailProvider();
 
   let sent = 0;

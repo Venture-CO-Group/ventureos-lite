@@ -11,6 +11,7 @@
  * hammering an endpoint that is telling it to stop, or silently dying on an
  * expired token nobody was told about.
  */
+import { refreshGoogleAccessToken } from "@/modules/google/clients";
 import {
   MailAuthError,
   MailRateLimitError,
@@ -22,7 +23,6 @@ import {
   type RefreshedCredentials,
 } from "./provider";
 
-const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
 /** Gmail caps at 500; 100 keeps a single page cheap to process. */
 const PAGE_SIZE = 100;
@@ -190,29 +190,18 @@ export class GmailProvider implements MailProvider {
       throw new MailAuthError("mailbox_not_connected");
     }
 
-    const res = await this.doFetch(TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: process.env.GOOGLE_CLIENT_ID ?? "",
-        client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-        refresh_token: creds.refreshToken,
-        grant_type: "refresh_token",
-      }),
-    });
-    if (!res.ok) {
-      // A refresh token Google refuses is not a transient failure: the user
-      // revoked access or the grant expired, and only reconnecting fixes it.
-      throw new MailAuthError(`google_token_refresh ${res.status}`);
+    // With the client that issued the token (modules/google/clients.ts). A
+    // refresh Google refuses — or a client that was replaced — is not a
+    // transient failure: only reconnecting fixes it.
+    try {
+      const { accessToken, expiryDate } = await refreshGoogleAccessToken(
+        { refreshToken: creds.refreshToken, clientRef: creds.clientRef },
+        this.doFetch,
+      );
+      return { accessToken, refreshed: { accessToken, expiryDate } };
+    } catch (e) {
+      throw new MailAuthError((e as Error).message.slice(0, 200));
     }
-    const data = (await res.json()) as { access_token: string; expires_in: number };
-    return {
-      accessToken: data.access_token,
-      refreshed: {
-        accessToken: data.access_token,
-        expiryDate: new Date(Date.now() + data.expires_in * 1000),
-      },
-    };
   }
 
   private async call(

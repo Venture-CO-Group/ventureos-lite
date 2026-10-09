@@ -399,6 +399,14 @@ model GoogleCredential {
   expiryDate   DateTime? @map("expiry_date")
   scope        String?
   calendarId   String?   @map("calendar_id")
+  /// Which OAuth client issued these tokens: "env" for the installation's own
+  /// client, "ws:<workspaceId>:<clientId row>" for a workspace's own. A refresh
+  /// must use the client that issued the token — Google refuses any other.
+  /// Null on rows from before per-workspace clients, which were all "env".
+  clientRef    String?   @map("client_ref")
+  /// Set when the issuing client was replaced or deleted: the refresh token
+  /// is dead, and only reconnecting through the current client fixes it.
+  invalidatedAt DateTime? @map("invalidated_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -406,6 +414,7 @@ model GoogleCredential {
   /// Reconnecting the same Google account updates it rather than duplicating.
   @@unique([userId, accountEmail])
   @@index([userId])
+  @@index([clientRef])
   @@map("google_credentials")
 }
 
@@ -3902,3 +3911,27 @@ model OutreachDraft {
   @@map("outreach_drafts")
 }
 
+
+/// A workspace's own Google OAuth client (Internal, in that company's Google
+/// Workspace), so its people can connect Gmail and Calendar without Google
+/// app verification. Absent → the installation's env client is used.
+///
+/// One per workspace. Replacing the client id creates a NEW row (new id, new
+/// clientRef) so the credentials the old one issued are identifiable and can be
+/// marked for reconnection; rotating only the secret keeps the row.
+model WorkspaceGoogleClient {
+  id              String    @id @default(cuid())
+  workspaceId     String    @unique @map("workspace_id")
+  clientId        String    @map("client_id")
+  /// AES-256-GCM via src/lib/crypto.ts (CREDENTIALS_KEY). Never returned to a client.
+  clientSecretEnc String    @map("client_secret_enc") @db.Text
+  /// untested | ok | error
+  status          String    @default("untested")
+  lastTestedAt    DateTime? @map("last_tested_at")
+  lastError       String?   @map("last_error") @db.Text
+  createdBy       String    @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@map("workspace_google_clients")
+}

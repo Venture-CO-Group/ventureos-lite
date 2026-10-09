@@ -99,7 +99,7 @@ export async function sendThreadReply(raw: unknown): Promise<SendReplyResult> {
         where: { id: thread.account.credentialId },
       })
     : null;
-  if (!credential) {
+  if (!credential || credential.invalidatedAt) {
     return { ok: false, error: "reconnect", message: "Reconnect the mailbox to send." };
   }
 
@@ -107,6 +107,7 @@ export async function sendThreadReply(raw: unknown): Promise<SendReplyResult> {
     accessToken: credential.accessToken,
     refreshToken: credential.refreshToken,
     expiryDate: credential.expiryDate,
+    clientRef: credential.clientRef,
   };
 
   // The operator's text is escaped into simple HTML rather than passed through:

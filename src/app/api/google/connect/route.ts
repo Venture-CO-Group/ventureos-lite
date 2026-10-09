@@ -1,28 +1,44 @@
+import { cookies } from "next/headers";
 import { tryGetActiveContextOrThrow } from "@/lib/session";
-import { googleConsentUrl } from "@/modules/meetings/google-oauth";
+import { isOwner } from "@/lib/authz";
+import { startGoogleOAuth } from "@/modules/google/oauth-flow";
+import { STATE_COOKIE, STATE_TTL_MS } from "@/modules/google/oauth-state";
+import { appLink } from "@/lib/public-links";
 
 /**
- * Start the Google Calendar OAuth flow (spec §4.8). Redirects the host to
- * Google's consent screen; tokens are exchanged and stored server-side by the
- * callback.
+ * Start the Google OAuth flow (spec §4.8; per-workspace clients, item 2).
  *
- * The URL itself is built in `@/modules/meetings/google-oauth`, where a test can
- * reach it — this file cannot be imported by one, because the session pulls in
- * Auth.js. That is exactly how the parameter deciding whether a second calendar
- * could be connected at all went unasserted.
+ * The client is the ACTING workspace's own if it has one, otherwise the
+ * installation's. The state is signed and names that workspace and this user;
+ * its nonce also goes into an httpOnly cookie, so the callback only accepts it
+ * in the browser that started it.
+ *
+ * `?purpose=test` is the Owner's "Test connection": the same round-trip, but
+ * the callback stores nothing and marks the workspace's client as tested.
  */
-export async function GET() {
+export async function GET(req: Request) {
+  let ctx: { workspaceId: string; userId: string };
   try {
-    await tryGetActiveContextOrThrow();
+    ctx = await tryGetActiveContextOrThrow();
   } catch {
     return new Response("Unauthorized", { status: 401 });
   }
-
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
-  if (!clientId || !redirectUri) {
-    return new Response("Google Calendar is not configured", { status: 503 });
+  const purpose = new URL(req.url).searchParams.get("purpose") === "test" ? "test" : "connect";
+  if (purpose === "test" && !(await isOwner())) {
+    return new Response("Only an Owner can test the workspace's Google client", { status: 403 });
   }
 
-  return Response.redirect(googleConsentUrl({ clientId, redirectUri }), 302);
+  const started = await startGoogleOAuth({ ...ctx, purpose });
+  if (!started.ok) {
+    return Response.redirect(appLink(`/settings/email?google_error=not_configured`), 302);
+  }
+  (await cookies()).set(STATE_COOKIE, started.nonce, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    // Lax, not Strict: the callback is a top-level navigation from Google.
+    sameSite: "lax",
+    path: "/api/google",
+    maxAge: Math.floor(STATE_TTL_MS / 1000),
+  });
+  return Response.redirect(started.url, 302);
 }

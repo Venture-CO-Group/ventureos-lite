@@ -79,11 +79,17 @@ export async function processMailSync(
     await setHealth(account.id, "reconnect_needed", "no credential on this account");
     return 0;
   }
+  if (credential.invalidatedAt) {
+    // Its OAuth client was replaced or deleted; the refresh token is dead.
+    await setHealth(account.id, "reconnect_needed", "the Google client that issued this connection was replaced");
+    return 0;
+  }
 
   const creds: MailCredentials = {
     accessToken: credential.accessToken,
     refreshToken: credential.refreshToken,
     expiryDate: credential.expiryDate,
+    clientRef: credential.clientRef,
   };
 
   const db = getWorkspaceClient(account.workspaceId);
