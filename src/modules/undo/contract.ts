@@ -53,6 +53,9 @@ export const DESTRUCTIVE_ACTIONS: Record<string, Undoability> = {
   // that are gone, so an "undo" of a delete would report success and restore
   // nothing. Making these reversible means soft-deleting them, which is a
   // schema decision nobody has asked for yet.
+  deleteFinderList: permanent(
+    "The saved list, its results and its run history are removed. The companies stay in the shared pool and the datasheet cache, so running the same filter again costs no quota for them.",
+  ),
   deleteTask: permanent(
     "The task is removed along with its subtasks, comments, attachments and dependency links. There is nothing kept to restore from.",
   ),

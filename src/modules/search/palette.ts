@@ -27,6 +27,7 @@ export type PaletteActionId =
   | "go-content"
   | "go-projects"
   | "go-prospector"
+  | "go-finder"
   | "go-audit"
   | "go-outreach"
   | "go-outbound"
@@ -120,6 +121,7 @@ export const PALETTE_ACTIONS: PaletteAction[] = [
    */
   { id: "go-portal", label: "Go to the client portal", keywords: ["client", "portal", "kliens", "delivery"], href: "/portal", group: "navigate" },
   { id: "go-prospector", label: "Go to Prospector", keywords: ["google", "places", "find businesses", "search area"], href: "/prospector", group: "navigate" },
+  { id: "go-finder", label: "Go to Company Finder", keywords: ["cégadat", "registry", "teáor", "company list", "export companies", "lista"], href: "/finder", group: "navigate" },
   { id: "go-audit", label: "Go to Site Audit", keywords: ["website", "score", "report"], href: "/audit", group: "navigate" },
   { id: "go-outreach", label: "Go to Outreach", keywords: ["message", "draft", "sequence"], href: "/outreach", group: "navigate" },
   { id: "go-outbound", label: "Go to Outbound", keywords: ["approval", "queue", "products", "icp", "cold"], href: "/outbound", group: "navigate" },

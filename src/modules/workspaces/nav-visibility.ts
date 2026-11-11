@@ -52,6 +52,7 @@ export interface NavFeature {
 export const NAV_FEATURES: readonly NavFeature[] = [
   { key: "dashboard", label: "Dashboard", href: "/", essential: true, hint: "The landing screen." },
   { key: "prospector", label: "Prospector", href: "/prospector", hint: "Finding businesses on Google Places." },
+  { key: "finder", label: "Company Finder", href: "/finder", hint: "Filtering and exporting companies from the company registry." },
   { key: "leads", label: "Lead Engine", href: "/leads", essential: true, hint: "Where the leads are. Hiding it would leave no way to reach them." },
   { key: "audit", label: "Site Audit", href: "/audit", hint: "Website auditing and the audit reports." },
   { key: "pipeline", label: "Pipeline", href: "/pipeline", essential: true, hint: "The sales board." },

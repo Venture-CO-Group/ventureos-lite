@@ -160,6 +160,10 @@ const BUSINESS_TABLES = [
   "prospect_candidates",
   "candidate_events",
   "outreach_drafts",
+  /** The Company Finder (saved lists, their results and metered runs). */
+  "finder_lists",
+  "finder_results",
+  "finder_runs",
   /** A workspace's own Google OAuth client — its secret is that company's. */
   "workspace_google_clients",
 ];
