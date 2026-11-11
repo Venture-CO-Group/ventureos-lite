@@ -40,7 +40,7 @@ function stub(routes: Record<string, { status: number; body: string }>) {
   return { api: new CegadatProvider("k", doFetch, "https://api.cegadatapi.hu"), calls };
 }
 
-const IDS = ["32305964243", "14945083241", "10886861244", "10906110242", "64261351133", "64435314123", "99999999242"];
+const IDS = ["32305964243", "14945083241", "10886861244", "10906110242", "64261351133", "64435314123", "99999999242", "99999998241"];
 const routes = Object.fromEntries(IDS.map((id) => [`detail:${id}`, { status: 200, body: fixture(`detail-${id}.json`) }]));
 
 describe("detail mapping, all six test companies", () => {
@@ -103,6 +103,21 @@ describe("detail mapping, all six test companies", () => {
     expect(s.website).toBe("https://www.mintafogaszat.example");
     expect(s.netRevenue).toBe(184_000_000n);
     expect(s.activities.map((a) => a.code)).toEqual(["8623", "8622"]);
+  });
+
+  it("maps the street, the headcount date and bank accounts (v1.4 fields)", async () => {
+    const s = (await stub(routes).api.detail("32305964-2-43"))!;
+    expect(s.seat.street).toBe("Derkovits Gyula utca 53.");
+    expect(s.employeeCountDate).toBe("2026-09-08");
+    expect(s.bankAccounts).toEqual([
+      { bankName: "OTP Fiók Tapolca", accountNumber: "00000000-00000000-00000000", effectiveFrom: "2023-06-19" },
+      { bankName: "OTP Veszprém m. Belföldiek Devizái", accountNumber: "00000000-00000000-00000000", effectiveFrom: "2023-06-19" },
+    ]);
+    // Sole traders carry none of the three company-only fields.
+    const ev = (await stub(routes).api.detail("64261351-1-33"))!;
+    expect(ev.employeeCountDate).toBeNull();
+    expect(ev.bankAccounts).toEqual([]);
+    expect(ev.seat.street).toBe("Minta utca 1.");
   });
 
   it("returns null for a tax number the registry does not know", async () => {

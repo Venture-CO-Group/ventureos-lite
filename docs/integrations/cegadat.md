@@ -37,6 +37,26 @@ these places, and the code follows the documentation:
   `emailAddress`; the contact mapping is tested on a synthetic fixture shaped
   like the documented example.
 
+## Re-verified 2026-11-11 (Company Finder)
+
+The documentation was re-read before the Company Finder was built. Still
+**v1.4 (2026.02.05)**: `X-Api-Key` against `api.cegadatapi.hu`; `/v1/search`
+takes exactly `name`, `vatNumber`, `registryNumber`, `businessType`,
+`sensitivity`, `limit`, `page`, `status`; `/v1/detail` takes `id` (the tax
+number). The provider's auth and parameter names already matched, so neither changed.
+
+The mapping did not carry three documented detail fields the export needs,
+and now does: `addressStreet` → `seat.street`, `employeeDate` →
+`employeeCountDate`, `bankAccounts[] { bankName, accountNumber, effectiveFrom }`
+→ `bankAccounts`. All three are optional on `CompanyDatasheet`, because sheets
+cached before this change lack them, and a cache hit must not be re-bought to
+fill them.
+
+The docs page itself states no licence or redistribution terms; those are in
+the provider's ÁSZF (welldata.hu, effective 2026.06.08). The workspace
+setting "exported company data may be passed to third parties" exists for that
+reason (default off).
+
 ## Quota rules (CLAUDE.md hard rule 12)
 
 - Every detail call goes through `getDatasheet()`: 90-day cache per tax

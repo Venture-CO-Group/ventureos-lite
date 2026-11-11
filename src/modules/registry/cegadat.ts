@@ -18,7 +18,7 @@
  * Every failure is classified here too: a quota answer must become a pause,
  * never a crash (CLAUDE.md hard rule 12).
  */
-import type { CompanyDatasheet, DatasheetActivity, DatasheetPerson } from "./datasheet";
+import type { CompanyDatasheet, DatasheetActivity, DatasheetBankAccount, DatasheetPerson } from "./datasheet";
 
 export const CEGADAT_BASE_URL = "https://api.cegadatapi.hu";
 const TIMEOUT_MS = 10_000;
@@ -180,6 +180,18 @@ export function abbreviateLegalForm(form: string | null, fullName: string | null
   return form;
 }
 
+function bankAccounts(raw: unknown): DatasheetBankAccount[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((b) => {
+      if (!b || typeof b !== "object") return null;
+      const o = b as Record<string, unknown>;
+      const accountNumber = str(o.accountNumber);
+      return accountNumber ? { bankName: str(o.bankName), accountNumber, effectiveFrom: str(o.effectiveFrom) } : null;
+    })
+    .filter((b): b is DatasheetBankAccount => b !== null);
+}
+
 /** A website as the registry writes it ("www.x.hu") → a URL we can fetch. */
 function website(v: unknown): string | null {
   const s = str(v);
@@ -206,6 +218,7 @@ export function mapCegadatDetail(r: Record<string, unknown>): CompanyDatasheet {
       county: str(r.addressCounty),
       city: str(r.addressCity),
       zip: str(r.addressPostalCode),
+      street: str(r.addressStreet),
       oneLine: str(r.fullAddress),
     },
     principalActivity: parseActivity(r.principalActivity),
@@ -225,11 +238,13 @@ export function mapCegadatDetail(r: Record<string, unknown>): CompanyDatasheet {
     afterTaxResult: money(r.netSalesRevenues) ?? money(r.netIncome),
     balanceSheetTotal: money(r.totalAssets),
     employeeCount: int(r.employeeCount),
+    employeeCountDate: str(r.employeeDate),
     owners: people(r.owners),
     managers: people(r.managers),
     website: website(r.website),
     phone: str(r.phoneNumber),
     email: str(r.emailAddress)?.toLowerCase() ?? null,
+    bankAccounts: bankAccounts(r.bankAccounts),
   };
 }
 

@@ -17,6 +17,13 @@ export interface DatasheetPerson {
   role: string | null;
 }
 
+/** A bank account as the registry lists it. Never exported by default (spec: Company Finder). */
+export interface DatasheetBankAccount {
+  bankName: string | null;
+  accountNumber: string;
+  effectiveFrom: string | null;
+}
+
 export interface DatasheetActivity {
   code: string;
   label: string | null;
@@ -37,6 +44,8 @@ export interface CompanyDatasheet {
     county: string | null;
     city: string | null;
     zip: string | null;
+    /** "Derkovits Gyula utca 53." — `addressStreet`. Optional: sheets cached before 2026-11 lack it. */
+    street?: string | null;
     oneLine: string | null;
   };
   principalActivity: DatasheetActivity | null;
@@ -50,11 +59,15 @@ export interface CompanyDatasheet {
   afterTaxResult: bigint | null;
   balanceSheetTotal: bigint | null;
   employeeCount: number | null;
+  /** The date the headcount refers to (`employeeDate`). Optional for older cached sheets. */
+  employeeCountDate?: string | null;
   owners: DatasheetPerson[];
   managers: DatasheetPerson[];
   website: string | null;
   phone: string | null;
   email: string | null;
+  /** Optional for older cached sheets. Personal-ish financial data: never in a default export. */
+  bankAccounts?: DatasheetBankAccount[];
 }
 
 /** Every activity code on the sheet, principal first. */

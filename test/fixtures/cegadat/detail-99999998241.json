@@ -1,0 +1,56 @@
+{
+  "status": true,
+  "response": {
+    "results": {
+      "fullName": "Árvíztűrő, Tükörfúró és Társa Korlátolt Felelősségű Társaság",
+      "shortName": "Árvíztűrő, Tükörfúró és Társa Kft.",
+      "legalForm": "Korlátolt felelősségű társaság",
+      "fullAddress": "1052 Budapest, Próba köz 7.",
+      "addressCounty": "Budapest",
+      "addressPostalCode": "1052",
+      "addressCity": "Budapest",
+      "addressStreet": "Próba köz 7.",
+      "vatNumber": "99999998241",
+      "registryNumber": "0109999998",
+      "dateFounded": "2019-09-16",
+      "statisticalCode": "99999998622011301",
+      "website": null,
+      "phoneNumber": null,
+      "emailAddress": "Iroda@arviztuero.example",
+      "reportDate": "2025-12-31",
+      "netRevenue": 42000000,
+      "shareholdersEquity": "3000000",
+      "operatingProfit": "1500000",
+      "earningsBeforeTaxes": "1400000",
+      "netSalesRevenues": "1250000",
+      "totalAssets": "9000000",
+      "employeeDate": "2026-09-30",
+      "employeeCount": 4,
+      "ownerCount": 1,
+      "owners": [
+        "Teszt Személy 93"
+      ],
+      "managerCount": 1,
+      "managers": [
+        "Teszt Személy 93"
+      ],
+      "principalActivity": "6201. Számítógépes programozás",
+      "activities": [
+        "6201. Számítógépes programozás",
+        "7022. Üzletviteli, egyéb vezetési tanácsadás"
+      ],
+      "bankAccounts": [
+        {
+          "bankName": "Minta Bank Zrt.",
+          "accountNumber": "00000000-00000000-00000000",
+          "effectiveFrom": "2019-10-01"
+        }
+      ],
+      "branches": [],
+      "branchOffices": [],
+      "status": "Aktív",
+      "parentCompanies": [],
+      "subsidiaries": []
+    }
+  }
+}
