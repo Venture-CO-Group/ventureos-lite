@@ -10,6 +10,7 @@ import {
   type FinderDeps,
 } from "../../src/modules/finder/engine";
 import type { FinderCriteriaInput } from "../../src/modules/finder/criteria";
+import { enrichListContacts } from "../../src/modules/finder/contacts";
 import { fixtureApi, type FixtureApi } from "../helpers/cegadat-fixtures";
 
 /**
@@ -302,5 +303,46 @@ describe("cached-only mode", () => {
     await harvestList(wsA, list.id, deps(f));
     expect(await matches(wsA, list.id)).toEqual(["99999998241"]);
     expect(await getWorkspaceClient(wsA).finderResult.count({ where: { listId: list.id } })).toBe(1);
+  });
+});
+
+describe("contact enrichment from imprint pages", () => {
+  it("fills missing contacts with their source and rescues contact-only refusals, spending nothing", async () => {
+    const f = fixtureApi();
+    const list = await newList(wsA, { keywords: ["Társaság"], counties: ["Budapest"], contactRequirement: "phone" });
+    await harvestList(wsA, list.id, deps(f));
+    const run = await createFinderRun(getWorkspaceClient(wsA), wsA, { listId: list.id, maxLookups: 10, estimate: await estimateEnrichment(wsA, list.id, 10, NOW), userId: null });
+    await drive(wsA, run.id, deps(f));
+    // Only the synthetic dental clinic has a registry phone.
+    expect(await matches(wsA, list.id)).toEqual(["99999999242"]);
+    const ledger = await getWorkspaceClient(wsA).registryQuotaLedger.count();
+    const detail = f.detailCalls.length;
+
+    const read: string[] = [];
+    const r = await enrichListContacts(wsA, list.id, {
+      now: () => NOW,
+      readSite: async (url) => {
+        read.push(url);
+        return url.includes("arviztuero")
+          ? { emails: ["info@arviztuero.example", "valaki@gmail.com"], phones: ["+36 1 222 3333"] }
+          : null;
+      },
+    });
+    // The registry email's domain located the site of the company that had no website listed.
+    expect(read).toEqual(["https://arviztuero.example"]);
+    expect(r.rescued).toBe(1);
+    expect(await matches(wsA, list.id)).toEqual(["99999998241", "99999999242"]);
+    const rescued = await getWorkspaceClient(wsA).finderResult.findFirst({ where: { listId: list.id, taxNumber: "99999998241" } });
+    expect(rescued!.contacts).toEqual({
+      email: { value: "iroda@arviztuero.example", source: "registry" },
+      phone: { value: "+36 1 222 3333", source: "impresszum" },
+      website: { value: "https://arviztuero.example", source: "impresszum" },
+    });
+    expect(await getWorkspaceClient(wsA).registryQuotaLedger.count()).toBe(ledger);
+    expect(f.detailCalls.length).toBe(detail);
+
+    // A second pass has nothing left to read.
+    const again = await enrichListContacts(wsA, list.id, { now: () => NOW, readSite: async () => { throw new Error("must not read"); } });
+    expect(again).toMatchObject({ checked: 0, remaining: 0 });
   });
 });

@@ -25,6 +25,9 @@ export default async function FinderListPage({ params }: { params: Promise<{ id:
     db.finderRun.findMany({ where: { listId: id }, orderBy: { startedAt: "desc" }, take: 10 }),
     quotaMeter(workspaceId),
   ]);
+  const contactTodo = await db.finderResult.count({
+    where: { listId: id, siteChecked: false, OR: [{ state: "MATCH" }, { state: "NO_MATCH", reason: "CONTACT" }] },
+  });
   if (!list) notFound();
   return (
     <AppShell activePath="/finder">
@@ -48,6 +51,7 @@ export default async function FinderListPage({ params }: { params: Promise<{ id:
         <FinderRunPanel
           list={list}
           canRun={canEdit}
+          contactTodo={contactTodo}
           runs={runs.map((r) => ({
             id: r.id,
             status: r.status,

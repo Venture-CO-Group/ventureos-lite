@@ -115,3 +115,26 @@ export async function stopRun(runId: string): Promise<Result> {
   revalidatePath("/finder");
   return { ok: true };
 }
+
+/**
+ * The optional contact step (item 4): imprint pages and the CRM, for matches
+ * lacking an email or phone. Costs no registry quota and no paid verification.
+ */
+export async function startContactEnrichment(listId: string): Promise<Result> {
+  const denied = await gate();
+  if (denied) return { ok: false, error: denied };
+  const { workspaceId, userId } = await getActiveContext();
+  const db = getWorkspaceClient(workspaceId);
+  const list = await db.finderList.findUnique({ where: { id: listId } });
+  if (!list) return { ok: false, error: "That list no longer exists." };
+  if (BUSY.includes(list.status)) return { ok: false, error: "The list is already running." };
+  const todo = await db.finderResult.count({
+    where: { listId, siteChecked: false, OR: [{ state: "MATCH" }, { state: "NO_MATCH", reason: "CONTACT" }] },
+  });
+  if (todo === 0) return { ok: false, error: "Every match has been checked already." };
+  await db.finderList.update({ where: { id: listId }, data: { status: "CONTACTS", message: `Reading imprint pages for up to ${todo} companies…` } });
+  await db.auditLog.create({ data: { workspaceId, actorUserId: userId, action: "finder.contacts.started", entityType: "FinderList", entityId: listId, meta: { todo } } });
+  await enqueueFinderJob({ kind: "contacts", workspaceId, listId, attempt: Date.now() });
+  revalidatePath(`/finder/${listId}`);
+  return { ok: true };
+}

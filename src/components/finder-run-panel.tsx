@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { attempt } from "@/lib/client/server-action";
-import { continueFinderRun, estimatePhase2, startHarvest, startPhase2, stopRun } from "@/modules/finder/run-actions";
+import { continueFinderRun, estimatePhase2, startContactEnrichment, startHarvest, startPhase2, stopRun } from "@/modules/finder/run-actions";
 import type { EnrichmentEstimate } from "@/modules/finder/engine";
 import type { ListView } from "@/modules/finder/store";
 import { REASON_LABEL, type FinderReason } from "@/modules/finder/criteria";
@@ -32,7 +32,18 @@ export interface RunRowView {
 const pct = (x: number) => `${Math.round(x * 1000) / 10}%`;
 const n = (x: number) => x.toLocaleString("hu-HU");
 
-export function FinderRunPanel({ list, runs, canRun }: { list: ListView; runs: RunRowView[]; canRun: boolean }) {
+export function FinderRunPanel({
+  list,
+  runs,
+  canRun,
+  contactTodo = 0,
+}: {
+  list: ListView;
+  runs: RunRowView[];
+  canRun: boolean;
+  /** Matches (and contact-only refusals) whose site has not been read yet. */
+  contactTodo?: number;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -189,6 +200,32 @@ export function FinderRunPanel({ list, runs, canRun }: { list: ListView; runs: R
             )
           )}
           <RunHistory runs={runs.filter((r) => r !== open)} />
+        </div>
+      )}
+
+      {/* Optional contact enrichment */}
+      {phase1Done && (
+        <div className="grid gap-2 rounded-[10px] border border-line p-3" data-testid="finder-contacts">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[13px] font-semibold text-ink">Contacts from imprint pages · optional</span>
+            <span className="rounded-full border border-line px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-pos">free</span>
+            {canRun && (
+              <button
+                type="button"
+                className={`${BUTTON} ml-auto`}
+                disabled={pending || busy || contactTodo === 0}
+                onClick={() => act(() => startContactEnrichment(list.id))}
+                data-testid="finder-contacts-start"
+              >
+                {list.status === "CONTACTS" ? "Reading…" : "Find contacts"}
+              </button>
+            )}
+          </div>
+          <span className="text-[12px] text-muted">
+            For matches without an email or phone: reads the company&apos;s own site (homepage and imprint / contact page,
+            robots.txt honoured) and checks the CRM. No quota, no paid verification. Companies refused only for the contact
+            requirement are re-checked too. {contactTodo > 0 ? `${contactTodo} to check.` : "Nothing left to check."}
+          </span>
         </div>
       )}
     </section>
