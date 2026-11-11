@@ -1,0 +1,85 @@
+/**
+ * Company Finder work in the worker. On the OUTBOUND queue on purpose: that
+ * worker runs with concurrency one, so a finder run and a motor run can never
+ * race each other for the same day's registry allocation.
+ */
+import { outboundQueue } from "@/lib/queue";
+import { getWorkspaceClient } from "@/lib/db";
+import { advanceFinderRun, harvestList, type FinderDeps } from "./engine";
+import { enrichListContacts, type ContactDeps } from "./contacts";
+
+export type FinderJobData =
+  | { kind: "harvest"; workspaceId: string; listId: string; attempt?: number }
+  | { kind: "pass"; workspaceId: string; runId: string; attempt?: number; passes?: number }
+  | { kind: "contacts"; workspaceId: string; listId: string; attempt?: number; passes?: number };
+
+/** Passes per run are bounded, so a misbehaving run cannot loop forever. */
+const MAX_PASSES = 500;
+
+export function finderJobId(d: FinderJobData): string {
+  if (d.kind === "pass") return `finder-pass-${d.runId}-${d.attempt ?? 0}`;
+  if (d.kind === "contacts") return `finder-contacts-${d.listId}-${d.attempt ?? 0}`;
+  return `finder-harvest-${d.listId}-${Date.now()}`;
+}
+
+export async function enqueueFinderJob(data: FinderJobData): Promise<void> {
+  await outboundQueue().add(`finder-${data.kind}`, data, {
+    // A pass id per attempt: a double-click or retried enqueue cannot run two
+    // passes of one run at once.
+    jobId: finderJobId(data),
+    removeOnComplete: true,
+    removeOnFail: 100,
+  });
+}
+
+export function productionFinderDeps(): FinderDeps {
+  return { now: () => new Date(), sleep: (ms) => new Promise((r) => setTimeout(r, ms)) };
+}
+
+export async function productionContactDeps(): Promise<ContactDeps> {
+  const { readSite } = await import("@/modules/leads/enrichment");
+  return {
+    now: () => new Date(),
+    readSite: async (url) => {
+      const r = await readSite(url);
+      return r.skipped ? null : { emails: r.contacts.emails, phones: r.contacts.phones };
+    },
+  };
+}
+
+export async function processFinderJob(
+  data: FinderJobData,
+  deps: FinderDeps = productionFinderDeps(),
+  contactDeps?: ContactDeps,
+): Promise<string> {
+  if (data.kind === "contacts") {
+    const r = await enrichListContacts(data.workspaceId, data.listId, contactDeps ?? (await productionContactDeps()));
+    const passes = data.passes ?? 0;
+    if (r.remaining > 0 && r.checked > 0 && passes < MAX_PASSES) {
+      await enqueueFinderJob({ ...data, attempt: (data.attempt ?? 0) + 1, passes: passes + 1 });
+    } else {
+      await getWorkspaceClient(data.workspaceId).finderList.update({
+        where: { id: data.listId },
+        data: { status: "IDLE", message: "Contact enrichment finished — imprint pages read where a site was known." },
+      });
+    }
+    return `${r.checked} checked, ${r.filled} filled, ${r.rescued} rescued, ${r.remaining} left`;
+  }
+  if (data.kind === "harvest") {
+    try {
+      const r = await harvestList(data.workspaceId, data.listId, deps);
+      return r.message;
+    } catch (e) {
+      await getWorkspaceClient(data.workspaceId).finderList.update({
+        where: { id: data.listId },
+        data: { status: "FAILED", message: `Harvest failed: ${(e as Error).message.slice(0, 300)}` },
+      });
+      throw e;
+    }
+  }
+  const outcome = await advanceFinderRun(data.workspaceId, data.runId, deps);
+  const attempt = data.attempt ?? 0;
+  const passes = data.passes ?? 0;
+  if (outcome.again && passes < MAX_PASSES) await enqueueFinderJob({ ...data, attempt: attempt + 1, passes: passes + 1 });
+  return outcome.status;
+}

@@ -55,6 +55,8 @@ type NavItem = {
 const NAV: NavItem[] = [
   { label: "Dashboard", icon: <DashboardIcon />, href: "/" },
   { label: "Prospector", icon: <ProspectorIcon />, href: "/prospector" },
+  // Registry-based company search and export, on the outbound motor's pool.
+  { label: "Company Finder", icon: <SearchIcon />, href: "/finder" },
   { label: "Lead Engine", icon: <SearchIcon />, href: "/leads" },
   { label: "Site Audit", icon: <AuditIcon />, href: "/audit" },
   { label: "Pipeline", icon: <PipelineIcon />, href: "/pipeline" },

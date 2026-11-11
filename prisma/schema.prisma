@@ -132,6 +132,8 @@ enum LeadSource {
   /// §4.43). The lawful basis is the documented legitimate interest recorded
   /// with the counsel sign-off.
   OUTBOUND_ENGINE
+  /// Added from a Company Finder result (registry data, filtered by a saved list).
+  COMPANY_FINDER
 }
 
 enum Stage {
@@ -703,6 +705,10 @@ model Workspace {
   /// Outbound motor settings (playbook-v6): registry quota, nightly schedule,
   /// workspace cap, warm-up ramp. Parsed by src/modules/outbound/config.ts.
   outboundConfig Json?       @map("outbound_config")
+  /// Company Finder: may exported company data be passed to third parties?
+  /// The registry provider's licence may restrict redistribution, so it is
+  /// off until an Owner turns it on, and every export dialog shows it.
+  finderThirdPartySharing Boolean @default(false) @map("finder_third_party_sharing")
   /// Deletion is two-step. `deletedAt` takes the workspace out of every
   /// switcher, session and background job at once; the purge job erases its
   /// data once `purgeAfter` passes. Until then an Owner can restore it.
@@ -3530,6 +3536,8 @@ model IcpProfile {
 enum RegistryLookupPurpose {
   NIGHTLY_RUN
   MANUAL_RUN
+  /// Company Finder phase 2 — a batch consumer: daily allocation, never the reserve.
+  FINDER_RUN
   INTERACTIVE
   REFERENCE_SEED
   MANUAL_REFRESH
@@ -3599,6 +3607,8 @@ enum PoolSource {
   SEED_LIST
   PLACES
   CSV
+  /// Sent from a Company Finder result set — already filtered on a datasheet.
+  COMPANY_FINDER
 }
 
 /// The candidate state machine (spec §4.43.8). Every transition is written
@@ -3934,4 +3944,139 @@ model WorkspaceGoogleClient {
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
   @@map("workspace_google_clients")
+}
+
+// ---- Company Finder (spec: Company Finder) ------------------------------------
+//
+// A saved, reusable search over Hungarian companies ("lista"). The registry's
+// search cannot filter on activity, size, revenue or region, so a list harvests
+// candidates through the free `/v1/search` into the SHARED candidate pool (the
+// outbound motor's), and filters them locally on datasheets — cached ones free,
+// new ones metered against the same quota ledger as the motor.
+
+enum FinderListStatus {
+  /// Defined, never run.
+  DRAFT
+  /// Phase 1 (free harvest + pre-filter) in progress.
+  HARVESTING
+  /// Phase 1 done; the estimate is on the list, waiting for a phase-2 decision.
+  READY
+  /// Phase 2 (metered enrichment) in progress.
+  ENRICHING
+  /// Phase 2 stopped after its first batch so the yield can be judged.
+  CHECKPOINT
+  /// Phase 2 stopped because the daily or monthly quota ran out. Resumable.
+  PAUSED_QUOTA
+  /// Contact enrichment from imprint pages in progress.
+  CONTACTS
+  /// Nothing running.
+  IDLE
+  FAILED
+}
+
+enum FinderResultState {
+  /// Harvested, waiting for a datasheet (cached or metered).
+  PENDING
+  /// Dropped by the free pre-filter, before any quota.
+  EXCLUDED
+  MATCH
+  NO_MATCH
+  /// The registry knows no company under this tax number.
+  NOT_FOUND
+  /// A lookup failed; retried on the next pass.
+  ERROR
+}
+
+model FinderList {
+  id            String           @id @default(cuid())
+  workspaceId   String           @map("workspace_id")
+  name          String
+  /// FinderCriteria (src/modules/finder/criteria.ts), zod-validated on write.
+  criteria      Json
+  /// Stable hash of the criteria; a result evaluated under another hash is re-filtered.
+  criteriaHash  String           @map("criteria_hash")
+  /// Run against cached datasheets only — spends no quota at all.
+  cachedOnly    Boolean          @default(false) @map("cached_only")
+  status        FinderListStatus @default(DRAFT)
+  /// Phase-1 summary: { candidates, excluded: {reason: n}, cached, metered, harvestedAt, errors[] }.
+  stats         Json             @default("{}")
+  message       String?          @db.Text
+  createdById   String?          @map("created_by_id")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+  lastRunAt     DateTime?        @map("last_run_at")
+
+  results FinderResult[]
+  runs    FinderRun[]
+
+  @@index([workspaceId])
+  @@map("finder_lists")
+}
+
+model FinderResult {
+  id           String            @id @default(cuid())
+  workspaceId  String            @map("workspace_id")
+  listId       String            @map("list_id")
+  /// Normalised 11-digit tax number — the dedupe key, as in the pool.
+  taxNumber    String            @map("tax_number")
+  poolId       String?           @map("pool_id")
+  name         String
+  state        FinderResultState @default(PENDING)
+  /// IN_CRM | SUPPRESSED | PREVIOUSLY_FILTERED | LEGAL_FORM | STATUS | SEGMENT | TEAOR | SIZE | REVENUE | REGION | FOUNDED | BUSINESS_TYPE | CONTACT | KEYWORD
+  reason       String?
+  detail       String?           @db.Text
+  /// Spending order in phase 2, highest first (the pool's scorer).
+  priority     Float             @default(0)
+  /// The criteria hash the state was decided under.
+  criteriaHash String?           @map("criteria_hash")
+  /// The datasheet came from the cache (free) rather than a metered lookup.
+  fromCache    Boolean           @default(false) @map("from_cache")
+  inCrm        Boolean           @default(false) @map("in_crm")
+  /// { email?: {value, source}, phone?: {value, source}, website?: {value, source} };
+  /// source ∈ registry | impresszum | crm. Personal data: retention + erasure apply.
+  contacts     Json              @default("{}")
+  /// The imprint step has looked at this company's site.
+  siteChecked  Boolean           @default(false) @map("site_checked")
+  attempts     Int               @default(0)
+  evaluatedAt  DateTime?         @map("evaluated_at")
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+
+  list FinderList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, taxNumber])
+  @@index([workspaceId])
+  @@index([workspaceId, listId, state])
+  @@index([workspaceId, taxNumber])
+  @@map("finder_results")
+}
+
+model FinderRun {
+  id           String    @id @default(cuid())
+  workspaceId  String    @map("workspace_id")
+  listId       String    @map("list_id")
+  /// The most metered lookups this run may spend — the number the person confirmed.
+  maxLookups   Int       @map("max_lookups")
+  /// The estimate shown at confirmation: { expected, monthRemaining, todayRemaining, … }.
+  estimate     Json?
+  /// Charged lookups this run made (ledger rows with cacheHit=false).
+  lookupsSpent Int       @default(0) @map("lookups_spent")
+  /// Matches found on sheets this run paid for — the yield numerator.
+  paidMatches  Int       @default(0) @map("paid_matches")
+  evaluated    Int       @default(0)
+  matches      Int       @default(0)
+  /// RUNNING | CHECKPOINT | PAUSED_QUOTA | DONE | CANCELLED | FAILED
+  status       String    @default("RUNNING")
+  /// Lookups after which the run stops once so the yield can be judged.
+  checkpointAt Int?      @map("checkpoint_at")
+  message      String?   @db.Text
+  startedById  String?   @map("started_by_id")
+  startedAt    DateTime  @default(now()) @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+
+  list FinderList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([workspaceId, listId])
+  @@map("finder_runs")
 }

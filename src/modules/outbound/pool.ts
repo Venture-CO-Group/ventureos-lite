@@ -97,7 +97,9 @@ export interface ScoringContext {
  */
 export function scorePoolRow(row: PoolRowForScoring, ctx: ScoringContext): number {
   let score = 0;
-  score += row.source === "SEED_LIST" ? 30 : row.source === "CSV" ? 20 : row.source === "PLACES" ? 10 : 0;
+  // A Company Finder hand-off was already filtered on a datasheet; it ranks
+  // with a hand-curated seed list.
+  score += row.source === "SEED_LIST" || row.source === "COMPANY_FINDER" ? 30 : row.source === "CSV" ? 20 : row.source === "PLACES" ? 10 : 0;
 
   const own = fragmentsInName(row.name, ctx.profileFragments);
   score += Math.min(3, own.length) * 10;

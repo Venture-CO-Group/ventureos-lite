@@ -17,7 +17,7 @@ import { test, expect } from "@playwright/test";
 const PAGES = [
   "/", "/analytics", "/audit", "/calls", "/campaigns", "/content", "/deals",
   "/documents", "/inbox", "/leads", "/meetings", "/outreach", "/pipeline",
-  "/prospector", "/public-pages", "/referrers", "/settings",
+  "/prospector", "/finder", "/finder/new", "/public-pages", "/referrers", "/settings",
   "/settings/security", "/settings/notifications", "/settings/email",
   "/settings/extension", "/settings/admin", "/settings/admin/members",
   "/settings/admin/workspace", "/settings/admin/sales", "/settings/admin/audit",

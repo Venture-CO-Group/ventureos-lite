@@ -11,3 +11,10 @@ public registry data and are kept as returned.
 website, phone or email, so the contact-field mapping is exercised against a
 fixture shaped like the documented example. The `error-*` files are the
 documented error bodies.
+
+`detail-99999998241.json` is SYNTHETIC too: a micro company in Budapest with
+a registry email address, a comma and accents in its name, and a (zeroed)
+bank account. None of the six real test companies is a micro Budapest company
+with an email, so the Company Finder's verification filter needs it to have
+something to return. Its first name-search hit for "Árvíztűrő" is served by the
+test stub, not by the API.

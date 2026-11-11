@@ -73,6 +73,7 @@ import { processRunPass, type RunJobData } from "../modules/outbound/run-jobs";
 import { processOutboundSendSweep } from "../modules/outbound/send-jobs";
 import { processNightlySweep } from "../modules/outbound/schedule";
 import { processOutboundRetention } from "../modules/outbound/retention";
+import { processFinderJob, type FinderJobData } from "../modules/finder/jobs";
 
 /**
  * Background worker (BullMQ + Redis). Runs in its own Docker service.
@@ -285,6 +286,12 @@ async function main(): Promise<void> {
         const r = await processOutboundRetention();
         // eslint-disable-next-line no-console
         console.log(`[worker] outbound retention removed ${r.candidates} candidate(s), ${r.pool} pool row(s), ${r.sheets} datasheet(s)`);
+        return;
+      }
+      if (job.name.startsWith("finder-")) {
+        const status = await processFinderJob(job.data as FinderJobData);
+        // eslint-disable-next-line no-console
+        console.log(`[worker] company finder ${job.name}: ${status}`);
         return;
       }
       if (job.name === "run-pass") {
