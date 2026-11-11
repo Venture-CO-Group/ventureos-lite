@@ -726,6 +726,83 @@ past their cache life. Erasing a lead (§7) takes its candidate and every draft
 with it. Suppression entries are never erased: "do not contact" has to outlive
 the data, or the next harvest would write to them again.
 
+## 4c. Company Finder
+
+**Company Finder** (sidebar) filters Hungarian companies by activity, size,
+revenue, region, legal form, founding date and contacts, then exports them
+(CSV / Excel) or hands them to the CRM or an outbound product. It runs on
+the outbound motor's machinery: the same candidate pool, the same datasheet
+cache, the same quota ledger.
+
+### Why filtering happens here, not at the registry
+
+Cégadat's search only matches company **names** (plus tax / registry number,
+business type and status). It cannot filter on anything else. So a list
+*harvests* candidates by name — each segment fragment and each keyword you
+type is one harvest — and every other criterion is checked locally on each
+company's datasheet. The editor says so at the top.
+
+### The two-phase cost model
+
+| | What happens | Cost |
+|---|---|---|
+| **Phase 1** — *Run* | Harvest every fragment through the free search into the shared pool (deduplicated by tax number). Drop for free what needs no datasheet: already in the CRM, suppressed, refused before under the same criteria, a legal form that cannot fit. Filter every candidate whose datasheet is already cached. | **Free.** No lookups, no quota. |
+| **Phase 2** — *Estimate → Confirm* | Look up the remaining candidates' datasheets, best-scored first, and filter each one. | **One lookup per new datasheet.** Cached ones stay free. |
+
+After phase 1 the panel shows how many candidates there are, how many were
+filtered free from the cache, and how many **need a metered lookup**. For
+phase 2 you set the most lookups this run may spend; *Estimate* shows that as
+a share of what is left this month and of today's allocation, and the run
+starts only when you confirm. If the estimate grew in the meantime (a nightly
+run spent quota, say), it asks again.
+
+The run **stops after its first 25 lookups** and shows the observed yield —
+*matches per 100 lookups*. A list yielding 2 per 100 costs 50 lookups per
+match; decide then whether the rest is worth it. *Continue* spends the rest of
+the run's maximum, *Stop here* keeps what was found.
+
+Finder runs are **batch** spending, like a nightly run: they share the daily
+allocation and never touch the 15% held back for people. When the day's
+share is gone the run **pauses** (never fails); *Resume* the same list
+tomorrow — nothing already looked up is paid for again. A cached datasheet
+costs nothing, so a second list over the same companies is mostly free.
+
+### Cached datasheets only
+
+Tick *Cached datasheets only* on a list to filter just the datasheets we
+already hold, spending **zero** quota — no harvest, no lookups. Every lookup,
+by any list or the outbound motor, grows that database. Keywords then match
+company names, segments match activity codes. Old sheets are included; each
+export row carries its *Datasheet fetched* date.
+
+### Contacts
+
+*Find contacts* (optional, free) reads the company's own site — homepage and
+imprint / contact page, robots.txt honoured — for matches without an email or
+phone, and checks the CRM. Companies refused only for the contact requirement
+are re-checked too. Every contact field records its source: **registry**,
+**impresszum** or **CRM**.
+
+### Results and export
+
+The table's filters run the same rules as the list, live, on what was found.
+Select rows to *Add as leads* (source *Company Finder*), *Send to outbound*
+(into a product profile's candidate pool — drafting, the hook gate and
+approval still apply), or *Suppress* (by tax number, on the shared list).
+
+*Export* needs the **exports.run** grant and is audit-logged with the list
+definition, row count, columns, format and your optional purpose note. Bank
+account numbers are excluded by default; only an Owner can include them, with
+an explicit toggle. The dialog reminds everyone that manager/owner names and
+personal email addresses are personal data, and shows the workspace setting
+*exported company data may be passed to third parties* — **off** by default,
+changed by an Owner on the Company Finder page, because the data provider's
+licence may restrict redistribution.
+
+Finder results untouched for twelve months are deleted; erasing a lead
+removes their address from finder results and their name from their
+company's cached datasheet.
+
 ---
 
 ## 5. AI budget caps
