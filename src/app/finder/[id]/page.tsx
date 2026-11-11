@@ -6,11 +6,11 @@ import { FinderDelete } from "@/components/finder-delete";
 import { FinderRunPanel } from "@/components/finder-run-panel";
 import { RegistryQuotaMeter } from "@/components/registry-quota-meter";
 import { quotaMeter } from "@/modules/registry/registry-service";
-import { FinderResults } from "@/components/finder-results";
+import { FinderResultsPanel } from "@/components/finder-results-panel";
 import { loadFinderRows } from "@/modules/finder/rows-load";
 import { getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { hasGrant } from "@/lib/authz";
+import { hasGrant, isOwner } from "@/lib/authz";
 import { getListView } from "@/modules/finder/store";
 import { loadSegments } from "@/modules/outbound/segments";
 
@@ -27,7 +27,7 @@ export default async function FinderListPage({ params }: { params: Promise<{ id:
     db.finderRun.findMany({ where: { listId: id }, orderBy: { startedAt: "desc" }, take: 10 }),
     quotaMeter(workspaceId),
   ]);
-  const [rows, profiles, totals] = await Promise.all([
+  const [rows, profiles, totals, canExport, owner] = await Promise.all([
     loadFinderRows(db, id),
     db.icpProfile.findMany({
       where: { active: true },
@@ -35,6 +35,8 @@ export default async function FinderListPage({ params }: { params: Promise<{ id:
       orderBy: { name: "asc" },
     }),
     db.finderRun.aggregate({ where: { listId: id }, _sum: { lookupsSpent: true, paidMatches: true } }),
+    hasGrant("exports.run"),
+    isOwner(),
   ]);
   const summary = { lookupsSpent: totals._sum.lookupsSpent ?? 0, paidMatches: totals._sum.paidMatches ?? 0 };
   const contactTodo = await db.finderResult.count({
@@ -82,8 +84,9 @@ export default async function FinderListPage({ params }: { params: Promise<{ id:
           <RegistryQuotaMeter meter={meter} compact />
         </div>
       </div>
-      <FinderResults
+      <FinderResultsPanel
         listId={list.id}
+        exportPolicy={{ canExport, isOwner: owner }}
         rows={rows}
         summary={summary}
         canAct={canEdit}
