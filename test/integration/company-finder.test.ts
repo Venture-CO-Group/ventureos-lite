@@ -267,3 +267,40 @@ describe("phase 2 — metered enrichment", () => {
     expect(await getWorkspaceClient(wsB).finderList.findUnique({ where: { id: list.id } })).toBeNull();
   });
 });
+
+describe("cached-only mode", () => {
+  it("filters the datasheets already in the cache and spends zero lookups", async () => {
+    const f = fixtureApi();
+    // Build up the cache with an ordinary run first.
+    const seed = await newList(wsA, { keywords: ["Társaság"] });
+    await harvestList(wsA, seed.id, deps(f));
+    const seedRun = await createFinderRun(getWorkspaceClient(wsA), wsA, { listId: seed.id, maxLookups: 10, estimate: await estimateEnrichment(wsA, seed.id, 10, NOW), userId: null });
+    await drive(wsA, seedRun.id, deps(f));
+    const detailBefore = f.detailCalls.length;
+    const searchBefore = f.searchCalls.length;
+    const ledgerBefore = await getWorkspaceClient(wsA).registryQuotaLedger.count();
+
+    const list = await newList(wsA, { sizeBands: ["MICRO"], counties: ["Budapest"], contactRequirement: "email" }, true);
+    const r = await harvestList(wsA, list.id, deps(f));
+    expect(r.stats.metered).toBe(0);
+    expect(r.message).toMatch(/no quota spent/);
+    expect(await matches(wsA, list.id)).toEqual(["99999998241"]);
+    expect(f.detailCalls.length).toBe(detailBefore);
+    expect(f.searchCalls.length).toBe(searchBefore);
+    expect(await getWorkspaceClient(wsA).registryQuotaLedger.count()).toBe(ledgerBefore);
+  });
+
+  it("matches keywords against cached names and includes expired sheets", async () => {
+    const f = fixtureApi();
+    const seed = await newList(wsA, { keywords: ["Társaság"] });
+    await harvestList(wsA, seed.id, deps(f));
+    const seedRun = await createFinderRun(getWorkspaceClient(wsA), wsA, { listId: seed.id, maxLookups: 10, estimate: await estimateEnrichment(wsA, seed.id, 10, NOW), userId: null });
+    await drive(wsA, seedRun.id, deps(f));
+    await getWorkspaceClient(wsA).registrySheet.updateMany({ data: { expiresAt: new Date(NOW.getTime() - 86_400_000) } });
+
+    const list = await newList(wsA, { keywords: ["tükörfúró"] }, true);
+    await harvestList(wsA, list.id, deps(f));
+    expect(await matches(wsA, list.id)).toEqual(["99999998241"]);
+    expect(await getWorkspaceClient(wsA).finderResult.count({ where: { listId: list.id } })).toBe(1);
+  });
+});

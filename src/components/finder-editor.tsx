@@ -286,6 +286,17 @@ export function FinderEditor({
         </label>
       </fieldset>
 
+      <fieldset className="grid gap-1" disabled={!canEdit}>
+        <legend className={`${LABEL} mb-1`}>Data source</legend>
+        <label className="flex min-h-[36px] items-start gap-2 text-[12.5px]" data-testid="finder-cached-only">
+          <input type="checkbox" className="mt-1" checked={cachedOnly} onChange={(e) => { setCachedOnly(e.target.checked); setSaved(null); }} />
+          <span>
+            <b>Cached datasheets only</b> — filter the company database we have already built up, spending zero quota. No
+            harvest, no lookups: keywords then match company names, segments match activity codes.
+          </span>
+        </label>
+      </fieldset>
+
       {canEdit && (
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" className={PRIMARY} disabled={pending || !name.trim()} onClick={save} data-testid="finder-save">

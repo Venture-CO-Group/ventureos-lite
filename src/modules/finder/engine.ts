@@ -24,14 +24,15 @@
 import type { FinderResultState, Prisma } from "@prisma/client";
 import { getWorkspaceClient, type WorkspaceClient } from "@/lib/db";
 import { cegadatTaxId, type CompanyRegistryApi } from "@/modules/registry/cegadat";
-import { reviveDatasheet } from "@/modules/registry/datasheet";
+import { activityCodes, reviveDatasheet } from "@/modules/registry/datasheet";
 import { getDatasheet, quotaMeter, searchRegistry } from "@/modules/registry/registry-service";
 import { isCompanySuppressed } from "@/modules/mail/suppression";
 import { domainOf, legalFormFromName, legalFormImplausible, scorePoolRow } from "@/modules/outbound/pool";
 import { harvestSegment, type SourceDeps } from "@/modules/outbound/sources";
 import { loadSegments } from "@/modules/outbound/segments";
 import { stringArray, type SegmentView } from "@/modules/outbound/catalog";
-import { fold, parseCriteria, type FinderCriteria, type FinderReason } from "./criteria";
+import { fold, hasSource, nameHasKeyword, parseCriteria, type FinderCriteria, type FinderReason } from "./criteria";
+import { teaorMatches } from "@/modules/outbound/segments-seed";
 import { evaluateSheet, type WorkspaceFacts } from "./evaluate";
 import type { ListStats } from "./store";
 
@@ -134,6 +135,8 @@ export async function harvestList(workspaceId: string, listId: string, deps: Fin
   const now = deps.now();
   const segments = await loadSegments(db, workspaceId);
 
+  if (list.cachedOnly) return filterCachedOnly(db, workspaceId, list.id, list.criteriaHash, criteria, segments, now);
+
   // 1. Harvest, into the shared pool.
   const errors: string[] = [];
   let fragments = 0;
@@ -211,6 +214,68 @@ export async function harvestList(workspaceId: string, listId: string, deps: Fin
   await db.finderList.update({
     where: { id: list.id },
     data: { status: "READY", stats: stats as unknown as Prisma.InputJsonValue, message, lastRunAt: now },
+  });
+  return { ok: true, stats, message };
+}
+
+/**
+ * Cached-only mode (item 3): the list runs against the datasheets this
+ * workspace has already bought — every lookup ever made grows that set — and
+ * spends nothing. No search, no detail call, no ledger row. Expired sheets
+ * are included: they are still the registry's last word, and the export
+ * carries each one's fetch date so a reader can judge its age.
+ *
+ * Keywords match company names and segments match activity codes, locally.
+ */
+async function filterCachedOnly(
+  db: WorkspaceClient,
+  workspaceId: string,
+  listId: string,
+  hash: string,
+  criteria: FinderCriteria,
+  segments: SegmentView[],
+  now: Date,
+): Promise<HarvestOutcome> {
+  const chosen = segments.filter((s) => criteria.segmentKeys.includes(s.key));
+  const candidates: CandidateInput[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await db.registrySheet.findMany({
+      where: { notFound: false },
+      orderBy: { id: "asc" },
+      take: 1000,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+    });
+    if (page.length === 0) break;
+    cursor = page[page.length - 1]!.id;
+    for (const row of page) {
+      const sheet = reviveDatasheet(row.sheet);
+      if (!sheet) continue;
+      const name = `${sheet.legalName} ${sheet.shortName ?? ""}`;
+      const byKeyword = nameHasKeyword(name, criteria.keywords);
+      // Narrow to the list's source criterion first, so a list over a large
+      // cache does not write a refusal row for every company we have ever seen.
+      if (hasSource(criteria)) {
+        const bySegment = chosen.some((seg) => teaorMatches(activityCodes(sheet), seg) !== null);
+        if (!byKeyword && !bySegment) continue;
+      }
+      candidates.push({
+        taxNumber: row.taxNumber,
+        poolId: null,
+        name: sheet.shortName ?? sheet.legalName,
+        status: sheet.status,
+        domain: domainOf(sheet.website),
+        foundByKeyword: byKeyword,
+        score: 0,
+      });
+    }
+  }
+  const stats = await reconcileCandidates(db, workspaceId, listId, hash, criteria, segments, candidates, now, { includeExpiredCache: true });
+  const matched = await db.finderResult.count({ where: { listId, state: "MATCH" } });
+  const message = `${stats.candidates} cached datasheets considered · ${matched} match · no quota spent.`;
+  await db.finderList.update({
+    where: { id: listId },
+    data: { status: "IDLE", stats: stats as unknown as Prisma.InputJsonValue, message, lastRunAt: now },
   });
   return { ok: true, stats, message };
 }
