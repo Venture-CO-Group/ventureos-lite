@@ -6,6 +6,8 @@ import { FinderDelete } from "@/components/finder-delete";
 import { FinderRunPanel } from "@/components/finder-run-panel";
 import { RegistryQuotaMeter } from "@/components/registry-quota-meter";
 import { quotaMeter } from "@/modules/registry/registry-service";
+import { FinderResults } from "@/components/finder-results";
+import { loadFinderRows } from "@/modules/finder/rows-load";
 import { getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
 import { hasGrant } from "@/lib/authz";
@@ -25,6 +27,16 @@ export default async function FinderListPage({ params }: { params: Promise<{ id:
     db.finderRun.findMany({ where: { listId: id }, orderBy: { startedAt: "desc" }, take: 10 }),
     quotaMeter(workspaceId),
   ]);
+  const [rows, profiles, totals] = await Promise.all([
+    loadFinderRows(db, id),
+    db.icpProfile.findMany({
+      where: { active: true },
+      select: { id: true, name: true, product: { select: { name: true } } },
+      orderBy: { name: "asc" },
+    }),
+    db.finderRun.aggregate({ where: { listId: id }, _sum: { lookupsSpent: true, paidMatches: true } }),
+  ]);
+  const summary = { lookupsSpent: totals._sum.lookupsSpent ?? 0, paidMatches: totals._sum.paidMatches ?? 0 };
   const contactTodo = await db.finderResult.count({
     where: { listId: id, siteChecked: false, OR: [{ state: "MATCH" }, { state: "NO_MATCH", reason: "CONTACT" }] },
   });
@@ -70,6 +82,13 @@ export default async function FinderListPage({ params }: { params: Promise<{ id:
           <RegistryQuotaMeter meter={meter} compact />
         </div>
       </div>
+      <FinderResults
+        listId={list.id}
+        rows={rows}
+        summary={summary}
+        canAct={canEdit}
+        profiles={profiles.map((p) => ({ id: p.id, label: `${p.product.name} · ${p.name}` }))}
+      />
     </AppShell>
   );
 }

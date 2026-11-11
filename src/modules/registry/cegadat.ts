@@ -224,6 +224,7 @@ export function mapCegadatDetail(r: Record<string, unknown>): CompanyDatasheet {
     principalActivity: parseActivity(r.principalActivity),
     activities,
     financialYear: reportYear ? Number(reportYear[1]) : null,
+    reportDate: str(r.reportDate),
     // Sole traders report `revenue` / `netIncome` instead of the company set.
     netRevenue: money(r.netRevenue) ?? money(r.revenue),
     equity: money(r.shareholdersEquity),

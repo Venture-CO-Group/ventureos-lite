@@ -52,6 +52,8 @@ export interface CompanyDatasheet {
   activities: DatasheetActivity[];
   /** Latest financial year the figures below belong to. */
   financialYear: number | null;
+  /** The balance-sheet date of those figures (`reportDate`). Optional for older cached sheets. */
+  reportDate?: string | null;
   netRevenue: bigint | null;
   equity: bigint | null;
   operatingResult: bigint | null;

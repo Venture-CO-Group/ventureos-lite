@@ -11,6 +11,9 @@ import {
 } from "../../src/modules/finder/engine";
 import type { FinderCriteriaInput } from "../../src/modules/finder/criteria";
 import { enrichListContacts } from "../../src/modules/finder/contacts";
+import { loadFinderRows } from "../../src/modules/finder/rows-load";
+import { addResultsAsLeads, sendResultsToOutbound, suppressResults } from "../../src/modules/finder/results-ops";
+import { ensureSegments } from "../../src/modules/outbound/segments";
 import { fixtureApi, type FixtureApi } from "../helpers/cegadat-fixtures";
 
 /**
@@ -37,6 +40,9 @@ const MICRO_BUDAPEST_EMAIL: FinderCriteriaInput = {
 const TABLES = [
   "finderResult",
   "finderRun",
+  "icpProfile",
+  "product",
+  "registryData",
   "finderList",
   "candidatePool",
   "harvestProgress",
@@ -44,6 +50,7 @@ const TABLES = [
   "registrySheet",
   "registrySearchCache",
   "suppression",
+  "activity",
   "lead",
   "company",
   "auditLog",
@@ -344,5 +351,67 @@ describe("contact enrichment from imprint pages", () => {
     // A second pass has nothing left to read.
     const again = await enrichListContacts(wsA, list.id, { now: () => NOW, readSite: async () => { throw new Error("must not read"); } });
     expect(again).toMatchObject({ checked: 0, remaining: 0 });
+  });
+});
+
+async function matchedList(ws: string, criteria: FinderCriteriaInput) {
+  const f = fixtureApi();
+  const list = await newList(ws, criteria);
+  await harvestList(ws, list.id, deps(f));
+  const run = await createFinderRun(getWorkspaceClient(ws), ws, { listId: list.id, maxLookups: 20, estimate: await estimateEnrichment(ws, list.id, 20, NOW), userId: null });
+  await drive(ws, run.id, deps(f));
+  return list;
+}
+
+describe("results", () => {
+  it("builds full rows from the cache, with each contact's source", async () => {
+    const list = await matchedList(wsA, { keywords: ["Társaság"], counties: ["Budapest"] });
+    const rows = await loadFinderRows(getWorkspaceClient(wsA), list.id);
+    expect(rows.map((r) => r.taxNumber).sort()).toEqual(["10906110-2-42", "14945083-2-41", "32305964-2-43", "99999998-2-41", "99999999-2-42"]);
+    const welldata = rows.find((r) => r.taxNumber === "32305964-2-43")!;
+    expect(welldata).toMatchObject({
+      legalForm: "Kft.",
+      street: "Derkovits Gyula utca 53.",
+      employeeCount: 3,
+      employeeCountDate: "2026-09-08",
+      reportDate: "2025-12-31",
+      sizeBand: "MICRO",
+      email: null,
+    });
+    expect(welldata.bankAccounts).toBeUndefined();
+    const minta = rows.find((r) => r.taxNumber === "99999999-2-42")!;
+    expect(minta).toMatchObject({ emailSource: "registry", phoneSource: "registry", websiteSource: "registry", website: "https://www.mintafogaszat.example" });
+  });
+
+  it("adds matches as leads with source COMPANY_FINDER, once", async () => {
+    const list = await matchedList(wsA, MICRO_BUDAPEST_EMAIL);
+    const db = getWorkspaceClient(wsA);
+    const ids = (await db.finderResult.findMany({ where: { listId: list.id, state: "MATCH" } })).map((r) => r.id);
+    const first = await addResultsAsLeads(db, wsA, list.id, ids);
+    expect(first.created).toBe(1);
+    const lead = await db.lead.findUnique({ where: { id: first.leadIds[0]! }, include: { company: true } });
+    expect(lead).toMatchObject({ source: "COMPANY_FINDER", email: "iroda@arviztuero.example", contactName: "Teszt Személy 93" });
+    expect(lead!.company).toMatchObject({ taxId: "99999998241", source: "company_finder" });
+    const again = await addResultsAsLeads(db, wsA, list.id, ids);
+    expect(again).toMatchObject({ created: 0, skipped: [{ reason: "already in the CRM" }] });
+  });
+
+  it("sends matches to an outbound product's pool and suppresses by tax number", async () => {
+    const list = await matchedList(wsA, { keywords: ["Társaság"], counties: ["Budapest"] });
+    const db = getWorkspaceClient(wsA);
+    await ensureSegments(db, wsA);
+    const product = await db.product.create({ data: { workspaceId: wsA, name: "Web", slug: "web", problemSolved: "Slow sites." } });
+    const profile = await db.icpProfile.create({ data: { workspaceId: wsA, productId: product.id, name: "Budapest", segmentKeys: ["private_clinics"], dailyQuota: 5 } });
+    const ids = (await db.finderResult.findMany({ where: { listId: list.id, state: "MATCH" } })).map((r) => r.id);
+
+    const sent = await sendResultsToOutbound(db, wsA, list.id, ids, profile.id, NOW);
+    expect(sent).toMatchObject({ ok: true, created: 0, updated: 5, segmentKey: "private_clinics" });
+    const pool = await db.candidatePool.findMany({ where: { taxNumber: "99999998241" } });
+    expect(pool[0]!.segmentKeys).toEqual(expect.arrayContaining(["kw:tarsasag", "private_clinics"]));
+
+    const one = ids.slice(0, 1);
+    expect(await suppressResults(db, wsA, list.id, one)).toEqual({ added: 1 });
+    expect(await db.suppression.count()).toBe(1);
+    expect(await db.finderResult.count({ where: { listId: list.id, state: "MATCH" } })).toBe(4);
   });
 });
