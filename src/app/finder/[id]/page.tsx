@@ -3,6 +3,9 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { FinderEditor } from "@/components/finder-editor";
 import { FinderDelete } from "@/components/finder-delete";
+import { FinderRunPanel } from "@/components/finder-run-panel";
+import { RegistryQuotaMeter } from "@/components/registry-quota-meter";
+import { quotaMeter } from "@/modules/registry/registry-service";
 import { getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
 import { hasGrant } from "@/lib/authz";
@@ -15,7 +18,13 @@ export default async function FinderListPage({ params }: { params: Promise<{ id:
   const { id } = await params;
   const { workspaceId } = await getActiveContext();
   const db = getWorkspaceClient(workspaceId);
-  const [list, canEdit, segments] = await Promise.all([getListView(db, id), hasGrant("settings.manage"), loadSegments(db, workspaceId)]);
+  const [list, canEdit, segments, runs, meter] = await Promise.all([
+    getListView(db, id),
+    hasGrant("settings.manage"),
+    loadSegments(db, workspaceId),
+    db.finderRun.findMany({ where: { listId: id }, orderBy: { startedAt: "desc" }, take: 10 }),
+    quotaMeter(workspaceId),
+  ]);
   if (!list) notFound();
   return (
     <AppShell activePath="/finder">
@@ -35,6 +44,28 @@ export default async function FinderListPage({ params }: { params: Promise<{ id:
           canEdit={canEdit}
         />
       </details>
+      <div className="mb-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <FinderRunPanel
+          list={list}
+          canRun={canEdit}
+          runs={runs.map((r) => ({
+            id: r.id,
+            status: r.status,
+            maxLookups: r.maxLookups,
+            lookupsSpent: r.lookupsSpent,
+            paidMatches: r.paidMatches,
+            evaluated: r.evaluated,
+            matches: r.matches,
+            checkpointAt: r.checkpointAt,
+            message: r.message,
+            startedAt: r.startedAt.toISOString(),
+            finishedAt: r.finishedAt?.toISOString() ?? null,
+          }))}
+        />
+        <div className="content-start">
+          <RegistryQuotaMeter meter={meter} compact />
+        </div>
+      </div>
     </AppShell>
   );
 }

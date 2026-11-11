@@ -47,7 +47,12 @@ import {
 export const SHEET_TTL_MS = 90 * 86_400_000;
 export const SEARCH_TTL_MS = 7 * 86_400_000;
 
-const BATCH_PURPOSES: RegistryLookupPurpose[] = ["NIGHTLY_RUN", "MANUAL_RUN"];
+/**
+ * Batch purposes share the DAILY allocation and never reach the interactive
+ * reserve. The Company Finder's metered phase is one of them: a list of a
+ * thousand lookups is exactly the kind of spend the reserve protects people from.
+ */
+const BATCH_PURPOSES: RegistryLookupPurpose[] = ["NIGHTLY_RUN", "MANUAL_RUN", "FINDER_RUN"];
 /** Outcomes that cost a unit. A refused (`quota`) call never reached the meter. */
 const CHARGED_OUTCOMES = ["ok", "not_found", "error"];
 

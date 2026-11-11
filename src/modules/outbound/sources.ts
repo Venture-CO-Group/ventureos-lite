@@ -159,11 +159,32 @@ export async function harvestSegment(
   workspaceId: string,
   segment: SegmentView,
   deps: SourceDeps,
-  opts: { maxPagesPerFragment?: number; pageSize?: number; force?: boolean } = {},
+  opts: {
+    maxPagesPerFragment?: number;
+    pageSize?: number;
+    force?: boolean;
+    /**
+     * Search parameters other than the name. The motor harvests active
+     * companies; the Company Finder may ask for sole traders or another
+     * status. Defaults keep the motor's behaviour byte for byte.
+     */
+    businessType?: RegistrySearchParams["businessType"];
+    /** Null searches every status. */
+    status?: RegistrySearchParams["status"] | null;
+    /**
+     * The key paging progress is kept under. Defaults to the segment key, so
+     * a finder harvest with the motor's parameters SHARES the motor's
+     * progress — a fragment paged by one is not paged again by the other.
+     */
+    progressKey?: string;
+  } = {},
 ): Promise<HarvestReport> {
   const maxPages = opts.maxPagesPerFragment ?? 3;
   const pageSize = opts.pageSize ?? 100;
   const report: HarvestReport = { segment: segment.key, fragments: [], created: 0, updated: 0, errors: [] };
+  const progressKey = opts.progressKey ?? segment.key;
+  const businessType = opts.businessType ?? "company";
+  const status = opts.status === undefined ? "Aktív" : opts.status;
 
   for (const fragment of segment.fragments) {
     if (fragment.trim().length < 4) {
@@ -171,7 +192,7 @@ export async function harvestSegment(
       continue;
     }
     let progress = await db.harvestProgress.findUnique({
-      where: { workspaceId_segmentKey_fragment: { workspaceId, segmentKey: segment.key, fragment } },
+      where: { workspaceId_segmentKey_fragment: { workspaceId, segmentKey: progressKey, fragment } },
     });
     // A new fragment-set version starts the fragment over: its yield is
     // measured against the set it ran in.
@@ -183,7 +204,7 @@ export async function harvestSegment(
     }
     if (!progress) {
       progress = await db.harvestProgress.create({
-        data: { workspaceId, segmentKey: segment.key, fragment, version: segment.version, harvestedAt: deps.now },
+        data: { workspaceId, segmentKey: progressKey, fragment, version: segment.version, harvestedAt: deps.now },
       });
     }
     const fresh = deps.now.getTime() - progress.harvestedAt.getTime() < HARVEST_FRESH_DAYS * 86_400_000;
@@ -200,8 +221,8 @@ export async function harvestSegment(
       const res = await deps.search({
         name: fragment,
         sensitivity: 1,
-        businessType: "company",
-        status: "Aktív",
+        businessType,
+        ...(status ? { status } : {}),
         limit: pageSize,
         page,
       });
