@@ -36,6 +36,7 @@ vi.mock("@/lib/authz", () => ({
 }));
 
 const { exportFinderResults } = await import("../../src/modules/finder/export-actions");
+const { setFinderThirdPartySharing } = await import("../../src/modules/finder/actions");
 
 async function clean() {
   const stale = await prismaUnsafe.workspace.findMany({ where: { name: WS }, select: { id: true } });
@@ -169,5 +170,31 @@ describe("restrictions and the audit trail", () => {
       list: { name: "Budapest, all sizes", summary: "keywords Társaság · in Budapest" },
     });
     expect((logs[1]!.meta as { columns: string[] }).columns).toHaveLength(DEFAULT_COLUMN_KEYS.length);
+  });
+});
+
+describe("compliance (item 7)", () => {
+  it("records the purpose note, the personal-data columns and the sharing setting on the audit entry", async () => {
+    await exportFinderResults({ listId, format: "csv", columns: ["taxNumber", "managers", "email"], purpose: "Q1 call list" });
+    const log = await prismaUnsafe.auditLog.findFirst({ where: { workspaceId: wsId, action: "export.run" } });
+    expect(log!.meta).toMatchObject({
+      purpose: "Q1 call list",
+      personalColumns: ["managers", "email"],
+      thirdPartySharingAllowed: false,
+    });
+  });
+
+  it("lets only the Owner change the third-party sharing setting, and logs the change", async () => {
+    who.owner = false;
+    expect(await setFinderThirdPartySharing(true)).toMatchObject({ ok: false });
+    who.owner = true;
+    expect(await setFinderThirdPartySharing(true)).toEqual({ ok: true });
+    expect((await prismaUnsafe.workspace.findUnique({ where: { id: wsId } }))!.finderThirdPartySharing).toBe(true);
+    const log = await prismaUnsafe.auditLog.findFirst({ where: { workspaceId: wsId, action: "finder.settings.third_party_sharing" } });
+    expect(log!.meta).toEqual({ before: false, after: true });
+    await exportFinderResults({ listId, format: "csv", columns: ["taxNumber"] });
+    const exp = await prismaUnsafe.auditLog.findFirst({ where: { workspaceId: wsId, action: "export.run" } });
+    expect(exp!.meta).toMatchObject({ thirdPartySharingAllowed: true });
+    await setFinderThirdPartySharing(false);
   });
 });

@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
-import { getWorkspaceClient } from "@/lib/db";
+import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { hasGrant } from "@/lib/authz";
+import { hasGrant, isOwner } from "@/lib/authz";
+import { FinderSharingSetting } from "@/components/finder-sharing-setting";
 import { listLists } from "@/modules/finder/store";
 import { describeCriteria } from "@/modules/finder/criteria";
 import { loadSegments } from "@/modules/outbound/segments";
@@ -25,7 +26,13 @@ const STATUS_LABEL: Record<string, string> = {
 export default async function FinderIndexPage() {
   const { workspaceId } = await getActiveContext();
   const db = getWorkspaceClient(workspaceId);
-  const [lists, canEdit, segments] = await Promise.all([listLists(db), hasGrant("settings.manage"), loadSegments(db, workspaceId)]);
+  const [lists, canEdit, segments, owner, ws] = await Promise.all([
+    listLists(db),
+    hasGrant("settings.manage"),
+    loadSegments(db, workspaceId),
+    isOwner(),
+    prismaUnsafe.workspace.findUnique({ where: { id: workspaceId }, select: { finderThirdPartySharing: true } }),
+  ]);
   const names = Object.fromEntries(segments.map((s) => [s.key, s.name]));
   return (
     <AppShell activePath="/finder">
@@ -46,6 +53,7 @@ export default async function FinderIndexPage() {
         or an outbound product. Harvesting candidates is free; each new datasheet costs one registry lookup, and cached
         ones are free.
       </p>
+      <FinderSharingSetting allowed={ws?.finderThirdPartySharing ?? false} canEdit={owner} />
       <section className="grid gap-2" data-testid="finder-lists">
         {lists.length === 0 && <p className="text-[12.5px] text-muted">No lists yet.</p>}
         {lists.map((l) => (

@@ -12,6 +12,7 @@
  * outlives everything else.
  */
 import { prismaUnsafe, getWorkspaceClient } from "@/lib/db";
+import { purgeFinderResults } from "@/modules/finder/privacy";
 
 const YEAR_MS = 365 * 86_400_000;
 
@@ -21,10 +22,12 @@ export interface RetentionReport {
   pool: number;
   sheets: number;
   searches: number;
+  /** Company Finder result rows (contacts with their sources). */
+  finderResults: number;
 }
 
 export async function processOutboundRetention(now: Date = new Date()): Promise<RetentionReport> {
-  const report: RetentionReport = { candidates: 0, drafts: 0, pool: 0, sheets: 0, searches: 0 };
+  const report: RetentionReport = { candidates: 0, drafts: 0, pool: 0, sheets: 0, searches: 0, finderResults: 0 };
   const cutoff = new Date(now.getTime() - YEAR_MS);
   const workspaces = await prismaUnsafe.workspace.findMany({ where: { deletedAt: null }, select: { id: true } });
   for (const { id } of workspaces) {
@@ -50,6 +53,7 @@ export async function processOutboundRetention(now: Date = new Date()): Promise<
     report.pool += (await db.candidatePool.deleteMany({ where: { lastSeenAt: { lt: cutoff }, candidates: { none: {} } } })).count;
     report.sheets += (await db.registrySheet.deleteMany({ where: { expiresAt: { lt: new Date(now.getTime() - 90 * 86_400_000) } } })).count;
     report.searches += (await db.registrySearchCache.deleteMany({ where: { expiresAt: { lt: now } } })).count;
+    report.finderResults += await purgeFinderResults(db, now);
   }
   return report;
 }

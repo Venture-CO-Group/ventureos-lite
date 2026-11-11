@@ -12,9 +12,11 @@ import { buildFinderCsv, buildFinderXlsx } from "./export";
 import { loadFinderRows } from "./rows-load";
 
 /**
- * Exporting Company Finder results (item 6). Gated on `exports.run` and
+ * Exporting Company Finder results (items 6–7). Gated on `exports.run` and
  * audit-logged BEFORE the file is built (hard rule 8) — the row count,
- * columns, format and the list's definition. Bank account numbers leave only
+ * columns, format, the list's definition, the optional purpose note, which
+ * columns carry personal data, and the workspace's third-party setting at
+ * the time. Bank account numbers leave only
  * with an Owner's explicit toggle, checked here, not in the dialog.
  */
 export type FinderExportResult =
@@ -60,6 +62,7 @@ export async function exportFinderResults(raw: unknown): Promise<FinderExportRes
 
   const stamp = new Date();
   const criteria = parseCriteria(list.criteria);
+  const sharing = await prismaUnsafe.workspace.findUnique({ where: { id: workspaceId }, select: { finderThirdPartySharing: true } });
   await db.auditLog.create({
     data: {
       workspaceId,
@@ -74,6 +77,9 @@ export async function exportFinderResults(raw: unknown): Promise<FinderExportRes
         scope: p.scope,
         columns: cols.map((c) => c.key),
         bankAccounts: wantsBank,
+        purpose: p.purpose || null,
+        personalColumns: cols.filter((c) => c.personal).map((c) => c.key),
+        thirdPartySharingAllowed: sharing?.finderThirdPartySharing ?? false,
         list: { name: list.name, cachedOnly: list.cachedOnly, summary: describeCriteria(criteria), criteria },
       },
     },

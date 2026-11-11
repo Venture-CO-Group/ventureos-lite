@@ -705,6 +705,10 @@ model Workspace {
   /// Outbound motor settings (playbook-v6): registry quota, nightly schedule,
   /// workspace cap, warm-up ramp. Parsed by src/modules/outbound/config.ts.
   outboundConfig Json?       @map("outbound_config")
+  /// Company Finder: may exported company data be passed to third parties?
+  /// The registry provider's licence may restrict redistribution, so it is
+  /// off until an Owner turns it on, and every export dialog shows it.
+  finderThirdPartySharing Boolean @default(false) @map("finder_third_party_sharing")
   /// Deletion is two-step. `deletedAt` takes the workspace out of every
   /// switcher, session and background job at once; the purge job erases its
   /// data once `purgeAfter` passes. Until then an Owner can restore it.

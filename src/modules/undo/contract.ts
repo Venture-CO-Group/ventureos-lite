@@ -53,6 +53,9 @@ export const DESTRUCTIVE_ACTIONS: Record<string, Undoability> = {
   // that are gone, so an "undo" of a delete would report success and restore
   // nothing. Making these reversible means soft-deleting them, which is a
   // schema decision nobody has asked for yet.
+  purgeFinderResults: permanent(
+    "Scheduled retention: Company Finder results untouched for twelve months are deleted with the contacts they held (GDPR, hard rule 9). Nothing is kept to restore from, by design.",
+  ),
   deleteFinderList: permanent(
     "The saved list, its results and its run history are removed. The companies stay in the shared pool and the datasheet cache, so running the same filter again costs no quota for them.",
   ),

@@ -1,3 +1,4 @@
+import { eraseFinderPerson } from "@/modules/finder/privacy";
 import { unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { WorkspaceClient } from "../../lib/db";
@@ -42,7 +43,7 @@ export async function eraseLeadData(
     where: { id: leadId },
     // avatarPath joins the file sweep below: a captured photo is personal data
     // and erasure must take the bytes off disk, not just the row (P1/1f).
-    select: { id: true, companyId: true, avatarPath: true, contactName: true },
+    select: { id: true, companyId: true, avatarPath: true, contactName: true, email: true, company: { select: { taxId: true } } },
   });
   if (!lead) return { leadId, deleted: {}, filesRemoved: 0 };
 
@@ -114,6 +115,14 @@ export async function eraseLeadData(
     deleted.outreachDrafts = (await db.outreachDraft.deleteMany({ where: { candidateId: { in: ids } } })).count;
     deleted.prospectCandidates = (await db.prospectCandidate.deleteMany({ where: { id: { in: ids } } })).count;
   }
+
+  /**
+   * The Company Finder's copies (item 7): their address on any finder result,
+   * and their name on their company's cached datasheet.
+   */
+  const finder = await eraseFinderPerson(db, { name: lead.contactName, email: lead.email, taxNumber: lead.company?.taxId ?? null });
+  if (finder.results) deleted.finderContacts = finder.results;
+  if (finder.sheets) deleted.registrySheetsScrubbed = finder.sheets;
 
   // Documents: per retention policy — purge (with PDFs) or retain detached.
   if (opts.eraseDocuments) {

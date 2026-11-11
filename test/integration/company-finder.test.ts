@@ -14,6 +14,9 @@ import { enrichListContacts } from "../../src/modules/finder/contacts";
 import { loadFinderRows } from "../../src/modules/finder/rows-load";
 import { addResultsAsLeads, sendResultsToOutbound, suppressResults } from "../../src/modules/finder/results-ops";
 import { ensureSegments } from "../../src/modules/outbound/segments";
+import { eraseLeadData } from "../../src/modules/gdpr/erase";
+import { purgeFinderResults } from "../../src/modules/finder/privacy";
+import { reviveDatasheet } from "../../src/modules/registry/datasheet";
 import { fixtureApi, type FixtureApi } from "../helpers/cegadat-fixtures";
 
 /**
@@ -413,5 +416,35 @@ describe("results", () => {
     expect(await suppressResults(db, wsA, list.id, one)).toEqual({ added: 1 });
     expect(await db.suppression.count()).toBe(1);
     expect(await db.finderResult.count({ where: { listId: list.id, state: "MATCH" } })).toBe(4);
+  });
+});
+
+describe("personal data: erasure and retention", () => {
+  it("erasing a lead removes their address from finder results and their name from the cached datasheet", async () => {
+    const list = await matchedList(wsA, MICRO_BUDAPEST_EMAIL);
+    const db = getWorkspaceClient(wsA);
+    const company = await db.company.create({ data: { workspaceId: wsA, name: "Árvíztűrő Kft.", taxId: "99999998241" } });
+    const lead = await db.lead.create({
+      data: { workspaceId: wsA, companyId: company.id, contactName: "Teszt Személy 93", email: "Iroda@arviztuero.example" },
+    });
+    const res = await eraseLeadData(db, lead.id, { eraseDocuments: true });
+    expect(res.deleted).toMatchObject({ finderContacts: 1, registrySheetsScrubbed: 1 });
+    const r = await db.finderResult.findFirst({ where: { listId: list.id, taxNumber: "99999998241" } });
+    expect(r!.contacts).toEqual({});
+    const sheet = reviveDatasheet((await db.registrySheet.findFirst({ where: { taxNumber: "99999998241" } }))!.sheet)!;
+    expect(sheet.managers).toEqual([]);
+    expect(sheet.owners).toEqual([]);
+    expect(sheet.email).toBeNull();
+    // The company data itself stays.
+    expect(sheet.legalName).toContain("Árvíztűrő");
+  });
+
+  it("deletes finder results untouched for twelve months", async () => {
+    const list = await matchedList(wsA, { keywords: ["Társaság"] });
+    const db = getWorkspaceClient(wsA);
+    expect(await purgeFinderResults(db, NOW)).toBe(0);
+    const later = new Date(Date.now() + 366 * 86_400_000);
+    expect(await purgeFinderResults(db, later)).toBe(6);
+    expect(await db.finderResult.count({ where: { listId: list.id } })).toBe(0);
   });
 });

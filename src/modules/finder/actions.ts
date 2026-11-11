@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getWorkspaceClient } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
-import { hasGrant } from "@/lib/authz";
+import { hasGrant, isOwner } from "@/lib/authz";
+import { prismaUnsafe } from "@/lib/db";
 import { describeCriteria, parseCriteria } from "./criteria";
 import { saveList } from "./store";
 
@@ -65,6 +66,30 @@ export async function deleteFinderList(id: string): Promise<Result> {
   await db.finderList.delete({ where: { id } });
   await db.auditLog.create({
     data: { workspaceId, actorUserId: userId, action: "finder.list.deleted", entityType: "FinderList", entityId: id, meta: { name: list.name } },
+  });
+  revalidatePath("/finder");
+  return { ok: true };
+}
+
+/**
+ * Whether exported company data may be passed to third parties (item 7). The
+ * registry provider's licence may restrict redistribution, so this is the
+ * Owner's call, off by default, audit-logged, and shown on every export dialog.
+ */
+export async function setFinderThirdPartySharing(allowed: boolean): Promise<Result> {
+  if (!(await isOwner())) return { ok: false, error: "Only an Owner can change this setting." };
+  const { workspaceId, userId } = await getActiveContext();
+  const before = await prismaUnsafe.workspace.findUnique({ where: { id: workspaceId }, select: { finderThirdPartySharing: true } });
+  await prismaUnsafe.workspace.update({ where: { id: workspaceId }, data: { finderThirdPartySharing: !!allowed } });
+  await getWorkspaceClient(workspaceId).auditLog.create({
+    data: {
+      workspaceId,
+      actorUserId: userId,
+      action: "finder.settings.third_party_sharing",
+      entityType: "Workspace",
+      entityId: workspaceId,
+      meta: { before: before?.finderThirdPartySharing ?? false, after: !!allowed },
+    },
   });
   revalidatePath("/finder");
   return { ok: true };

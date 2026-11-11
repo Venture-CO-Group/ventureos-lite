@@ -8,7 +8,7 @@ import { RegistryQuotaMeter } from "@/components/registry-quota-meter";
 import { quotaMeter } from "@/modules/registry/registry-service";
 import { FinderResultsPanel } from "@/components/finder-results-panel";
 import { loadFinderRows } from "@/modules/finder/rows-load";
-import { getWorkspaceClient } from "@/lib/db";
+import { getWorkspaceClient, prismaUnsafe } from "@/lib/db";
 import { getActiveContext } from "@/lib/session";
 import { hasGrant, isOwner } from "@/lib/authz";
 import { getListView } from "@/modules/finder/store";
@@ -27,7 +27,7 @@ export default async function FinderListPage({ params }: { params: Promise<{ id:
     db.finderRun.findMany({ where: { listId: id }, orderBy: { startedAt: "desc" }, take: 10 }),
     quotaMeter(workspaceId),
   ]);
-  const [rows, profiles, totals, canExport, owner] = await Promise.all([
+  const [rows, profiles, totals, canExport, owner, ws] = await Promise.all([
     loadFinderRows(db, id),
     db.icpProfile.findMany({
       where: { active: true },
@@ -37,6 +37,7 @@ export default async function FinderListPage({ params }: { params: Promise<{ id:
     db.finderRun.aggregate({ where: { listId: id }, _sum: { lookupsSpent: true, paidMatches: true } }),
     hasGrant("exports.run"),
     isOwner(),
+    prismaUnsafe.workspace.findUnique({ where: { id: workspaceId }, select: { finderThirdPartySharing: true } }),
   ]);
   const summary = { lookupsSpent: totals._sum.lookupsSpent ?? 0, paidMatches: totals._sum.paidMatches ?? 0 };
   const contactTodo = await db.finderResult.count({
@@ -86,7 +87,7 @@ export default async function FinderListPage({ params }: { params: Promise<{ id:
       </div>
       <FinderResultsPanel
         listId={list.id}
-        exportPolicy={{ canExport, isOwner: owner }}
+        exportPolicy={{ canExport, isOwner: owner, thirdPartySharing: ws?.finderThirdPartySharing ?? false }}
         rows={rows}
         summary={summary}
         canAct={canEdit}

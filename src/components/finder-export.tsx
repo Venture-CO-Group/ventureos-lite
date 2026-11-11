@@ -5,6 +5,7 @@ import { attempt } from "@/lib/client/server-action";
 import { exportFinderResults } from "@/modules/finder/export-actions";
 import { DEFAULT_COLUMN_KEYS, FINDER_COLUMNS } from "@/modules/finder/export-columns";
 import type { FinderRow } from "@/modules/finder/row";
+import { PERSONAL_DATA_NOTICE } from "@/modules/finder/privacy-notice";
 import { BUTTON, INPUT, LABEL, PRIMARY } from "./finder-editor";
 
 /**
@@ -28,6 +29,8 @@ function saveBase64(base64: string, filename: string, mime: string): void {
 export interface ExportPolicy {
   canExport: boolean;
   isOwner: boolean;
+  /** The workspace setting: may exported company data go to third parties? */
+  thirdPartySharing: boolean;
 }
 
 export function FinderExport({
@@ -49,6 +52,7 @@ export function FinderExport({
   const [scope, setScope] = useState<"all" | "view" | "selection">("all");
   const [cols, setCols] = useState<string[]>([...DEFAULT_COLUMN_KEYS]);
   const [bank, setBank] = useState(false);
+  const [purpose, setPurpose] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
 
   if (!policy.canExport) {
@@ -68,7 +72,7 @@ export function FinderExport({
     const ids = scope === "all" ? undefined : scope === "view" ? filtered.map((r) => r.id) : selected;
     const columns = cols.filter((k) => k !== "bankAccounts" || bank);
     startTransition(async () => {
-      const res = await attempt(exportFinderResults({ listId, format, columns, ids, scope, includeBankAccounts: bank }));
+      const res = await attempt(exportFinderResults({ listId, format, columns, ids, scope, includeBankAccounts: bank, purpose: purpose.trim() || undefined }));
       if (!res.ok) {
         setMsg(res.error);
         return;
@@ -147,6 +151,24 @@ export function FinderExport({
                 </span>
               </label>
             )}
+
+            <label className="grid gap-1">
+              <span className={LABEL}>Purpose (optional — kept in the audit log)</span>
+              <input className={INPUT} value={purpose} maxLength={500} onChange={(e) => setPurpose(e.target.value)} placeholder="e.g. Q1 call list for Fanni" data-testid="finder-export-purpose" />
+            </label>
+
+            <p className="text-[11.5px] text-[#FFD27A]" data-testid="finder-export-notice">{PERSONAL_DATA_NOTICE}</p>
+            <p className="text-[11.5px] text-muted" data-testid="finder-export-sharing">
+              Third-party sharing:{" "}
+              {policy.thirdPartySharing ? (
+                <b className="text-ink">allowed by the Owner</b>
+              ) : (
+                <b className="text-ink">not allowed</b>
+              )}
+              {policy.thirdPartySharing
+                ? " — exported company data may be passed on, within the data provider's licence."
+                : " — keep this file inside the company; the data provider's licence may restrict redistribution."}
+            </p>
 
             {msg && <p className="text-[12px] text-muted" role="status">{msg}</p>}
             <div className="flex flex-wrap gap-2">
