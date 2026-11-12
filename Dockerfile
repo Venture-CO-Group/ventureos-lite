@@ -26,6 +26,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # already skips the env gate during the build phase; this makes it explicit and
 # also covers any module that reads config at import time.
 ENV SKIP_ENV_VALIDATION=1
+# The 4 GB production host runs the build next to the live stack; Node's
+# default heap (~2 GB there) no longer fits `next build`. Swap covers the rest.
+ENV NODE_OPTIONS=--max-old-space-size=3072
 # Server Action ids are salted with the build's encryption key. Without a fixed
 # key every build gets a random one, so EVERY action id changes on EVERY deploy
 # and any tab left open across a deploy fails with "Failed to find Server
