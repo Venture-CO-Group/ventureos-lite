@@ -13,7 +13,7 @@
  *
  *   PHASE 2 — metered. A run with a confirmed maximum spends lookups in
  *   score order (the pool's scorer) through `getDatasheet`, the one metered
- *   path, as a BATCH consumer: it gets the day's allocation, never the
+ *   path, as a FINDER consumer: no daily cap, the month's batch share, never the
  *   interactive reserve. It stops once after its first batch so the observed
  *   yield can be judged, pauses cleanly on exhaustion, and resumes later
  *   without paying twice — every decided result is written as it is decided,
@@ -455,17 +455,16 @@ export interface EnrichmentEstimate {
   maxLookups: number;
   /** What this run will spend in total: min(max, needed). */
   expected: number;
-  /** What it can spend today before pausing for the daily allocation. */
-  expectedToday: number;
+  /** What it can spend before pausing: the batch share left this month (no daily cap). */
+  available: number;
+  /** min(expected, available). */
+  expectedNow: number;
   monthRemaining: number;
-  todayRemaining: number;
-  dailyAllocation: number;
   reserve: number;
   /** expected ÷ month remaining, 0–1. */
   monthShare: number;
-  /** maxLookups ÷ today's remaining allocation (may exceed 1 → the run pauses). */
-  todayShare: number;
-  exceedsToday: boolean;
+  /** The run wants more than the month has left for it → it pauses at expectedNow. */
+  exceedsAvailable: boolean;
 }
 
 export async function estimateEnrichment(
@@ -488,21 +487,18 @@ export async function estimateEnrichment(
   const meteredNeeded = Math.max(0, pendingRows.length - cachedNow);
   const m = await quotaMeter(workspaceId, now);
   const expected = Math.min(Math.max(0, maxLookups), meteredNeeded);
-  const expectedToday = Math.min(expected, m.batchRemainingToday);
   return {
     pending: pendingRows.length,
     cachedNow,
     meteredNeeded,
     maxLookups,
     expected,
-    expectedToday,
+    available: m.finderRemaining,
+    expectedNow: Math.min(expected, m.finderRemaining),
     monthRemaining: m.monthRemaining,
-    todayRemaining: m.batchRemainingToday,
-    dailyAllocation: m.dailyAllocation,
     reserve: m.reserve,
     monthShare: m.monthRemaining > 0 ? Math.min(1, expected / m.monthRemaining) : 1,
-    todayShare: m.batchRemainingToday > 0 ? maxLookups / m.batchRemainingToday : Infinity,
-    exceedsToday: expected > m.batchRemainingToday,
+    exceedsAvailable: expected > m.finderRemaining,
   };
 }
 
@@ -568,9 +564,9 @@ export async function advanceFinderRun(workspaceId: string, runId: string, deps:
       });
       if (res.status === "quota_exhausted") {
         quotaPaused =
-          res.scope === "daily"
-            ? "Today's registry allocation is used up. Resume tomorrow — nothing already looked up is paid for again."
-            : "The month's registry quota is used up. Resume next month.";
+          res.scope === "provider"
+            ? "The registry refused further lookups (its own limit). Resume later — nothing already looked up is paid for again."
+            : "This month's registry quota for batch work is used up (the interactive reserve is kept). Resume next month — nothing already looked up is paid for again.";
         break;
       }
       if (res.status === "unavailable") {

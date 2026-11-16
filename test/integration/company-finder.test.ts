@@ -181,7 +181,7 @@ describe("phase 2 — metered enrichment", () => {
     const list = await newList(wsA, MICRO_BUDAPEST_EMAIL);
     await harvestList(wsA, list.id, deps(f));
     const estimate = await estimateEnrichment(wsA, list.id, 100, NOW);
-    expect(estimate).toMatchObject({ pending: 6, cachedNow: 0, meteredNeeded: 6, expected: 6, expectedToday: 6, exceedsToday: false });
+    expect(estimate).toMatchObject({ pending: 6, cachedNow: 0, meteredNeeded: 6, expected: 6, expectedNow: 6, exceedsAvailable: false });
     expect(estimate.monthShare).toBeCloseTo(6 / 1000);
 
     const run = await createFinderRun(getWorkspaceClient(wsA), wsA, { listId: list.id, maxLookups: 100, estimate, userId: null });
@@ -223,13 +223,13 @@ describe("phase 2 — metered enrichment", () => {
     expect(new Set(f.detailCalls).size).toBe(f.detailCalls.length);
   });
 
-  it("pauses cleanly when the day's allocation runs out and resumes without paying twice", async () => {
+  it("pauses cleanly when the month's quota runs out and resumes without paying twice", async () => {
     const f = fixtureApi();
     const list = await newList(wsTight, { keywords: ["Társaság"] });
     await harvestList(wsTight, list.id, deps(f));
     const db = getWorkspaceClient(wsTight);
     const estimate = await estimateEnrichment(wsTight, list.id, 100, NOW);
-    expect(estimate).toMatchObject({ expected: 6, expectedToday: 4, exceedsToday: true });
+    expect(estimate).toMatchObject({ expected: 6, available: 4, expectedNow: 4, exceedsAvailable: true });
 
     const run = await createFinderRun(db, wsTight, { listId: list.id, maxLookups: 100, estimate, userId: null });
     const paused = await drive(wsTight, run.id, deps(f));

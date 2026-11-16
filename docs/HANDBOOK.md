@@ -752,7 +752,7 @@ company's datasheet. The editor says so at the top.
 After phase 1 the panel shows how many candidates there are, how many were
 filtered free from the cache, and how many **need a metered lookup**. For
 phase 2 you set the most lookups this run may spend; *Estimate* shows that as
-a share of what is left this month and of today's allocation, and the run
+a share of what is left this month, and the run
 starts only when you confirm. If the estimate grew in the meantime (a nightly
 run spent quota, say), it asks again.
 
@@ -761,10 +761,13 @@ The run **stops after its first 25 lookups** and shows the observed yield —
 match; decide then whether the rest is worth it. *Continue* spends the rest of
 the run's maximum, *Stop here* keeps what was found.
 
-Finder runs are **batch** spending, like a nightly run: they share the daily
-allocation and never touch the 15% held back for people. When the day's
-share is gone the run **pauses** (never fails); *Resume* the same list
-tomorrow — nothing already looked up is paid for again. A cached datasheet
+Finder runs have **no daily cap** (owner decision 2026-11-16): you started
+the run and confirmed its estimate, so it may spend everything the month has
+left for batch work in one day — the monthly limit minus the 15% held back for
+people, which it never touches. What it spends comes out of the month, so the
+nightly run's daily share shrinks from then on. When the month's batch share is
+gone the run **pauses** (never fails); *Resume* the same list next month (or
+after the limit is raised) — nothing already looked up is paid for again. A cached datasheet
 costs nothing, so a second list over the same companies is mostly free.
 
 ### Cached datasheets only

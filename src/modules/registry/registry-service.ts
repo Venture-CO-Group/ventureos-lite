@@ -48,15 +48,17 @@ export const SHEET_TTL_MS = 90 * 86_400_000;
 export const SEARCH_TTL_MS = 7 * 86_400_000;
 
 /**
- * Batch purposes share the DAILY allocation and never reach the interactive
- * reserve. The Company Finder's metered phase is one of them: a list of a
- * thousand lookups is exactly the kind of spend the reserve protects people from.
+ * Batch purposes never reach the interactive reserve. The nightly and manual
+ * runs also share the DAILY allocation; the Company Finder does not — it is
+ * capped by the month's batch share only (see quota.ts).
  */
 const BATCH_PURPOSES: RegistryLookupPurpose[] = ["NIGHTLY_RUN", "MANUAL_RUN", "FINDER_RUN"];
+const DAILY_BATCH_PURPOSES: RegistryLookupPurpose[] = ["NIGHTLY_RUN", "MANUAL_RUN"];
 /** Outcomes that cost a unit. A refused (`quota`) call never reached the meter. */
 const CHARGED_OUTCOMES = ["ok", "not_found", "error"];
 
 export function consumerFor(purpose: RegistryLookupPurpose): QuotaConsumer {
+  if (purpose === "FINDER_RUN") return "finder";
   return BATCH_PURPOSES.includes(purpose) ? "batch" : "interactive";
 }
 
@@ -89,7 +91,7 @@ export async function loadQuotaUsage(workspaceId: string, now: Date = new Date()
     db.registryQuotaLedger.count({ where: charged }),
     db.registryQuotaLedger.count({ where: { ...charged, purpose: { in: BATCH_PURPOSES } } }),
     db.registryQuotaLedger.count({
-      where: { ...charged, purpose: { in: BATCH_PURPOSES }, at: { gte: startOfUtcDay(now) } },
+      where: { ...charged, purpose: { in: DAILY_BATCH_PURPOSES }, at: { gte: startOfUtcDay(now) } },
     }),
   ]);
   return {
