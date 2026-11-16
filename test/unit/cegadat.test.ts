@@ -216,6 +216,17 @@ describe("quota arithmetic (CLAUDE.md hard rule 12)", () => {
     expect(mayLookup("interactive", u).ok).toBe(true);
   });
 
+  it("gives the Company Finder no daily cap: the whole batch share left this month, never the reserve", () => {
+    // Daily allocation is 100, but the Finder may go far past it in one day.
+    const u = { ...base, usedMonth: 500, usedMonthBatch: 500, usedTodayBatch: 0 };
+    expect(mayLookup("finder", u).ok).toBe(true);
+    const p = quotaPosition({ ...base, reservePct: 15 });
+    expect(p.finderRemaining).toBe(base.limit - p.reserve);
+    const atReserve = { ...base, reservePct: 15, usedMonth: base.limit - p.reserve, usedMonthBatch: base.limit - p.reserve };
+    expect(mayLookup("finder", atReserve)).toEqual({ ok: false, scope: "monthly" });
+    expect(mayLookup("interactive", atReserve).ok).toBe(true);
+  });
+
   it("refuses everyone once the month is spent", () => {
     const u = { ...base, usedMonth: 1000, usedMonthBatch: 850 };
     expect(mayLookup("interactive", u)).toEqual({ ok: false, scope: "monthly" });

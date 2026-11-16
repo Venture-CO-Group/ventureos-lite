@@ -162,20 +162,17 @@ export function FinderRunPanel({
                   <div className="grid gap-1 rounded-[10px] border border-accent/60 p-3 text-[12.5px] tabular-nums" data-testid="finder-estimate">
                     <span>
                       This run will spend up to <b className="text-ink">{n(estimate.expected)} lookups</b> —{" "}
-                      <b className="text-ink">{pct(estimate.monthShare)}</b> of the {n(estimate.monthRemaining)} left this month and{" "}
-                      <b className="text-ink">
-                        {estimate.todayRemaining > 0 ? pct(estimate.expected / estimate.todayRemaining) : "all (none left today)"}
-                      </b>{" "}
-                      of today&apos;s remaining allocation ({n(estimate.todayRemaining)} of {n(estimate.dailyAllocation)}).
+                      <b className="text-ink">{pct(estimate.monthShare)}</b> of the {n(estimate.monthRemaining)} left this month. There is
+                      no daily cap: the run can use up to {n(estimate.available)} today.
                     </span>
                     <span className="text-muted">
                       {n(estimate.pending)} waiting · {n(estimate.cachedNow)} of them are cached now (free) · {n(estimate.meteredNeeded)} would
                       cost a lookup. Lookups go best-scored first. The run stops after the first batch so you can judge the yield. The{" "}
                       {n(estimate.reserve)} lookups held back for interactive use are never touched.
                     </span>
-                    {estimate.exceedsToday && (
+                    {estimate.exceedsAvailable && (
                       <span className="text-[#FFD27A]">
-                        Today&apos;s allocation covers {n(estimate.expectedToday)} of them; the run pauses there and can be resumed tomorrow.
+                        This month&apos;s quota covers {n(estimate.expectedNow)} of them; the run pauses there and can be resumed next month.
                       </span>
                     )}
                   </div>
