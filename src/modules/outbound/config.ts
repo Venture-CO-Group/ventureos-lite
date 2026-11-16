@@ -10,7 +10,7 @@
 import { z } from "zod";
 
 const registrySchema = z.object({
-  /** Detail lookups per month on the plan. Haladó: 5,000. */
+  /** Detail lookups per month on the plan. Haladó base: 5,000 (the Venture workspace is on 20,000 — set per workspace). */
   monthlyLimit: z.number().int().min(0).max(1_000_000).default(5000),
   /** Share of the month held back for interactive lookups. */
   reservePct: z.number().int().min(0).max(90).default(15),
