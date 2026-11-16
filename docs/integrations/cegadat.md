@@ -12,7 +12,7 @@ Implemented against **API v1.4 (2026-02-05)**, read from
 | Base URL | `https://api.cegadatapi.hu` |
 | Auth | `X-Api-Key: <key>` header |
 | Search | `GET /v1/search` — `name` (min. 4 chars) **or** `vatNumber` **or** `registryNumber`; optional `businessType` (`company` default, `individualEntrepreneur`, `publicSector`, `nonProfit`, `otherOrganization`, `all`), `sensitivity` (0 typo-tolerant default, 1 partial, 2 exact), `status` (`Aktív`, `Eljárás alatt`, `Szüneteltetett`), `limit` 1–100 (default 50), `page`. **Unlimited on every plan.** |
-| Detail | `GET /v1/detail?id=<11-digit tax number>`. **Metered**: 5,000/month on Haladó. An unknown tax number answers `200` with `results: []`. |
+| Detail | `GET /v1/detail?id=<11-digit tax number>`. **Metered**: 5,000/month on Haladó; the Venture workspace's subscription is 20,000/month since 2026-11-17. An unknown tax number answers `200` with `results: []`. |
 | Errors | `{ status: false, error, errorCode, statusCode }`. 1 invalid key (400), 2 invalid call (400), 3 internal (500), 4 keyword too short (400), 5 subscription (401), 6 plan (401), **7 package limit reached (429)**, 404 unknown endpoint. |
 | Test key | Published in the documentation; answers for six companies (WellData, DAYTON-Invest, Coca-Cola HBC Magyarország, Budapest Film, two sole traders). |
 

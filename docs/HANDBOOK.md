@@ -710,7 +710,7 @@ fragment.
 
 ### When the datasheet quota runs low
 
-The plan has 5,000 datasheets a month. Runs get a daily share (what is left ÷
+The Venture workspace's plan has 20,000 datasheets a month (raised from 5,000 on 2026-11-17; set in the workspace's outbound settings, *registry monthly limit*). Nightly runs get a daily share (what is left ÷
 days left), and 15% is held back for people looking companies up by hand.
 When a run's share is gone it **pauses** and resumes the next night — it never
 fails. A cached datasheet (90 days) costs nothing; *Refresh now* in the
